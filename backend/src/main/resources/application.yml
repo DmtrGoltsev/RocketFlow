@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: rocketflow-backend
+  datasource:
+    url: ${ROCKETFLOW_DB_URL}
+    username: ${ROCKETFLOW_DB_USERNAME}
+    password: ${ROCKETFLOW_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    time-zone: UTC
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+server:
+  error:
+    include-message: never

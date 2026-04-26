@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: ${ROCKETFLOW_DB_URL:jdbc:postgresql://localhost:5432/rocketflow}
+    username: ${ROCKETFLOW_DB_USERNAME:rocketflow}
+    password: ${ROCKETFLOW_DB_PASSWORD:rocketflow}
+
+server:
+  error:
+    include-message: always

@@ -1,0 +1,51 @@
+:root {
+  --rf-font-ui: Tahoma, Geneva, Verdana, sans-serif;
+  --rf-font-display: "Trebuchet MS", Tahoma, sans-serif;
+  --rf-font-mono: "Courier New", Courier, monospace;
+
+  --rf-color-bg: #8d98aa;
+  --rf-color-bg-top: #b8c3d1;
+  --rf-color-bg-panel: #d8dee7;
+  --rf-color-bg-panel-strong: #c5cfdd;
+  --rf-color-bg-window: #e6ebf2;
+  --rf-color-bg-sidebar: #b9c4d5;
+  --rf-color-bg-accent: #0e4f93;
+  --rf-color-bg-accent-soft: #d7e7fa;
+  --rf-color-bg-success: #d7ecd4;
+  --rf-color-bg-warning: #f5e6b8;
+  --rf-color-bg-danger: #f0d2d0;
+  --rf-color-bg-dark: #324154;
+
+  --rf-color-text: #17212d;
+  --rf-color-text-muted: #4d5d72;
+  --rf-color-text-inverse: #f8fbff;
+  --rf-color-text-success: #224b28;
+  --rf-color-text-warning: #6e5310;
+  --rf-color-text-danger: #6c2424;
+
+  --rf-border-dark: #3d4d63;
+  --rf-border-mid: #6d7f95;
+  --rf-border-light: #f4f7fb;
+  --rf-border-shadow: #8b97a7;
+
+  --rf-shadow-outset:
+    inset 1px 1px 0 var(--rf-border-light),
+    inset -1px -1px 0 var(--rf-border-dark);
+  --rf-shadow-inset:
+    inset 1px 1px 0 var(--rf-border-dark),
+    inset -1px -1px 0 var(--rf-border-light);
+  --rf-shadow-panel: 4px 4px 0 rgba(23, 33, 45, 0.15);
+
+  --rf-space-1: 4px;
+  --rf-space-2: 8px;
+  --rf-space-3: 12px;
+  --rf-space-4: 16px;
+  --rf-space-5: 20px;
+  --rf-space-6: 24px;
+  --rf-space-8: 32px;
+
+  --rf-radius-none: 0;
+  --rf-header-height: 56px;
+  --rf-sidebar-width: 246px;
+  --rf-content-max: 1240px;
+}

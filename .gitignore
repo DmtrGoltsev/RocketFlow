@@ -1,0 +1,4 @@
+backend/target/
+android/.gradle/
+android/**/build/
+*.log
