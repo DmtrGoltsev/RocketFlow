@@ -7,6 +7,7 @@ import com.rocketflow.companion.browse.BrowseRepository
 import com.rocketflow.companion.detail.TaskDetailRepository
 import com.rocketflow.companion.network.HttpJsonClient
 import com.rocketflow.companion.notifications.DeviceRegistrationStore
+import com.rocketflow.companion.notifications.NotificationRuntime
 import com.rocketflow.companion.notifications.NotificationsRepository
 
 class RocketFlowCompanionApp : Application() {
@@ -21,6 +22,8 @@ class RocketFlowCompanionApp : Application() {
             httpJsonClient = httpJsonClient,
             sessionStore = SessionStore(this)
         )
+        val notificationRuntime = NotificationRuntime(this)
+        notificationRuntime.ensureChannel()
         container = AppContainer(
             authRepository = authRepository,
             browseRepository = BrowseRepository(authRepository),
@@ -28,7 +31,8 @@ class RocketFlowCompanionApp : Application() {
             notificationsRepository = NotificationsRepository(
                 authRepository = authRepository,
                 deviceRegistrationStore = DeviceRegistrationStore(this)
-            )
+            ),
+            notificationRuntime = notificationRuntime
         )
     }
 }
@@ -37,5 +41,6 @@ data class AppContainer(
     val authRepository: AuthRepository,
     val browseRepository: BrowseRepository,
     val taskDetailRepository: TaskDetailRepository,
-    val notificationsRepository: NotificationsRepository
+    val notificationsRepository: NotificationsRepository,
+    val notificationRuntime: NotificationRuntime
 )

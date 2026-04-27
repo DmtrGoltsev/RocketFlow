@@ -24,6 +24,7 @@ import com.rocketflow.companion.detail.TaskDetail
 import com.rocketflow.companion.network.ApiException
 import com.rocketflow.companion.notifications.DeviceRegistration
 import com.rocketflow.companion.notifications.NotificationIntents
+import com.rocketflow.companion.notifications.NotificationRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,6 +39,7 @@ class MainActivity : Activity() {
     private val browseRepository by lazy { appContainer.browseRepository }
     private val taskDetailRepository by lazy { appContainer.taskDetailRepository }
     private val notificationsRepository by lazy { appContainer.notificationsRepository }
+    private val notificationRuntime by lazy { appContainer.notificationRuntime }
 
     private lateinit var titleView: TextView
     private lateinit var subtitleView: TextView
@@ -58,6 +60,7 @@ class MainActivity : Activity() {
     private lateinit var logoutButton: Button
     private lateinit var registerDeviceButton: Button
     private lateinit var unregisterDeviceButton: Button
+    private lateinit var notificationPermissionButton: Button
 
     private var currentSession: AuthSession? = null
     private var folders: List<FolderSummary> = emptyList()
@@ -92,6 +95,23 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NotificationRuntime.REQUEST_CODE) {
+            val copy = authCopy(currentSession?.user?.language)
+            noticeView.text = if (notificationRuntime.hasNotificationPermission()) {
+                copy.ready
+            } else {
+                copy.notificationPermissionRequired
+            }
+            render()
+        }
     }
 
     private fun setupUi() {
@@ -142,6 +162,9 @@ class MainActivity : Activity() {
         }
         unregisterDeviceButton = Button(this).apply {
             setOnClickListener { unregisterDevice() }
+        }
+        notificationPermissionButton = Button(this).apply {
+            setOnClickListener { requestNotificationPermission() }
         }
         sessionInfoView = TextView(this).apply {
             textSize = 15f
@@ -353,6 +376,13 @@ class MainActivity : Activity() {
         val deviceName = deviceNameInput.text.toString().trim()
         val copy = authCopy(currentSession?.user?.language)
 
+        if (!notificationRuntime.hasNotificationPermission()) {
+            noticeView.text = copy.notificationPermissionRequired
+            notificationRuntime.requestNotificationPermission(this)
+            render()
+            return
+        }
+
         if (pushToken.isBlank()) {
             noticeView.text = copy.pushTokenRequired
             return
@@ -501,6 +531,11 @@ class MainActivity : Activity() {
         notificationsCard.removeAllViews()
         notificationsCard.addView(sectionTitle(copy.notificationsTitle))
         notificationsCard.addView(bodyText("${copy.deepLinkTitle}: rocketflow://task/{taskId}"))
+        if (!notificationRuntime.hasNotificationPermission()) {
+            notificationPermissionButton.text = copy.notificationPermissionAction
+            notificationsCard.addView(bodyText(copy.notificationPermissionRequired))
+            notificationsCard.addView(buttonRow(notificationPermissionButton))
+        }
 
         val registration = currentDeviceRegistration
         if (registration == null) {
@@ -516,6 +551,10 @@ class MainActivity : Activity() {
         notificationsCard.addView(pushTokenInput)
         notificationsCard.addView(deviceNameInput)
         notificationsCard.addView(buttonRow(registerDeviceButton, unregisterDeviceButton))
+    }
+
+    private fun requestNotificationPermission() {
+        notificationRuntime.requestNotificationPermission(this)
     }
 
     private fun renderBrowseCard(copy: AuthCopy) {

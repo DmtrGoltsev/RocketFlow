@@ -65,16 +65,18 @@ Verified in this step:
 
 - static code reconciliation of Android repositories and notification entry wiring
 
-Not yet verified in this environment:
+Verified later in the current local environment on `2026-04-27`:
 
-- `.\gradlew.bat assembleDebug`
+- Android SDK was installed and connected to the workspace
+- `android/local.properties` now points at the local SDK
+- local `assembleDebug` is green
+- debug APK is produced at `android/app/build/outputs/apk/debug/app-debug.apk`
 
-Current blocker:
+Current blocker has moved:
 
-- Android SDK is still not configured in this workspace
-- `android/local.properties` is absent
-- `ANDROID_HOME` and `ANDROID_SDK_ROOT` are empty
-- `C:\Users\hp\AppData\Local\Android\Sdk` is still missing
+- real FCM token acquisition and refresh are still not wired
+- backend sender is still a stub/logging implementation
+- notification receive/runtime verification is still pending on a real Firebase path
 
 ## Next Planned Step
 
@@ -82,4 +84,4 @@ After this foundation, the next Android step narrows to:
 
 - real FCM/runtime token wiring
 - notification receive/runtime handling validation
-- staging-oriented delivery verification once Android SDK and environment prerequisites exist
+- staging-oriented delivery verification once Firebase credentials and runtime integration exist

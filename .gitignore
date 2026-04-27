@@ -1,4 +1,9 @@
 backend/target/
+backend/.m2/
 android/.gradle/
+android/.gradle-user-home/
+android/.android-user-home/
+android/.android-user-home-verify/
+android/local.properties
 android/**/build/
 *.log

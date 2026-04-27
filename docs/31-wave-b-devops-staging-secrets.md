@@ -60,7 +60,7 @@ Its purpose is:
 - [ ] `/actuator/health` is reachable after deployment.
 - [ ] Backend logs are accessible to operators for startup, migration, auth, and reminder troubleshooting.
 - [ ] `ROCKETFLOW_ALLOWED_ORIGINS` includes the staging web origin only.
-- [ ] `ROCKETFLOW_FCM_ENABLED` remains disabled until notification rollout preconditions in this document are satisfied.
+- [ ] `ROCKETFLOW_NOTIFICATIONS_FCM_ENABLED` remains disabled until notification rollout preconditions in this document are satisfied.
 - [ ] Deployment instructions explicitly confirm that only one backend instance is running.
 
 ### Web staging checklist
@@ -97,8 +97,8 @@ The MVP secret boundary is strict:
 | `ROCKETFLOW_DB_PASSWORD` | Backend runtime | Unique staging value | Unique production value | Rotate independently per environment. |
 | Auth signing secret or key material | Backend runtime | Separate staging value set | Separate production value set | Never let staging-issued tokens validate in production or the reverse. |
 | `ROCKETFLOW_ALLOWED_ORIGINS` | Backend runtime | Staging web origin only | Production web origin only | Environment-specific and security-sensitive. |
-| `ROCKETFLOW_FCM_PROJECT_ID` | Backend notification runtime | Staging Firebase project only | Production Firebase project only | Keep projects and credentials separate. |
-| `ROCKETFLOW_FCM_CREDENTIALS_JSON` or secure file reference | Backend notification runtime | Non-production service account only | Production service account only | Do not enable until notification rollout gates are met. |
+| `ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID` | Backend notification runtime | Staging Firebase project only | Production Firebase project only | Keep projects and credentials separate. |
+| `ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON` or secure file reference | Backend notification runtime | Non-production service account only | Production service account only | Do not enable until notification rollout gates are met. |
 | Android debug or internal Firebase config | Android internal builds | Allowed for staging/internal testing only | Not used for production release builds | Must not be confused with production mobile assets. |
 | Android release signing credentials | Release management only | Not required for staging backend/web validation | Restricted production release asset | Keep out of repo and off general developer machines unless explicitly controlled. |
 | Deployment platform credentials | Operators or CI/deployment runner | Separate staging access scope | Separate production access scope | Grant least privilege and avoid shared admin credentials. |
@@ -115,7 +115,7 @@ The MVP secret boundary is strict:
 
 FCM enablement is deferred until the backend, mobile, and staging boundaries are ready.
 
-Before staging may enable `ROCKETFLOW_FCM_ENABLED=true`, all of the following must be true:
+Before staging may enable `ROCKETFLOW_NOTIFICATIONS_FCM_ENABLED=true`, all of the following must be true:
 
 - device registration API exists and is verified
 - backend reminder and notification delivery logic exists
@@ -137,7 +137,7 @@ Before production may enable FCM, all of the following must be true:
 
 Default boundary until these conditions are satisfied:
 
-- keep `ROCKETFLOW_FCM_ENABLED` off outside explicitly approved notification validation
+- keep `ROCKETFLOW_NOTIFICATIONS_FCM_ENABLED` off outside explicitly approved notification validation
 
 ## 6. Deployment And Smoke-Check Boundary
 

@@ -3,6 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+fun resolveRocketFlowApiBaseUrl(): String {
+    val gradleOverride = project.findProperty("rocketflowApiBaseUrl") as String?
+    val envOverride = System.getenv("ROCKETFLOW_ANDROID_API_BASE_URL")
+    return gradleOverride?.takeIf { it.isNotBlank() }
+        ?: envOverride?.takeIf { it.isNotBlank() }
+        ?: "http://10.0.2.2:8080/api"
+}
+
 android {
     namespace = "com.rocketflow.companion"
     compileSdk = 34
@@ -15,7 +23,7 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "ROCKETFLOW_API_BASE_URL", "\"http://10.0.2.2:8080/api\"")
+        buildConfigField("String", "ROCKETFLOW_API_BASE_URL", "\"${resolveRocketFlowApiBaseUrl()}\"")
     }
 
     buildTypes {

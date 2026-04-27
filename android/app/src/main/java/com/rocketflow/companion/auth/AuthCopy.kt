@@ -47,6 +47,8 @@ data class AuthCopy(
     val deepLinkPending: String,
     val deepLinkOpened: String,
     val pushTokenRequired: String,
+    val notificationPermissionRequired: String,
+    val notificationPermissionAction: String,
     val browseLater: String,
     val detailLater: String,
     val pushLater: String
@@ -101,6 +103,8 @@ fun authCopy(language: String?): AuthCopy {
             deepLinkPending = "Pending task open after sign-in",
             deepLinkOpened = "Opened task from notification / deep link",
             pushTokenRequired = "Push token is required before device registration.",
+            notificationPermissionRequired = "Allow notifications before registering this device for reminder delivery.",
+            notificationPermissionAction = "Enable notifications",
             browseLater = "Owned and shared browse are active.",
             detailLater = "Read-only task detail is active and now supports notification-open entry.",
             pushLater = "Real FCM delivery stays behind later staging credential rollout gates."
@@ -151,6 +155,8 @@ fun authCopy(language: String?): AuthCopy {
             deepLinkPending = "Ozhidaet otkrytiia zadachi posle vhoda",
             deepLinkOpened = "Zadacha otkryta iz notification / deep link",
             pushTokenRequired = "Pered registratsiei ustroistva nuzhen push token.",
+            notificationPermissionRequired = "Pered registratsiei ustroistva razreshite sistemnye uvedomleniia.",
+            notificationPermissionAction = "Razreshit uvedomleniia",
             browseLater = "Owned i shared browse uzhe aktivny.",
             detailLater = "Read-only task detail uzhe aktivny i teper podderzhivaet notification-open entry.",
             pushLater = "Real FCM delivery ostaiotsia za pozdnim staging credential rollout gate."

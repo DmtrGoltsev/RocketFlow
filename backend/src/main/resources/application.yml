@@ -26,6 +26,11 @@ management:
       exposure:
         include: health,info
 
+rocketflow:
+  web:
+    cors:
+      allowed-origins: ${ROCKETFLOW_ALLOWED_ORIGINS:}
+
 server:
   error:
     include-message: never

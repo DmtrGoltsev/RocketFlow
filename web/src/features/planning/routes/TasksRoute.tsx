@@ -79,6 +79,7 @@ export function TasksRoute() {
   const [formMode, setFormMode] = useState<FormMode>(null);
   const [draft, setDraft] = useState<TaskEditorDraft>(toTaskEditorDraft(null));
   const [formError, setFormError] = useState<string | null>(null);
+  const [partialSaveNotice, setPartialSaveNotice] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [traceId, setTraceId] = useState<string | undefined>();
   const [submitting, setSubmitting] = useState(false);
@@ -257,6 +258,7 @@ export function TasksRoute() {
     setFormMode(nextMode);
     setDraft(toTaskEditorDraft(task));
     setFormError(null);
+    setPartialSaveNotice(null);
     setFieldErrors({});
     setTraceId(undefined);
     setShowConflict(false);
@@ -452,6 +454,7 @@ export function TasksRoute() {
 
     setSubmitting(true);
     setFormError(null);
+    setPartialSaveNotice(null);
     setTraceId(undefined);
 
     try {
@@ -459,10 +462,21 @@ export function TasksRoute() {
 
       if (formMode === 'create') {
         persistedTask = await createTask(authorizedFetch, selectedGoalId, payload);
-        await syncScheduling(persistedTask, null);
-        await loadTaskList(selectedGoalId, persistedTask.id);
-        await loadTaskDetail(persistedTask.id);
-        resetForm(null, null);
+        try {
+          await syncScheduling(persistedTask, null);
+          await loadTaskList(selectedGoalId, persistedTask.id);
+          await loadTaskDetail(persistedTask.id);
+          resetForm(null, null);
+        } catch (error) {
+          await loadTaskList(selectedGoalId, persistedTask.id);
+          const freshTask = await loadTaskDetail(persistedTask.id);
+          resetForm('edit', freshTask ?? persistedTask);
+          setPartialSaveNotice(copy.tasks.schedulingPartialSave);
+          const mappedError = mapPlanningError(error, copy);
+          setFormError(mappedError.message);
+          setFieldErrors(normalizeFieldErrors(mappedError.fieldErrors));
+          setTraceId(mappedError.traceId);
+        }
       }
 
       if (formMode === 'edit' && selectedTask) {
@@ -472,10 +486,21 @@ export function TasksRoute() {
           version: selectedTask.version,
         });
 
-        await syncScheduling(persistedTask, selectedTask);
-        await loadTaskList(selectedGoalId, selectedTask.id);
-        await loadTaskDetail(selectedTask.id);
-        resetForm(null, null);
+        try {
+          await syncScheduling(persistedTask, selectedTask);
+          await loadTaskList(selectedGoalId, selectedTask.id);
+          await loadTaskDetail(selectedTask.id);
+          resetForm(null, null);
+        } catch (error) {
+          await loadTaskList(selectedGoalId, selectedTask.id);
+          const freshTask = await loadTaskDetail(selectedTask.id);
+          resetForm('edit', freshTask ?? persistedTask);
+          setPartialSaveNotice(copy.tasks.schedulingPartialSave);
+          const mappedError = mapPlanningError(error, copy);
+          setFormError(mappedError.message);
+          setFieldErrors(normalizeFieldErrors(mappedError.fieldErrors));
+          setTraceId(mappedError.traceId);
+        }
       }
     } catch (error) {
       if (isPlanningApiError(error) && error.status === 409 && selectedTask && selectedGoalId) {
@@ -629,6 +654,7 @@ export function TasksRoute() {
           description={copy.common.conflictDescription}
         />
       ) : null}
+      {partialSaveNotice ? <PlanningInlineNotice tone="warning">{partialSaveNotice}</PlanningInlineNotice> : null}
       {formError ? <PlanningInlineNotice tone="error">{formError}</PlanningInlineNotice> : null}
       {traceId ? (
         <PlanningInlineNotice tone="info">

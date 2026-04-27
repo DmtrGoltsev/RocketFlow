@@ -39,6 +39,20 @@ Core documents:
 - `docs/40-wave-c-android-browse-detail.md` - Wave C Android owned/shared browse and read-only task detail
 - `docs/41-wave-c1-web-scheduling-authoring-implementation.md` - implemented Wave C.1 web recurrence and reminder authoring
 - `docs/42-wave-c-android-notification-entry-foundation.md` - Android device registration and notification-open/deep-link foundation
+- `docs/43-new-chat-transition-instruction.md` - ready-to-use handoff instruction for opening a new clean chat
+- `docs/44-android-sdk-assembledebug-verification.md` - Android SDK setup and verified local `assembleDebug` path on 2026-04-27
+
+Current verification status:
+- backend `mvn test` was green in the documented project state
+- web `npm run build` was green in the documented project state
+- Android local `assembleDebug` is now confirmed green as of `2026-04-27`
+- GitHub Actions lanes `web-verify` and `android-verify` now exist as build-only gates
+
+Known readiness limits:
+- Android is build-verified, but not yet runtime-verified for real push delivery
+- backend notification transport remains foundation/stub, not production-like FCM rollout
+- web and Android CI lanes are build-only and should not be read as runtime or release verification
+- staging/release readiness still needs executable, repo-backed verification assets
 
 Project structure:
 - `backend/` - Spring Boot backend foundation

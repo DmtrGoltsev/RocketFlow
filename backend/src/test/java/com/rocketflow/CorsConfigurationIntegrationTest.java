@@ -1,0 +1,110 @@
+package com.rocketflow;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+import com.rocketflow.accounts.UserRepository;
+import com.rocketflow.auth.AuthSessionRepository;
+import com.rocketflow.auth.UserCredentialRepository;
+import com.rocketflow.calendar.TaskRescheduleEventRepository;
+import com.rocketflow.folders.FolderRepository;
+import com.rocketflow.goals.GoalRepository;
+import com.rocketflow.notifications.DeviceRegistrationRepository;
+import com.rocketflow.notifications.NotificationDeliveryRepository;
+import com.rocketflow.notifications.ReminderNotificationRuleRepository;
+import com.rocketflow.recurrence.TaskRecurrenceRuleRepository;
+import com.rocketflow.reminders.TaskReminderRuleRepository;
+import com.rocketflow.settings.UserSettingsRepository;
+import com.rocketflow.sharing.GoalShareRepository;
+import com.rocketflow.sharing.ShareInvitationRepository;
+import com.rocketflow.sharing.TaskShareRepository;
+import com.rocketflow.tasks.TaskRepository;
+import com.rocketflow.tasks.TaskTagLinkRepository;
+import com.rocketflow.tasks.TaskTagRepository;
+
+@SpringBootTest(properties = {
+        "rocketflow.web.cors.allowed-origins[0]=http://localhost:5173",
+        "spring.autoconfigure.exclude="
+                + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
+                + "org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,"
+                + "org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration"
+})
+@AutoConfigureMockMvc
+class CorsConfigurationIntegrationTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private UserRepository userRepository;
+
+    @MockitoBean
+    private UserCredentialRepository userCredentialRepository;
+
+    @MockitoBean
+    private UserSettingsRepository userSettingsRepository;
+
+    @MockitoBean
+    private AuthSessionRepository authSessionRepository;
+
+    @MockitoBean
+    private FolderRepository folderRepository;
+
+    @MockitoBean
+    private GoalRepository goalRepository;
+
+    @MockitoBean
+    private ShareInvitationRepository shareInvitationRepository;
+
+    @MockitoBean
+    private GoalShareRepository goalShareRepository;
+
+    @MockitoBean
+    private TaskShareRepository taskShareRepository;
+
+    @MockitoBean
+    private TaskRecurrenceRuleRepository taskRecurrenceRuleRepository;
+
+    @MockitoBean
+    private TaskReminderRuleRepository taskReminderRuleRepository;
+
+    @MockitoBean
+    private TaskRescheduleEventRepository taskRescheduleEventRepository;
+
+    @MockitoBean
+    private DeviceRegistrationRepository deviceRegistrationRepository;
+
+    @MockitoBean
+    private ReminderNotificationRuleRepository reminderNotificationRuleRepository;
+
+    @MockitoBean
+    private NotificationDeliveryRepository notificationDeliveryRepository;
+
+    @MockitoBean
+    private TaskRepository taskRepository;
+
+    @MockitoBean
+    private TaskTagRepository taskTagRepository;
+
+    @MockitoBean
+    private TaskTagLinkRepository taskTagLinkRepository;
+
+    @Test
+    void preflightRequestAllowsConfiguredOriginForApiRoutes() throws Exception {
+        mockMvc.perform(options("/api/auth/login")
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"))
+                .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("POST")));
+    }
+}

@@ -8,6 +8,7 @@ Use this together with:
 
 - `README.md`
 - `docs/19-cross-lead-orchestration-plan.md`
+- `docs/43-new-chat-transition-instruction.md`
 
 ## Project Status
 
@@ -31,6 +32,8 @@ Verified:
 
 - backend full test suite passes with `mvn test`
 - web production build passes with `npm run build`
+- Android local `assembleDebug` now passes with the installed Gradle distribution and workspace SDK setup
+- GitHub Actions `web-verify` and `android-verify` lanes now exist as build-only repository gates
 
 ## Most Important Docs
 
@@ -72,6 +75,8 @@ Wave C:
 - `docs/40-wave-c-android-browse-detail.md`
 - `docs/41-wave-c1-web-scheduling-authoring-implementation.md`
 - `docs/42-wave-c-android-notification-entry-foundation.md`
+- `docs/43-new-chat-transition-instruction.md`
+- `docs/44-android-sdk-assembledebug-verification.md`
 
 ## Implemented Backend Scope
 
@@ -110,8 +115,10 @@ Wave C:
 
 ## Current Quality State
 
-- backend green
-- web build green
+- backend strongly verified by documented test runs
+- web build green and covered by a build-only CI lane, but still lightly tested
+- Android build green and covered by a build-only CI lane, but runtime notification path is still unverified
+- notifications are still not end-to-end operational
 - no active subagents need to be resumed
 
 Known non-blocking note:
@@ -120,10 +127,12 @@ Known non-blocking note:
 
 ## Recommended Next Step
 
-Continue the Android companion path after the completed notification-entry foundation:
+Continue the Android companion path after the now-verified build gate:
 
-- Android SDK setup and `assembleDebug` verification
-- real FCM/runtime token flow and staging-oriented notification validation
+- real FCM/runtime token flow
+- runtime notification receive/open validation
+- staging-oriented notification validation
+- source-of-truth doc reconciliation whenever the handoff packet changes
 
 If orchestration discipline is needed again, use:
 

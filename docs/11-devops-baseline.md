@@ -116,9 +116,10 @@ Minimum backend environment variables:
 - `ROCKETFLOW_DB_PASSWORD`
 - `ROCKETFLOW_AUTH_ACCESS_TTL`
 - `ROCKETFLOW_AUTH_REFRESH_TTL`
-- `ROCKETFLOW_FCM_ENABLED`
-- `ROCKETFLOW_FCM_PROJECT_ID`
-- `ROCKETFLOW_FCM_CREDENTIALS_JSON` or secure file mount reference
+- `ROCKETFLOW_NOTIFICATIONS_SCHEDULER_ENABLED`
+- `ROCKETFLOW_NOTIFICATIONS_FCM_ENABLED`
+- `ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID`
+- `ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON` or secure file mount reference
 - `ROCKETFLOW_ALLOWED_ORIGINS`
 - `ROCKETFLOW_LOG_LEVEL`
 
@@ -199,17 +200,23 @@ Responsibilities:
 Responsibilities:
 
 - install dependencies
-- run static checks
 - build web client
-- validate `ru/en` key parity
+
+Current repository state:
+
+- this lane is currently build-only
+- static checks and `ru/en` parity validation are still future follow-up work
 
 ### `android-verify`
 
 Responsibilities:
 
-- compile Android app
-- run lint
-- run selected unit tests
+- assemble Android debug build
+
+Current repository state:
+
+- this lane is currently build-only
+- lint and selected Android tests are still future follow-up work
 
 ### `docs-consistency`
 
