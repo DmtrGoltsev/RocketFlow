@@ -1,0 +1,6 @@
+.git
+.idea
+.m2
+.vscode
+target
+*.log
