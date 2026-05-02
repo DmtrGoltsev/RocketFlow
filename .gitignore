@@ -1,9 +1,14 @@
 backend/target/
 backend/.m2/
 android/.gradle/
+android/.gradle-home/
 android/.gradle-user-home/
 android/.android-user-home/
 android/.android-user-home-verify/
 android/local.properties
+android/app/google-services.json
 android/**/build/
+tmp/notification-smoke/
+tmp/
+scripts/Set-NotificationSmokeStagingEnv.ps1
 *.log
