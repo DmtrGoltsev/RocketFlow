@@ -144,5 +144,4 @@ export interface PlanningApiErrorPayload {
   code: string;
   message: string;
   details: ApiErrorDetail[];
-  traceId?: string;
 }

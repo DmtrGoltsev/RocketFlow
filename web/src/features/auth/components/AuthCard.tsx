@@ -1,8 +1,5 @@
 import { Link } from 'react-router-dom';
 
-import { RetroBadge } from '../../../ui/primitives/RetroBadge';
-import { RetroPanel } from '../../../ui/primitives/RetroPanel';
-
 interface AuthCardProps {
   title: string;
   subtitle: string;
@@ -21,19 +18,17 @@ export function AuthCard({
   children
 }: AuthCardProps) {
   return (
-    <RetroPanel
-      title={title}
-      aside={<RetroBadge tone="info">Auth</RetroBadge>}
-    >
-      <div className="stack">
-        <div className="surface-subtitle">{subtitle}</div>
-        {children}
-        <div className="cluster">
-          <span className="muted">{alternatePrompt}</span>
-          <Link to={alternateTo}>{alternateAction}</Link>
-        </div>
+    <section className="auth-panel">
+      <div className="stack stack--tight">
+        <div className="wordmark">RocketFlow</div>
+        <h1 className="auth-panel__title">{title}</h1>
+        <p className="auth-panel__copy">{subtitle}</p>
       </div>
-    </RetroPanel>
+      {children}
+      <div className="auth-panel__alternate">
+        <span>{alternatePrompt}</span>
+        <Link to={alternateTo}>{alternateAction}</Link>
+      </div>
+    </section>
   );
 }
-

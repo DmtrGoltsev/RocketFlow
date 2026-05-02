@@ -2,7 +2,7 @@ import type { GoalDto, TaskDto } from '../planning/types';
 
 export type CalendarPreset = 'day' | 'week' | 'month';
 export type ShareTargetType = 'goal' | 'task';
-export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked';
+export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
 export type ThresholdPreset = 'day' | 'week' | 'month';
 export type Locale = 'ru' | 'en';
 
@@ -117,6 +117,4 @@ export interface AdvancedApiErrorPayload {
     field?: string;
     message: string;
   }>;
-  traceId?: string;
 }
-

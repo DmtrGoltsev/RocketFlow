@@ -13,19 +13,19 @@ export function NotFoundRoute() {
         <RetroPanel title="404">
           <div className="stack">
             <div className="surface-title">
-              {locale === 'ru' ? 'Маршрут не найден' : 'Route not found'}
+              {locale === 'ru' ? 'Страница не найдена' : 'Page not found'}
             </div>
             <div className="surface-subtitle">
               {locale === 'ru'
-                ? 'Каркас уже работает, но этот путь пока не зарегистрирован.'
-                : 'The shell is active, but this path is not registered yet.'}
+                ? 'Проверьте адрес или вернитесь в RocketFlow.'
+                : 'Check the address or return to RocketFlow.'}
             </div>
             <div className="cluster">
               <RetroButton as={Link} to="/" variant="primary">
-                {locale === 'ru' ? 'Вернуться на старт' : 'Back to start'}
+                {locale === 'ru' ? 'На главную' : 'Home'}
               </RetroButton>
               <RetroButton as={Link} to="/app" variant="ghost">
-                {locale === 'ru' ? 'Перейти в workspace' : 'Go to workspace'}
+                {locale === 'ru' ? 'К задачам' : 'Tasks'}
               </RetroButton>
             </div>
           </div>

@@ -1,24 +1,25 @@
 import { RetroBadge } from '../primitives/RetroBadge';
 
 interface AppHeaderProps {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
-  subtitle: string;
-  chromeText: string;
+  subtitle?: string;
+  chromeText?: string;
 }
 
 export function AppHeader({ eyebrow, title, subtitle, chromeText }: AppHeaderProps) {
   return (
     <div className="surface-header">
       <div className="stack stack--tight">
-        <div className="caps">{eyebrow}</div>
+        {eyebrow ? <div className="caps">{eyebrow}</div> : null}
         <div className="surface-title">{title}</div>
-        <div className="surface-subtitle">{subtitle}</div>
+        {subtitle ? <div className="surface-subtitle">{subtitle}</div> : null}
       </div>
-      <div className="surface-meta">
-        <RetroBadge tone="info">{chromeText}</RetroBadge>
-        <RetroBadge tone="success">Retro</RetroBadge>
-      </div>
+      {chromeText ? (
+        <div className="surface-meta">
+          <RetroBadge tone="info">{chromeText}</RetroBadge>
+        </div>
+      ) : null}
     </div>
   );
 }

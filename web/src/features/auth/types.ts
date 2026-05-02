@@ -34,7 +34,6 @@ export interface AuthApiError {
   code: string;
   message: string;
   details: AuthApiErrorDetail[];
-  traceId?: string;
 }
 
 export interface LoginPayload {
@@ -52,4 +51,3 @@ export interface UserSettingsSnapshot {
   language: Locale;
   notificationsEnabled: boolean;
 }
-

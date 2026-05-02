@@ -9,7 +9,13 @@ import {
   register as registerRequest,
   restoreSession as restoreSessionRequest
 } from './auth-api';
-import { clearStoredSession, readStoredSession, writeStoredSession } from './auth-storage';
+import {
+  AUTH_STORAGE_KEY,
+  AUTH_SYNC_CHANNEL,
+  clearStoredSession,
+  readStoredSession,
+  writeStoredSession
+} from './auth-storage';
 import type { AuthApiError, AuthSession, LoginPayload, RegisterPayload } from './types';
 import type { TranslationKey } from '../../i18n';
 
@@ -40,22 +46,58 @@ function persistAndReturn(session: AuthSession, setLocale: (locale: AuthSession[
   return session;
 }
 
+function preserveSessionLanguage(restoredSession: AuthSession, storedSession: AuthSession): AuthSession {
+  return {
+    ...restoredSession,
+    user: {
+      ...restoredSession.user,
+      language: storedSession.user.language
+    }
+  };
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
   const { setLocale } = useI18n();
   const [status, setStatus] = useState<AuthStatus>('bootstrapping');
   const [session, setSession] = useState<AuthSession | null>(null);
   const [notice, setNotice] = useState<AuthNotice>(null);
   const bootstrapCompleteRef = useRef(false);
+  const sessionMutationRef = useRef(0);
+  const sessionRef = useRef<AuthSession | null>(null);
+  const authSyncChannelRef = useRef<BroadcastChannel | null>(null);
+
+  function applySession(nextSession: AuthSession | null) {
+    sessionRef.current = nextSession;
+    setSession(nextSession);
+  }
+
+  function invalidateLocalSession(nextNotice: Extract<AuthNotice, 'expired' | 'logged_out'>) {
+    sessionMutationRef.current += 1;
+    applySession(null);
+    setStatus('anonymous');
+    setNotice(nextNotice);
+  }
+
+  function publishSessionInvalidation(reason: Extract<AuthNotice, 'expired' | 'logged_out'>) {
+    authSyncChannelRef.current?.postMessage({
+      type: 'session-invalidated',
+      reason
+    });
+  }
 
   useEffect(() => {
     let active = true;
 
     async function bootstrap() {
+      const bootstrapMutation = sessionMutationRef.current;
       const storedSession = readStoredSession();
 
       if (!storedSession) {
         if (active) {
-          setStatus('anonymous');
+          if (!sessionRef.current) {
+            setStatus('anonymous');
+          }
+          bootstrapCompleteRef.current = true;
         }
         return;
       }
@@ -63,20 +105,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
       try {
         const restoredSession = await restoreSessionRequest(storedSession);
 
-        if (!active) {
+        if (!active || bootstrapMutation !== sessionMutationRef.current) {
           return;
         }
 
-        const nextSession = persistAndReturn(restoredSession, setLocale);
-        setSession(nextSession);
+        const nextSession = persistAndReturn(preserveSessionLanguage(restoredSession, storedSession), setLocale);
+        applySession(nextSession);
         setStatus('authenticated');
       } catch {
-        if (!active) {
+        if (!active || bootstrapMutation !== sessionMutationRef.current) {
           return;
         }
 
         clearStoredSession();
-        setSession(null);
+        publishSessionInvalidation('expired');
+        applySession(null);
         setNotice('expired');
         setStatus('anonymous');
       } finally {
@@ -90,7 +133,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
 
       clearStoredSession();
-      setSession(null);
+      publishSessionInvalidation('expired');
+      applySession(null);
       setNotice('restore_failed');
       setStatus('anonymous');
       bootstrapCompleteRef.current = true;
@@ -101,12 +145,60 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
   }, [setLocale]);
 
+  useEffect(() => {
+    const authSyncChannel =
+      'BroadcastChannel' in window ? new BroadcastChannel(AUTH_SYNC_CHANNEL) : null;
+    authSyncChannelRef.current = authSyncChannel;
+
+    function handleExternalInvalidation(reason: Extract<AuthNotice, 'expired' | 'logged_out'>) {
+      clearStoredSession();
+      invalidateLocalSession(reason);
+    }
+
+    function handleStorageChange(event: StorageEvent) {
+      if (event.storageArea !== window.localStorage || event.key !== AUTH_STORAGE_KEY) {
+        return;
+      }
+
+      if (event.newValue === null) {
+        handleExternalInvalidation('logged_out');
+        return;
+      }
+
+      if (!readStoredSession()) {
+        handleExternalInvalidation('expired');
+      }
+    }
+
+    function handleBroadcastMessage(event: MessageEvent) {
+      const message = event.data as { type?: unknown; reason?: unknown };
+
+      if (
+        message.type === 'session-invalidated' &&
+        (message.reason === 'expired' || message.reason === 'logged_out')
+      ) {
+        handleExternalInvalidation(message.reason);
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange);
+    authSyncChannel?.addEventListener('message', handleBroadcastMessage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      authSyncChannel?.removeEventListener('message', handleBroadcastMessage);
+      authSyncChannel?.close();
+      authSyncChannelRef.current = null;
+    };
+  }, []);
+
   async function handleSessionAuth<TPayload>(
     action: (payload: TPayload) => Promise<AuthSession>,
     payload: TPayload,
   ) {
     const nextSession = persistAndReturn(await action(payload), setLocale);
-    setSession(nextSession);
+    sessionMutationRef.current += 1;
+    applySession(nextSession);
     setNotice(null);
     setStatus('authenticated');
 
@@ -125,9 +217,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const currentSession = session;
 
     clearStoredSession();
-    setSession(null);
-    setStatus('anonymous');
-    setNotice('logged_out');
+    publishSessionInvalidation('logged_out');
+    invalidateLocalSession('logged_out');
 
     if (!currentSession) {
       return;
@@ -150,14 +241,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     if (result.session !== session) {
       persistAndReturn(result.session, setLocale);
-      setSession(result.session);
+      sessionMutationRef.current += 1;
+      applySession(result.session);
     }
 
     if (result.response.status === 401) {
       clearStoredSession();
-      setSession(null);
-      setStatus('anonymous');
-      setNotice('expired');
+      publishSessionInvalidation('expired');
+      invalidateLocalSession('expired');
     }
 
     return result.response;
@@ -182,7 +273,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
 
     persistAndReturn(nextSession, setLocale);
-    setSession(nextSession);
+    applySession(nextSession);
   }
 
   return (
@@ -234,15 +325,13 @@ export function mapAuthErrorMessage(error: unknown, translate: (key: Translation
         }
 
         return accumulator;
-      }, {}),
-      traceId: error.payload.traceId
+      }, {})
     };
   }
 
   return {
     formError: translate('auth.form.submitErrorFallback'),
-    fieldErrors: {},
-    traceId: undefined
+    fieldErrors: {}
   };
 }
 

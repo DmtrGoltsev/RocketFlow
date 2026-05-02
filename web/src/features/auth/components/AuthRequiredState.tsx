@@ -1,26 +1,36 @@
 import { Link } from 'react-router-dom';
+import { LockKeyhole } from 'lucide-react';
 
 import { useI18n } from '../../../i18n';
-import { RetroButton } from '../../../ui/primitives/RetroButton';
-import { RetroPanel } from '../../../ui/primitives/RetroPanel';
 
-export function AuthRequiredState() {
+interface AuthRequiredStateProps {
+  sessionEnded?: boolean;
+}
+
+export function AuthRequiredState({ sessionEnded = false }: AuthRequiredStateProps) {
   const { t } = useI18n();
 
   return (
-    <RetroPanel title={t('auth.guard.lockedTitle')}>
-      <div className="stack">
-        <div className="surface-subtitle">{t('auth.guard.lockedDescription')}</div>
-        <div className="cluster">
-          <RetroButton as={Link} to="/auth/login" variant="primary">
-            {t('app.signIn')}
-          </RetroButton>
-          <RetroButton as={Link} to="/" variant="ghost">
-            {t('routes.home.label')}
-          </RetroButton>
-        </div>
+    <section className="lock-state" role="status">
+      <div className="lock-state__icon" aria-hidden="true">
+        <LockKeyhole size={24} strokeWidth={1.75} />
       </div>
-    </RetroPanel>
+      <div className="stack stack--tight">
+        <h1 className="lock-state__title">
+          {sessionEnded ? t('auth.guard.signedOutTitle') : t('auth.guard.lockedTitle')}
+        </h1>
+        <p className="lock-state__copy">
+          {sessionEnded ? t('auth.guard.signedOutDescription') : t('auth.guard.lockedDescription')}
+        </p>
+      </div>
+      <div className="entry-actions">
+        <Link className="button button--primary" to="/auth/login">
+          {t('app.signIn')}
+        </Link>
+        <Link className="button button--ghost" to="/">
+          {t('routes.home.label')}
+        </Link>
+      </div>
+    </section>
   );
 }
-

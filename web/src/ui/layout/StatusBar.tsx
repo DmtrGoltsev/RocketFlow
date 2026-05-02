@@ -1,49 +1,73 @@
-import { Link } from 'react-router-dom';
+import { Globe2, LogOut } from 'lucide-react';
 
 import { useAuth } from '../../features/auth';
-import { RetroButton } from '../primitives/RetroButton';
 import { useAppRuntime } from '../../app/foundation/runtime/AppRuntimeContext';
 
-export function StatusBar() {
-  const { copy, locale, sessionMode, setLocale } = useAppRuntime();
-  const { status } = useAuth();
+interface LanguageSwitchProps {
+  compact?: boolean;
+}
+
+export function LanguageSwitch({ compact = false }: LanguageSwitchProps) {
+  const { locale, setLocale } = useAppRuntime();
+  const { status, syncSessionLanguage } = useAuth();
+  const label = locale === 'ru' ? 'Язык' : 'Language';
+
+  function handleLocaleChange(nextLocale: 'ru' | 'en') {
+    if (status === 'authenticated') {
+      syncSessionLanguage(nextLocale);
+      return;
+    }
+
+    setLocale(nextLocale);
+  }
 
   return (
-    <div className="retro-statusbar">
-      <div className="cluster">
-        <span>{copy('brand')}</span>
-        <span className="muted">|</span>
-        <span>{locale === 'ru' ? 'Auth + i18n foundation' : 'Auth + i18n foundation'}</span>
-      </div>
+    <div className={`language-switch${compact ? ' language-switch--compact' : ''}`} aria-label={label}>
+      <Globe2 aria-hidden="true" size={16} strokeWidth={1.75} />
+      <button
+        type="button"
+        className="language-switch__segment"
+        aria-pressed={locale === 'ru'}
+        onClick={() => handleLocaleChange('ru')}
+      >
+        RU
+      </button>
+      <button
+        type="button"
+        className="language-switch__segment"
+        aria-pressed={locale === 'en'}
+        onClick={() => handleLocaleChange('en')}
+      >
+        EN
+      </button>
+    </div>
+  );
+}
 
-      <div className="cluster">
-        <RetroButton
-          variant={locale === 'ru' ? 'primary' : 'ghost'}
-          size="small"
-          onClick={() => setLocale('ru')}
-        >
-          {copy('localeRu')}
-        </RetroButton>
-        <RetroButton
-          variant={locale === 'en' ? 'primary' : 'ghost'}
-          size="small"
-          onClick={() => setLocale('en')}
-        >
-          {copy('localeEn')}
-        </RetroButton>
-        {status === 'authenticated' ? (
-          <RetroButton as={Link} to="/auth/logout" variant="danger" size="small">
-            {copy('signOut')}
-          </RetroButton>
-        ) : (
-          <RetroButton as={Link} to="/auth/login" variant="primary" size="small">
-            {copy('signIn')}
-          </RetroButton>
-        )}
-        <span className="muted">
-          {sessionMode === 'member' ? copy('previewMember') : copy('previewGuest')}
-        </span>
-      </div>
+export function LogoutButton() {
+  const { copy } = useAppRuntime();
+  const { logout } = useAuth();
+
+  return (
+    <button
+      type="button"
+      className="icon-button"
+      aria-label={copy('signOut')}
+      title={copy('signOut')}
+      onClick={() => void logout()}
+    >
+      <LogOut aria-hidden="true" size={20} strokeWidth={1.75} />
+    </button>
+  );
+}
+
+export function StatusBar() {
+  const { copy } = useAppRuntime();
+
+  return (
+    <div className="status-line">
+      <span className="sync-dot" aria-hidden="true" />
+      <span>{copy('statusRuntime')}</span>
     </div>
   );
 }

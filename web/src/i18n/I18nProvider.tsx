@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 
 import { resources, type Locale, type TranslationKey } from './resources';
 
@@ -24,23 +24,37 @@ function resolveMessage(locale: Locale, key: TranslationKey) {
   return typeof value === 'string' ? value : key;
 }
 
-function readStoredLocale(): Locale {
-  const savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+function persistLocale(locale: Locale) {
+  document.documentElement.lang = locale;
 
-  return savedLocale === 'en' ? 'en' : 'ru';
+  try {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch {
+    // Storage can be unavailable in restricted browser modes.
+  }
+}
+
+function readStoredLocale(): Locale {
+  try {
+    const savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+
+    return savedLocale === 'en' ? 'en' : 'ru';
+  } catch {
+    return 'ru';
+  }
 }
 
 export function I18nProvider({ children }: PropsWithChildren) {
   const [locale, setLocaleState] = useState<Locale>(() => readStoredLocale());
 
   useEffect(() => {
-    document.documentElement.lang = locale;
-    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    persistLocale(locale);
   }, [locale]);
 
-  function setLocale(nextLocale: Locale) {
+  const setLocale = useCallback((nextLocale: Locale) => {
+    persistLocale(nextLocale);
     setLocaleState(nextLocale);
-  }
+  }, []);
 
   function t(key: TranslationKey) {
     return resolveMessage(locale, key);
@@ -64,4 +78,3 @@ export function useI18n() {
 }
 
 export { LOCALE_STORAGE_KEY };
-

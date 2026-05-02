@@ -12,14 +12,9 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  color: var(--rf-text);
+  background: var(--rf-canvas);
   font-family: var(--rf-font-ui);
-  color: var(--rf-color-text);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 32%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(180deg, var(--rf-color-bg-top), var(--rf-color-bg));
-  background-size: auto, 24px 24px, 24px 24px, auto;
 }
 
 body,
@@ -37,18 +32,18 @@ textarea {
   font-size: 0.95rem;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
 button {
   cursor: pointer;
 }
 
-img {
-  display: block;
-  max-width: 100%;
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
 }
 
 #root {
@@ -56,6 +51,6 @@ img {
 }
 
 :focus-visible {
-  outline: 2px dotted var(--rf-color-bg-accent);
+  outline: 2px solid var(--rf-focus);
   outline-offset: 2px;
 }

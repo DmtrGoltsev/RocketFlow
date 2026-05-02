@@ -2,9 +2,6 @@ import { PlanningApiError } from './planning-api';
 
 interface CopyLike {
   api: Record<string, string>;
-  common: {
-    serverTrace: string;
-  };
 }
 
 export function isPlanningApiError(error: unknown): error is PlanningApiError {
@@ -24,14 +21,11 @@ export function mapPlanningError(error: unknown, copy: CopyLike) {
 
         return accumulator;
       }, {}),
-      traceId: error.payload.traceId,
     };
   }
 
   return {
     message: copy.api.fallback,
     fieldErrors: {},
-    traceId: undefined,
   };
 }
-

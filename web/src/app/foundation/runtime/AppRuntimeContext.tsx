@@ -24,7 +24,14 @@ type ShellCopyKey =
   | 'authLogin'
   | 'authRegister'
   | 'signIn'
-  | 'signOut';
+  | 'signOut'
+  | 'statusRuntime'
+  | 'navigation'
+  | 'navigationAria'
+  | 'waveBoundaries'
+  | 'waveF1'
+  | 'waveF2'
+  | 'waveLater';
 
 const shellCopyMap: Record<ShellCopyKey, TranslationKey> = {
   brand: 'app.brand',
@@ -45,7 +52,14 @@ const shellCopyMap: Record<ShellCopyKey, TranslationKey> = {
   authLogin: 'routes.login.label',
   authRegister: 'routes.register.label',
   signIn: 'app.signIn',
-  signOut: 'app.signOut'
+  signOut: 'app.signOut',
+  statusRuntime: 'app.statusRuntime',
+  navigation: 'app.navigation',
+  navigationAria: 'app.navigationAria',
+  waveBoundaries: 'app.waveBoundaries',
+  waveF1: 'app.waveF1',
+  waveF2: 'app.waveF2',
+  waveLater: 'app.waveLater'
 };
 
 interface AppRuntimeValue {

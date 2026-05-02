@@ -43,7 +43,6 @@ async function parseError(response: Response): Promise<PlanningApiErrorPayload> 
         code: body.error.code,
         message: body.error.message,
         details: body.error.details ?? [],
-        traceId: body.error.traceId,
       };
     }
   } catch {

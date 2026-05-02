@@ -3,27 +3,26 @@ export type Locale = 'ru' | 'en';
 const ru = {
   app: {
     brand: 'RocketFlow',
-    tagline: 'Ретро-оболочка для MVP-планирования',
-    publicArea: 'Публичная зона',
-    protectedArea: 'Рабочая зона',
-    chromePublic: 'Wave A / Shell + Auth',
-    chromeProtected: 'Desktop / Protected Workspace',
-    statusRuntime: 'RU-first i18n и auth foundation',
+    tagline: 'Папки, цели и задачи в одном спокойном рабочем пространстве.',
+    publicArea: 'Вход',
+    protectedArea: 'План',
+    chromePublic: 'RocketFlow',
+    chromeProtected: 'План',
+    statusRuntime: 'Синхронизировано',
     navigation: 'Навигация',
     navigationAria: 'Основная навигация',
-    waveBoundaries: 'Границы волны',
-    waveF1: 'F1: shell, tokens, layouts',
-    waveF2: 'F2: auth и i18n foundation',
-    waveLater: 'Later: planning, calendar, sharing, settings',
-    mvp: 'MVP',
-    retro: 'Ретро',
+    waveBoundaries: 'Разделы',
+    waveF1: 'Папки',
+    waveF2: 'Цели',
+    waveLater: 'Задачи',
+    retro: 'Классика',
     loading: 'Загрузка...',
     guest: 'Гость',
     member: 'Участник',
-    signedInAs: 'Сеанс',
+    signedInAs: 'Профиль',
     signIn: 'Войти',
     signOut: 'Выйти',
-    sessionRestore: 'Восстановление сеанса',
+    sessionRestore: 'Проверяем вход',
     notAuthorized: 'Не авторизован'
   },
   locale: {
@@ -32,121 +31,107 @@ const ru = {
   },
   routes: {
     home: {
-      label: 'Старт',
-      summary: 'Публичный вход в ретро-оболочку и карту экранов.'
+      label: 'На главную',
+      summary: 'Вход в RocketFlow.'
     },
     login: {
       label: 'Вход',
-      summary: 'Экран входа и восстановления пользовательской сессии.'
+      summary: 'Вход в план.'
     },
     register: {
-      label: 'Регистрация',
-      summary: 'Экран создания учетной записи и начального языка интерфейса.'
+      label: 'Создать аккаунт',
+      summary: 'Создание аккаунта.'
     },
     overview: {
-      label: 'Сводка',
-      summary: 'Защищенная стартовая площадка и обзор состояния модулей.'
+      label: 'План',
+      summary: 'Папки, цели и задачи.'
     },
     folders: {
       label: 'Папки',
-      summary: 'Навигационная зона для списка папок и будущих CRUD-потоков.'
+      summary: 'Рабочие папки.'
     },
     goals: {
       label: 'Цели',
-      summary: 'Граница для списка и деталей целей внутри рабочего пространства.'
+      summary: 'Цели внутри папок.'
     },
     tasks: {
-      label: 'Задачи',
-      summary: 'Зона для списка задач, редактора и конфликтных состояний.'
+      label: 'План',
+      summary: 'Планирование задач.'
     },
     calendar: {
       label: 'Календарь',
-      summary: 'Граница для простой day/week/month проекции и переносов.'
+      summary: 'План по времени.'
     },
     sharing: {
       label: 'Совместный доступ',
-      summary: 'Зона для инвайтов, shared resources и будущих диалогов доступа.'
+      summary: 'Общие задачи.'
     },
     settings: {
       label: 'Настройки',
-      summary: 'Граница для языка, уведомлений и правил priority decay.'
+      summary: 'Язык и синхронизация.'
     }
   },
   routeAreas: {
-    shell: 'shell',
-    auth: 'auth',
-    planning: 'planning',
-    calendar: 'calendar',
-    sharing: 'sharing',
-    settings: 'settings'
+    shell: 'План',
+    auth: 'Вход',
+    planning: 'План',
+    calendar: 'Календарь',
+    sharing: 'Доступ',
+    settings: 'Настройки'
   },
   home: {
-    purpose: 'Назначение',
-    heading: 'Каркас SPA с RU-first локализацией и основой auth/session',
-    body: 'Эта волна подготавливает публичную и защищенную части приложения для следующих модулей без смены shell-границ.',
-    openWorkspace: 'Открыть рабочую зону',
-    openLogin: 'Открыть вход',
-    openRegister: 'Открыть регистрацию',
-    sessionState: 'Состояние сеанса',
-    publicSurfaces: 'Публичные поверхности',
-    protectedSurfaces: 'Защищенные поверхности',
-    foundationNotes: 'Что уже есть',
-    foundationItemRoutes: 'Маршруты уже закреплены в shell и готовы для дальнейших экранов.',
-    foundationItemLocale: 'Язык интерфейса хранится локально и может быть связан с настройками позже.',
-    foundationItemAuth: 'Auth provider поднимает, восстанавливает и очищает пользовательскую сессию.'
-  },
-  placeholder: {
-    title: 'Маршрут и владение',
-    pathLabel: 'Путь',
-    audiencePublic: 'Public',
-    audienceProtected: 'Protected',
-    statusFoundation: 'foundation',
-    existsTitle: 'Что уже есть',
-    adjacentTitle: 'Соседние поверхности',
-    stablePath: 'Стабильный путь',
-    stablePathBody: 'Маршрут уже подключен в shell и готов к feature-реализации.',
-    shellBody: 'Панели, заголовки и статусная строка уже единообразны.',
-    integrationSlot: 'Точка интеграции',
-    integrationSlotBody: 'Следующие волны могут подключать API и бизнес-логику без смены layout-границ.',
-    noAdjacentTitle: 'Нет соседних поверхностей',
-    noAdjacentBody: 'Эта зона служит корневой точкой входа для своей группы.'
+    purpose: 'Планирование',
+    heading: 'RocketFlow',
+    body: 'Папки, цели и задачи в одном спокойном рабочем пространстве.',
+    openWorkspace: 'Открыть план',
+    openLogin: 'Войти',
+    openRegister: 'Создать аккаунт',
+    sessionState: 'Вход',
+    publicSurfaces: 'Вход',
+    protectedSurfaces: 'План',
+    foundationNotes: 'RocketFlow',
+    foundationItemRoutes: 'Папки держат цели вместе.',
+    foundationItemLocale: 'Язык интерфейса сохраняется.',
+    foundationItemAuth: 'Вход сохраняется при возвращении.'
   },
   auth: {
     login: {
       title: 'Вход',
-      subtitle: 'Войдите в RocketFlow и восстановите рабочую сессию.',
+      subtitle: 'Войдите, чтобы открыть план.',
       submit: 'Войти',
-      loading: 'Выполняем вход...',
-      alternatePrompt: 'Нет учетной записи?',
+      loading: 'Входим...',
+      alternatePrompt: 'Нет аккаунта?',
       alternateAction: 'Создать аккаунт'
     },
     register: {
-      title: 'Регистрация',
-      subtitle: 'Создайте аккаунт с русским интерфейсом по умолчанию.',
-      submit: 'Зарегистрироваться',
-      loading: 'Создаем аккаунт...',
-      alternatePrompt: 'Уже есть учетная запись?',
-      alternateAction: 'Открыть вход'
+      title: 'Создать аккаунт',
+      subtitle: 'Русский включен по умолчанию.',
+      submit: 'Создать аккаунт',
+      loading: 'Создаем...',
+      alternatePrompt: 'Уже есть аккаунт?',
+      alternateAction: 'Войти'
     },
     logout: {
-      title: 'Выход из системы',
-      subtitle: 'Сессия завершается, подождите немного.'
+      title: 'Сессия завершена',
+      subtitle: 'Войдите снова, чтобы продолжить.'
     },
     guard: {
-      loadingTitle: 'Восстанавливаем сеанс',
-      loadingDescription: 'Проверяем сохраненные токены и профиль пользователя.',
+      loadingTitle: 'Проверяем вход',
+      loadingDescription: 'Проверяем сохраненный вход.',
       redirectingTitle: 'Нужен вход',
-      redirectingDescription: 'Перенаправляем на экран входа, чтобы открыть защищенную рабочую зону.',
-      lockedTitle: 'Рабочая зона требует авторизации',
-      lockedDescription: 'Войдите в систему, чтобы открыть папки, цели, задачи и остальные защищенные маршруты.'
+      redirectingDescription: 'Войдите, чтобы открыть план.',
+      lockedTitle: 'Нужен вход',
+      lockedDescription: 'Войдите, чтобы открыть план.',
+      signedOutTitle: 'Сессия завершена',
+      signedOutDescription: 'Войдите снова, чтобы продолжить.'
     },
     session: {
-      expired: 'Сохраненная сессия истекла. Войдите снова.',
-      loggedOut: 'Вы вышли из системы.',
-      loginRequired: 'Сначала войдите, чтобы открыть защищенный маршрут.',
-      restoreFailed: 'Не удалось восстановить сеанс. Попробуйте войти снова.',
-      active: 'Сеанс активен',
-      anonymous: 'Сеанс не найден'
+      expired: 'Сессия завершена. Войдите снова.',
+      loggedOut: 'Сессия завершена.',
+      loginRequired: 'Войдите, чтобы открыть план.',
+      restoreFailed: 'Не удалось восстановить вход. Войдите снова.',
+      active: 'Вход выполнен',
+      anonymous: 'Вход не выполнен'
     },
     form: {
       email: 'Email',
@@ -155,7 +140,7 @@ const ru = {
       timezone: 'Часовой пояс',
       language: 'Язык',
       timezoneHint: 'Например: Europe/Moscow',
-      languageHint: 'Русский остается основным языком MVP.',
+      languageHint: 'Русский остается языком по умолчанию.',
       submitErrorFallback: 'Не удалось выполнить запрос. Попробуйте еще раз.'
     },
     validation: {
@@ -168,9 +153,9 @@ const ru = {
     },
     api: {
       authentication_failed: 'Неверный email или пароль.',
-      unauthorized: 'Сеанс больше не действителен.',
+      unauthorized: 'Войдите снова, чтобы продолжить.',
       validation_error: 'Проверьте заполнение формы.',
-      conflict: 'Такой пользователь уже существует.',
+      conflict: 'Пользователь с таким email уже существует.',
       internal_error: 'Сервер временно недоступен.'
     }
   }
@@ -181,27 +166,26 @@ type MessageTree = typeof ru;
 const en: MessageTree = {
   app: {
     brand: 'RocketFlow',
-    tagline: 'Retro shell for the planning MVP',
-    publicArea: 'Public area',
-    protectedArea: 'Workspace',
-    chromePublic: 'Wave A / Shell + Auth',
-    chromeProtected: 'Desktop / Protected Workspace',
-    statusRuntime: 'RU-first i18n and auth foundation',
+    tagline: 'Folders, goals, and tasks in one quiet workspace.',
+    publicArea: 'Sign in',
+    protectedArea: 'Plan',
+    chromePublic: 'RocketFlow',
+    chromeProtected: 'Plan',
+    statusRuntime: 'Synced',
     navigation: 'Navigation',
     navigationAria: 'Main navigation',
-    waveBoundaries: 'Wave boundaries',
-    waveF1: 'F1: shell, tokens, layouts',
-    waveF2: 'F2: auth and i18n foundation',
-    waveLater: 'Later: planning, calendar, sharing, settings',
-    mvp: 'MVP',
-    retro: 'Retro',
+    waveBoundaries: 'Sections',
+    waveF1: 'Folders',
+    waveF2: 'Goals',
+    waveLater: 'Tasks',
+    retro: 'Classic',
     loading: 'Loading...',
     guest: 'Guest',
     member: 'Member',
-    signedInAs: 'Session',
+    signedInAs: 'Account',
     signIn: 'Sign in',
     signOut: 'Sign out',
-    sessionRestore: 'Restoring session',
+    sessionRestore: 'Restoring sign-in',
     notAuthorized: 'Not signed in'
   },
   locale: {
@@ -210,121 +194,107 @@ const en: MessageTree = {
   },
   routes: {
     home: {
-      label: 'Start',
-      summary: 'Public entry to the retro shell and screen map.'
+      label: 'Home',
+      summary: 'RocketFlow entry.'
     },
     login: {
-      label: 'Login',
-      summary: 'Login screen and user session restore entrypoint.'
+      label: 'Sign in',
+      summary: 'Sign in to open your plan.'
     },
     register: {
-      label: 'Register',
-      summary: 'Account creation screen with initial interface language.'
+      label: 'Create account',
+      summary: 'Create an account.'
     },
     overview: {
-      label: 'Overview',
-      summary: 'Protected landing area and module status overview.'
+      label: 'Plan',
+      summary: 'Folders, goals, and tasks.'
     },
     folders: {
       label: 'Folders',
-      summary: 'Navigation area for folder listing and later CRUD flows.'
+      summary: 'Workspace folders.'
     },
     goals: {
       label: 'Goals',
-      summary: 'Boundary for goal list and detail surfaces in the workspace.'
+      summary: 'Goals inside folders.'
     },
     tasks: {
-      label: 'Tasks',
-      summary: 'Zone for task list, editor, and conflict states.'
+      label: 'Plan',
+      summary: 'Task planning.'
     },
     calendar: {
       label: 'Calendar',
-      summary: 'Boundary for simple day/week/month projection and moves.'
+      summary: 'Time-based plan.'
     },
     sharing: {
       label: 'Sharing',
-      summary: 'Zone for invitations, shared resources, and share dialogs.'
+      summary: 'Shared tasks.'
     },
     settings: {
       label: 'Settings',
-      summary: 'Boundary for language, notifications, and priority decay rules.'
+      summary: 'Language and sync.'
     }
   },
   routeAreas: {
-    shell: 'shell',
-    auth: 'auth',
-    planning: 'planning',
-    calendar: 'calendar',
-    sharing: 'sharing',
-    settings: 'settings'
+    shell: 'Plan',
+    auth: 'Sign in',
+    planning: 'Plan',
+    calendar: 'Calendar',
+    sharing: 'Sharing',
+    settings: 'Settings'
   },
   home: {
-    purpose: 'Purpose',
-    heading: 'SPA shell with RU-first localization and auth/session foundation',
-    body: 'This wave prepares the public and protected application areas for later modules without changing shell boundaries.',
-    openWorkspace: 'Open workspace',
-    openLogin: 'Open login',
-    openRegister: 'Open registration',
-    sessionState: 'Session state',
-    publicSurfaces: 'Public surfaces',
-    protectedSurfaces: 'Protected surfaces',
-    foundationNotes: 'What exists now',
-    foundationItemRoutes: 'Routes are already fixed in the shell and ready for later screens.',
-    foundationItemLocale: 'Interface language persists locally and can be linked to settings later.',
-    foundationItemAuth: 'The auth provider bootstraps, restores, and clears the user session.'
-  },
-  placeholder: {
-    title: 'Route and ownership',
-    pathLabel: 'Path',
-    audiencePublic: 'Public',
-    audienceProtected: 'Protected',
-    statusFoundation: 'foundation',
-    existsTitle: 'What exists now',
-    adjacentTitle: 'Adjacent surfaces',
-    stablePath: 'Stable path',
-    stablePathBody: 'The route is already mounted in the shell and ready for feature work.',
-    shellBody: 'Panels, headers, and the status bar are already consistent.',
-    integrationSlot: 'Integration slot',
-    integrationSlotBody: 'Later waves can plug in APIs and business logic without changing layout boundaries.',
-    noAdjacentTitle: 'No adjacent surfaces',
-    noAdjacentBody: 'This area acts as the root entry point for its group.'
+    purpose: 'Planning',
+    heading: 'RocketFlow',
+    body: 'Folders, goals, and tasks in one quiet workspace.',
+    openWorkspace: 'Open plan',
+    openLogin: 'Sign in',
+    openRegister: 'Create account',
+    sessionState: 'Sign-in',
+    publicSurfaces: 'Sign in',
+    protectedSurfaces: 'Plan',
+    foundationNotes: 'RocketFlow',
+    foundationItemRoutes: 'Folders keep goals together.',
+    foundationItemLocale: 'Interface language persists.',
+    foundationItemAuth: 'Sign-in is remembered when you return.'
   },
   auth: {
     login: {
-      title: 'Login',
-      subtitle: 'Sign in to RocketFlow and restore your workspace session.',
+      title: 'Sign in',
+      subtitle: 'Sign in to open your plan.',
       submit: 'Sign in',
       loading: 'Signing in...',
       alternatePrompt: 'No account yet?',
       alternateAction: 'Create account'
     },
     register: {
-      title: 'Register',
-      subtitle: 'Create an account with Russian as the default interface language.',
-      submit: 'Register',
-      loading: 'Creating account...',
+      title: 'Create account',
+      subtitle: 'Russian is the default interface language.',
+      submit: 'Create account',
+      loading: 'Creating...',
       alternatePrompt: 'Already have an account?',
-      alternateAction: 'Open login'
+      alternateAction: 'Sign in'
     },
     logout: {
-      title: 'Signing out',
-      subtitle: 'Ending your session, please wait a moment.'
+      title: 'Signed out',
+      subtitle: 'Sign in again to continue.'
     },
     guard: {
-      loadingTitle: 'Restoring session',
-      loadingDescription: 'Checking saved tokens and the current user profile.',
-      redirectingTitle: 'Login required',
-      redirectingDescription: 'Redirecting to the login screen so the protected workspace can open.',
-      lockedTitle: 'Workspace requires authentication',
-      lockedDescription: 'Sign in to open folders, goals, tasks, and the rest of the protected routes.'
+      loadingTitle: 'Checking sign-in',
+      loadingDescription: 'Checking saved sign-in.',
+      redirectingTitle: 'Sign in required',
+      redirectingDescription: 'Sign in to open your plan.',
+      lockedTitle: 'Sign in required',
+      lockedDescription: 'Sign in to open your plan.',
+      signedOutTitle: 'Signed out',
+      signedOutDescription: 'Sign in again to continue.'
     },
     session: {
-      expired: 'Your saved session expired. Please sign in again.',
-      loggedOut: 'You signed out successfully.',
-      loginRequired: 'Please sign in before opening a protected route.',
-      restoreFailed: 'The session could not be restored. Please sign in again.',
-      active: 'Session active',
-      anonymous: 'No session found'
+      expired: 'Signed out. Please sign in again.',
+      loggedOut: 'Signed out.',
+      loginRequired: 'Sign in to open your plan.',
+      restoreFailed: 'Sign-in could not be restored. Please sign in again.',
+      active: 'Signed in',
+      anonymous: 'Signed out'
     },
     form: {
       email: 'Email',
@@ -333,7 +303,7 @@ const en: MessageTree = {
       timezone: 'Timezone',
       language: 'Language',
       timezoneHint: 'For example: Europe/Moscow',
-      languageHint: 'Russian stays the primary MVP language.',
+      languageHint: 'Russian remains the default language.',
       submitErrorFallback: 'Request failed. Please try again.'
     },
     validation: {
@@ -346,7 +316,7 @@ const en: MessageTree = {
     },
     api: {
       authentication_failed: 'Incorrect email or password.',
-      unauthorized: 'The session is no longer valid.',
+      unauthorized: 'Please sign in again to continue.',
       validation_error: 'Please review the form fields.',
       conflict: 'A user with this email already exists.',
       internal_error: 'The server is temporarily unavailable.'

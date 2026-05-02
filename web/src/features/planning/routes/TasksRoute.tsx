@@ -1,1023 +1,744 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  CalendarClock,
+  CheckCircle2,
+  ChevronDown,
+  Circle,
+  Cloud,
+  Folder,
+  Flag,
+  MoreHorizontal,
+  PanelRightClose,
+  Pencil,
+  Plus,
+  Search,
+  Save,
+  StickyNote,
+  Target,
+} from 'lucide-react';
 
 import { useAuth } from '../../auth';
 import { useI18n } from '../../../i18n';
-import { ConflictState } from '../../../ui/feedback/ConflictState';
-import { EmptyState } from '../../../ui/feedback/EmptyState';
-import { ErrorState } from '../../../ui/feedback/ErrorState';
-import { LoadingState } from '../../../ui/feedback/LoadingState';
-import { RetroBadge } from '../../../ui/primitives/RetroBadge';
-import { RetroButton } from '../../../ui/primitives/RetroButton';
-import { RetroDialogFrame } from '../../../ui/primitives/RetroDialogFrame';
-import { RetroField } from '../../../ui/primitives/RetroField';
-import { RetroPanel } from '../../../ui/primitives/RetroPanel';
 import {
+  createFolder,
+  createGoal,
   createTask,
-  deleteTask,
-  getTask,
   listFolders,
   listGoals,
   listTasks,
-  replaceTaskReminders,
   updateTask,
-  upsertTaskRecurrence,
 } from '../planning-api';
 import { usePlanningCopy } from '../planning-copy';
-import { isPlanningApiError, mapPlanningError } from '../planning-errors';
-import {
-  createDefaultReminderDraft,
-  describeRecurrence,
-  describeReminders,
-  describeTags,
-  findById,
-  formatDateTime,
-  normalizeSelection,
-  resolveTaskAnchorTime,
-  toTaskEditorDraft,
-  toTaskRecurrenceUpsertPayload,
-  toTaskRemindersReplacePayload,
-  toTaskUpsertPayload,
-  type TaskEditorDraft,
-} from '../planning-utils';
-import type {
-  DayOfWeek,
-  FolderDto,
-  GoalDto,
-  TaskDto,
-  TaskRecurrenceDraft,
-  TaskReminderDraft,
-  TaskStatus,
-  TaskType,
-} from '../types';
-import {
-  PlanningFieldError,
-  PlanningInlineNotice,
-  PlanningMetaList,
-  PlanningRecordButton,
-  PlanningSplitLayout,
-} from '../components/PlanningWorkspace';
+import { mapPlanningError } from '../planning-errors';
+import { formatDateTime, fromDateTimeInputValue, toDateTimeInputValue } from '../planning-utils';
+import type { FolderDto, GoalDto, TaskDto, TaskStatus } from '../types';
 
-type FormMode = 'create' | 'edit' | null;
+type GoalsByFolder = Record<string, GoalDto[]>;
+type TasksByGoal = Record<string, TaskDto[]>;
 
-const WEEKDAYS: DayOfWeek[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+interface Selection {
+  folderId: string | null;
+  goalId: string | null;
+  taskId: string | null;
+}
+
+interface TaskDraft {
+  title: string;
+  description: string;
+  status: TaskStatus;
+  priority: string;
+  dueTime: string;
+}
+
+type MarkerTone = 'green' | 'red' | 'blue' | 'amber' | 'gray';
+
+function toDraft(task: TaskDto | null): TaskDraft {
+  return {
+    title: task?.title ?? '',
+    description: task?.description ?? '',
+    status: task?.status ?? 'todo',
+    priority: String(task?.priority ?? 2),
+    dueTime: toDateTimeInputValue(task?.dueTime ?? null),
+  };
+}
+
+function progress(tasks: TaskDto[]) {
+  const done = tasks.filter((task) => task.status === 'done').length;
+  return `${done}/${tasks.length}`;
+}
+
+function isComplete(task: TaskDto) {
+  return task.status === 'done' || task.status === 'cancelled';
+}
+
+function progressPercent(tasks: TaskDto[]) {
+  if (tasks.length === 0) {
+    return 0;
+  }
+
+  return (tasks.filter(isComplete).length / tasks.length) * 100;
+}
+
+function markerToneForTask(task: TaskDto): MarkerTone {
+  if (task.status === 'cancelled') {
+    return 'red';
+  }
+
+  if (task.status === 'done') {
+    return 'gray';
+  }
+
+  return task.type === 'red' ? 'red' : 'green';
+}
+
+function markerToneForPriority(priority: number): MarkerTone {
+  if (priority <= 2) {
+    return 'red';
+  }
+
+  if (priority <= 5) {
+    return 'amber';
+  }
+
+  return 'gray';
+}
+
+function dayDeltaFromToday(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const today = new Date();
+  const startOfDay = (item: Date) => new Date(item.getFullYear(), item.getMonth(), item.getDate()).getTime();
+  return Math.round((startOfDay(date) - startOfDay(today)) / 86_400_000);
+}
+
+function formatDueChip(value: string | null, locale: 'ru' | 'en') {
+  const dayDelta = dayDeltaFromToday(value);
+  if (dayDelta === null || !value) {
+    return '';
+  }
+
+  if (dayDelta === 0) {
+    return locale === 'ru' ? 'Сегодня' : 'Today';
+  }
+
+  if (dayDelta === 1) {
+    return locale === 'ru' ? 'Завтра' : 'Tomorrow';
+  }
+
+  const date = new Date(value);
+  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    day: 'numeric',
+    month: 'short',
+  }).format(date);
+}
+
+function dueTone(value: string | null): MarkerTone {
+  const dayDelta = dayDeltaFromToday(value);
+
+  if (dayDelta === null) {
+    return 'gray';
+  }
+
+  if (dayDelta < 0) {
+    return 'red';
+  }
+
+  if (dayDelta === 0) {
+    return 'amber';
+  }
+
+  return 'blue';
+}
+
+function usePlanCopy() {
+  const { locale } = useI18n();
+
+  return {
+    plan: locale === 'ru' ? 'План' : 'Plan',
+    folder: locale === 'ru' ? 'Папка' : 'Folder',
+    goal: locale === 'ru' ? 'Цель' : 'Goal',
+    task: locale === 'ru' ? 'Задача' : 'Task',
+    search: locale === 'ru' ? 'Поиск' : 'Search',
+    collapse: locale === 'ru' ? 'Свернуть панель' : 'Close panel',
+    add: locale === 'ru' ? 'Создать' : 'Create',
+    more: locale === 'ru' ? 'Еще' : 'More',
+    newFolder: locale === 'ru' ? 'Новая папка' : 'New folder',
+    newGoal: locale === 'ru' ? 'Новая цель' : 'New goal',
+    newTask: locale === 'ru' ? 'Новая задача' : 'New task',
+    addGoal: locale === 'ru' ? 'Добавьте цель' : 'Add a goal',
+    addTask: locale === 'ru' ? 'Добавьте задачу' : 'Add a task',
+    emptyTitle: locale === 'ru' ? 'Пока пусто' : 'Nothing here yet',
+    emptyBody: locale === 'ru'
+      ? 'Создайте папку, затем добавьте цель и задачи.'
+      : 'Create a folder, then add a goal and tasks.',
+    selectTask: locale === 'ru' ? 'Выберите задачу' : 'Select a task',
+    path: locale === 'ru' ? 'Путь' : 'Path',
+    notes: locale === 'ru' ? 'Заметки' : 'Notes',
+    details: locale === 'ru' ? 'Сведения' : 'Details',
+    status: locale === 'ru' ? 'Статус' : 'Status',
+    priority: locale === 'ru' ? 'Приоритет' : 'Priority',
+    due: locale === 'ru' ? 'Срок' : 'Due',
+    synced: locale === 'ru' ? 'Синхронизировано' : 'Synced',
+    savedOffline: locale === 'ru' ? 'Сохранено офлайн' : 'Saved offline',
+    save: locale === 'ru' ? 'Сохранить' : 'Save',
+    loading: locale === 'ru' ? 'Загружаем план' : 'Loading plan',
+    loadError: locale === 'ru' ? 'Не удалось загрузить план' : 'Could not load the plan',
+    retry: locale === 'ru' ? 'Повторить' : 'Retry',
+    folderName: locale === 'ru' ? 'Запуск продукта' : 'Product launch',
+    goalName: locale === 'ru' ? 'Мягкий релиз' : 'Soft release',
+    taskName: locale === 'ru' ? 'Подготовить страницу входа' : 'Prepare the sign-in screen',
+    notesText: locale === 'ru'
+      ? 'Уточнить тексты, состояния ошибок и первый пустой экран.'
+      : 'Review copy, error states, and the first empty screen.',
+  };
+}
 
 export function TasksRoute() {
   const { authorizedFetch } = useAuth();
   const { locale } = useI18n();
-  const copy = usePlanningCopy();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const planningCopy = usePlanningCopy();
+  const copy = usePlanCopy();
   const [folders, setFolders] = useState<FolderDto[]>([]);
-  const [goals, setGoals] = useState<GoalDto[]>([]);
-  const [tasks, setTasks] = useState<TaskDto[]>([]);
-  const [selectedTask, setSelectedTask] = useState<TaskDto | null>(null);
-  const [loadingFolders, setLoadingFolders] = useState(true);
-  const [loadingGoals, setLoadingGoals] = useState(false);
-  const [loadingTasks, setLoadingTasks] = useState(false);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [goalsByFolder, setGoalsByFolder] = useState<GoalsByFolder>({});
+  const [tasksByGoal, setTasksByGoal] = useState<TasksByGoal>({});
+  const [selection, setSelection] = useState<Selection>({ folderId: null, goalId: null, taskId: null });
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [formMode, setFormMode] = useState<FormMode>(null);
-  const [draft, setDraft] = useState<TaskEditorDraft>(toTaskEditorDraft(null));
-  const [formError, setFormError] = useState<string | null>(null);
-  const [partialSaveNotice, setPartialSaveNotice] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [traceId, setTraceId] = useState<string | undefined>();
-  const [submitting, setSubmitting] = useState(false);
-  const [showConflict, setShowConflict] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
 
-  const selectedFolderId = searchParams.get('folder');
-  const selectedGoalId = searchParams.get('goal');
-  const selectedTaskId = searchParams.get('task');
-  const selectedFolder = useMemo(() => findById(folders, selectedFolderId), [folders, selectedFolderId]);
-  const selectedGoal = useMemo(() => findById(goals, selectedGoalId), [goals, selectedGoalId]);
+  const goals = useMemo(() => Object.values(goalsByFolder).flat(), [goalsByFolder]);
+  const tasks = useMemo(() => Object.values(tasksByGoal).flat(), [tasksByGoal]);
+  const selectedFolder = folders.find((folder) => folder.id === selection.folderId) ?? null;
+  const selectedGoal = goals.find((goal) => goal.id === selection.goalId) ?? null;
+  const selectedTask = tasks.find((task) => task.id === selection.taskId) ?? null;
+  const [draft, setDraft] = useState<TaskDraft>(() => toDraft(null));
+  const rowCopy = {
+    complete: locale === 'ru' ? 'Отметить выполненной' : 'Mark complete',
+    reopen: locale === 'ru' ? 'Вернуть в работу' : 'Mark active',
+    editTask: locale === 'ru' ? 'Изменить задачу' : 'Edit task',
+    type: locale === 'ru' ? 'Тип' : 'Type',
+  };
 
-  function updateSelection(nextFolderId: string | null, nextGoalId: string | null, nextTaskId: string | null) {
-    const nextParams = new URLSearchParams(searchParams);
-
-    if (nextFolderId) {
-      nextParams.set('folder', nextFolderId);
-    } else {
-      nextParams.delete('folder');
+  useEffect(() => {
+    setDraft(toDraft(selectedTask));
+    if (selectedTask) {
+      setIsPanelOpen(true);
     }
+  }, [selectedTask?.id]);
 
-    if (nextGoalId) {
-      nextParams.set('goal', nextGoalId);
-    } else {
-      nextParams.delete('goal');
-    }
-
-    if (nextTaskId) {
-      nextParams.set('task', nextTaskId);
-    } else {
-      nextParams.delete('task');
-    }
-
-    setSearchParams(nextParams, { replace: true });
-  }
-
-  async function loadFolderList() {
-    setLoadingFolders(true);
+  async function loadPlan(preferred: Partial<Selection> = {}) {
+    setLoading(true);
     setLoadError(null);
 
     try {
       const nextFolders = await listFolders(authorizedFetch);
-      const nextSelectedFolderId = normalizeSelection(nextFolders, selectedFolderId);
+      const nextGoalsEntries = await Promise.all(
+        nextFolders.map(async (folder) => [folder.id, await listGoals(authorizedFetch, folder.id)] as const),
+      );
+      const nextGoalsByFolder = Object.fromEntries(nextGoalsEntries);
+      const nextGoals = nextGoalsEntries.flatMap(([, folderGoals]) => folderGoals);
+      const nextTaskEntries = await Promise.all(
+        nextGoals.map(async (goal) => [goal.id, await listTasks(authorizedFetch, goal.id)] as const),
+      );
+      const nextTasksByGoal = Object.fromEntries(nextTaskEntries);
+      const nextTasks = nextTaskEntries.flatMap(([, goalTasks]) => goalTasks);
+
+      const nextFolderId = preferred.folderId ?? selection.folderId ?? nextFolders[0]?.id ?? null;
+      const nextGoalId =
+        preferred.goalId ??
+        selection.goalId ??
+        (nextFolderId ? nextGoalsByFolder[nextFolderId]?.[0]?.id : null) ??
+        nextGoals[0]?.id ??
+        null;
+      const nextTaskId =
+        preferred.taskId ??
+        selection.taskId ??
+        (nextGoalId ? nextTasksByGoal[nextGoalId]?.[0]?.id : null) ??
+        nextTasks[0]?.id ??
+        null;
 
       setFolders(nextFolders);
-      setLoadingFolders(false);
-      updateSelection(nextSelectedFolderId, null, null);
+      setGoalsByFolder(nextGoalsByFolder);
+      setTasksByGoal(nextTasksByGoal);
+      setSelection({ folderId: nextFolderId, goalId: nextGoalId, taskId: nextTaskId });
     } catch (error) {
-      const mappedError = mapPlanningError(error, copy);
-      setLoadError(mappedError.message);
-      setLoadingFolders(false);
-    }
-  }
-
-  async function loadGoalList(folderId: string, preferredGoalId?: string | null) {
-    setLoadingGoals(true);
-    setLoadError(null);
-
-    try {
-      const nextGoals = await listGoals(authorizedFetch, folderId);
-      const nextSelectedGoalId = normalizeSelection(nextGoals, preferredGoalId ?? selectedGoalId);
-
-      setGoals(nextGoals);
-      setLoadingGoals(false);
-      updateSelection(folderId, nextSelectedGoalId, null);
-
-      return nextGoals;
-    } catch (error) {
-      const mappedError = mapPlanningError(error, copy);
-      setLoadError(mappedError.message);
-      setGoals([]);
-      setLoadingGoals(false);
-      return null;
-    }
-  }
-
-  async function loadTaskList(goalId: string, preferredTaskId?: string | null) {
-    setLoadingTasks(true);
-    setLoadError(null);
-
-    try {
-      const nextTasks = await listTasks(authorizedFetch, goalId);
-      const nextSelectedTaskId = normalizeSelection(nextTasks, preferredTaskId ?? selectedTaskId);
-
-      setTasks(nextTasks);
-      setLoadingTasks(false);
-      updateSelection(selectedFolderId, goalId, nextSelectedTaskId);
-
-      return nextTasks;
-    } catch (error) {
-      const mappedError = mapPlanningError(error, copy);
-      setLoadError(mappedError.message);
-      setTasks([]);
-      setLoadingTasks(false);
-      return null;
-    }
-  }
-
-  async function loadTaskDetail(taskId: string) {
-    setLoadingDetail(true);
-
-    try {
-      const detail = await getTask(authorizedFetch, taskId);
-      setSelectedTask(detail);
-      return detail;
-    } catch (error) {
-      const mappedError = mapPlanningError(error, copy);
-      setLoadError(mappedError.message);
-      setSelectedTask(null);
-      return null;
+      const mapped = mapPlanningError(error, planningCopy);
+      setLoadError(mapped.message);
+      setFolders([]);
+      setGoalsByFolder({});
+      setTasksByGoal({});
     } finally {
-      setLoadingDetail(false);
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadFolderList();
+    void loadPlan();
   }, []);
 
-  useEffect(() => {
-    if (!selectedFolderId) {
-      setGoals([]);
-      setTasks([]);
-      setSelectedTask(null);
+  async function handleCreateFolder() {
+    setSaving(true);
+    try {
+      const folder = await createFolder(authorizedFetch, {
+        name: copy.folderName,
+        description: '',
+      });
+      await loadPlan({ folderId: folder.id, goalId: null, taskId: null });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCreateGoal(folderId = selection.folderId) {
+    if (!folderId) {
       return;
     }
 
-    void loadGoalList(selectedFolderId);
-  }, [selectedFolderId]);
+    setSaving(true);
+    try {
+      const goal = await createGoal(authorizedFetch, folderId, {
+        name: copy.goalName,
+        description: '',
+      });
+      await loadPlan({ folderId, goalId: goal.id, taskId: null });
+    } finally {
+      setSaving(false);
+    }
+  }
 
-  useEffect(() => {
-    if (!selectedGoalId) {
-      setTasks([]);
-      setSelectedTask(null);
+  async function handleCreateTask(goalId = selection.goalId) {
+    if (!goalId) {
       return;
     }
 
-    void loadTaskList(selectedGoalId);
-  }, [selectedGoalId]);
+    setSaving(true);
+    try {
+      const task = await createTask(authorizedFetch, goalId, {
+        title: copy.taskName,
+        description: copy.notesText,
+        type: 'green',
+        priority: 2,
+        status: 'in_progress',
+        plannedTime: null,
+        dueTime: null,
+      });
+      const goal = goals.find((item) => item.id === goalId);
+      await loadPlan({ folderId: goal?.folderId ?? selection.folderId, goalId, taskId: task.id });
+    } finally {
+      setSaving(false);
+    }
+  }
 
-  useEffect(() => {
-    if (!selectedTaskId) {
-      setSelectedTask(null);
+  async function handleSaveTask() {
+    if (!selectedTask || !selectedGoal) {
       return;
     }
 
-    void loadTaskDetail(selectedTaskId);
-  }, [selectedTaskId]);
-
-  useEffect(() => {
-    setDraft((current) => {
-      if (current.recurrence.anchor === 'planned' && !current.plannedTime && current.dueTime) {
-        return {
-          ...current,
-          recurrence: {
-            ...current.recurrence,
-            anchor: 'due',
-          },
-        };
-      }
-
-      if (current.recurrence.anchor === 'due' && !current.dueTime && current.plannedTime) {
-        return {
-          ...current,
-          recurrence: {
-            ...current.recurrence,
-            anchor: 'planned',
-          },
-        };
-      }
-
-      return current;
-    });
-  }, [draft.plannedTime, draft.dueTime]);
-
-  function resetForm(nextMode: FormMode, task: TaskDto | null) {
-    setFormMode(nextMode);
-    setDraft(toTaskEditorDraft(task));
-    setFormError(null);
-    setPartialSaveNotice(null);
-    setFieldErrors({});
-    setTraceId(undefined);
-    setShowConflict(false);
-  }
-
-  function getAnchorOptions() {
-    const options: Array<{ value: 'planned' | 'due'; label: string }> = [];
-
-    if (draft.plannedTime) {
-      options.push({ value: 'planned', label: copy.tasks.anchorPlanned });
-    }
-
-    if (draft.dueTime) {
-      options.push({ value: 'due', label: copy.tasks.anchorDue });
-    }
-
-    return options;
-  }
-
-  function weekdayLabel(day: DayOfWeek) {
-    const labels: Record<DayOfWeek, string> = {
-      MONDAY: copy.tasks.weekdayMonday,
-      TUESDAY: copy.tasks.weekdayTuesday,
-      WEDNESDAY: copy.tasks.weekdayWednesday,
-      THURSDAY: copy.tasks.weekdayThursday,
-      FRIDAY: copy.tasks.weekdayFriday,
-      SATURDAY: copy.tasks.weekdaySaturday,
-      SUNDAY: copy.tasks.weekdaySunday,
-    };
-
-    return labels[day];
-  }
-
-  function normalizeFieldErrors(nextFieldErrors: Record<string, string>) {
-    const normalized: Record<string, string> = {};
-
-    for (const [field, message] of Object.entries(nextFieldErrors)) {
-      if (field.startsWith('reminders[')) {
-        const match = /^reminders\[(\d+)\]\.(.+)$/.exec(field);
-        if (match) {
-          normalized[`reminders.${match[1]}.${match[2]}`] = message;
-          continue;
-        }
-      }
-
-      if (field === 'mode') {
-        normalized['recurrence.mode'] = message;
-        continue;
-      }
-
-      if (field === 'interval') {
-        normalized['recurrence.interval'] = message;
-        continue;
-      }
-
-      if (field === 'daysOfWeek') {
-        normalized['recurrence.daysOfWeek'] = message;
-        continue;
-      }
-
-      if (field === 'dayOfMonth' || field === 'startAt') {
-        normalized['recurrence.anchor'] = message;
-        continue;
-      }
-
-      if (field === 'endAt') {
-        normalized['recurrence.endAt'] = message;
-        continue;
-      }
-
-      if (field === 'offsetMinutes') {
-        normalized['reminders.0.offsetMinutes'] = message;
-        continue;
-      }
-
-      normalized[field] = message;
-    }
-
-    return normalized;
-  }
-
-  function validateDraft() {
-    const nextFieldErrors: Record<string, string> = {};
     const priority = Number(draft.priority);
-    const anchorTime = resolveTaskAnchorTime(draft);
-    const anchorDate = anchorTime ? new Date(anchorTime) : null;
-
-    if (!draft.title.trim()) {
-      nextFieldErrors.title = copy.tasks.validationRequired;
+    if (!draft.title.trim() || !Number.isInteger(priority) || priority < 1 || priority > 10) {
+      return;
     }
 
-    if (!Number.isInteger(priority) || priority < 1 || priority > 10) {
-      nextFieldErrors.priority = copy.tasks.validationPriorityRange;
-    }
-
-    if (draft.recurrence.enabled) {
-      const interval = Number(draft.recurrence.interval);
-
-      if (!anchorTime) {
-        nextFieldErrors['recurrence.anchor'] = copy.tasks.validationRecurrenceAnchor;
-      }
-
-      if (!Number.isInteger(interval) || interval < 1) {
-        nextFieldErrors['recurrence.interval'] = copy.tasks.validationRecurrenceInterval;
-      }
-
-      if (draft.recurrence.mode === 'weekly') {
-        if (!anchorDate || Number.isNaN(anchorDate.getTime())) {
-          nextFieldErrors['recurrence.anchor'] = copy.tasks.validationRecurrenceAnchor;
-        } else {
-          const anchorWeekday = WEEKDAYS[(anchorDate.getDay() + 6) % 7];
-          if (!draft.recurrence.daysOfWeek.includes(anchorWeekday)) {
-            nextFieldErrors['recurrence.daysOfWeek'] = copy.tasks.validationRecurrenceWeekday;
-          }
-        }
-      }
-
-      if (draft.recurrence.endAt && anchorDate && !Number.isNaN(anchorDate.getTime())) {
-        const endDate = new Date(draft.recurrence.endAt);
-        if (Number.isNaN(endDate.getTime()) || endDate.getTime() <= anchorDate.getTime()) {
-          nextFieldErrors['recurrence.endAt'] = copy.tasks.validationRecurrenceEndAt;
-        }
-      }
-    }
-
-    const reminderKeys = new Set<string>();
-    draft.reminders.forEach((reminder, index) => {
-      const offset = Number(reminder.offsetMinutes);
-
-      if (!Number.isInteger(offset) || offset < 1) {
-        nextFieldErrors[`reminders.${index}.offsetMinutes`] = copy.tasks.validationReminderOffset;
-      }
-
-      if (reminder.mode === 'before_planned_time' && !draft.plannedTime) {
-        nextFieldErrors[`reminders.${index}.offsetMinutes`] = copy.tasks.validationReminderAnchor;
-      }
-
-      if (reminder.mode === 'before_due_time' && !draft.dueTime) {
-        nextFieldErrors[`reminders.${index}.offsetMinutes`] = copy.tasks.validationReminderAnchor;
-      }
-
-      const key = `${reminder.mode}:${offset}`;
-      if (!nextFieldErrors[`reminders.${index}.offsetMinutes`]) {
-        if (reminderKeys.has(key)) {
-          nextFieldErrors[`reminders.${index}.offsetMinutes`] = copy.tasks.validationReminderDuplicate;
-        } else {
-          reminderKeys.add(key);
-        }
-      }
-    });
-
-    setFieldErrors(nextFieldErrors);
-    return Object.keys(nextFieldErrors).length === 0;
-  }
-
-  async function syncScheduling(task: TaskDto, previousTask: TaskDto | null) {
-    if (draft.recurrence.enabled) {
-      const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
-      if (!recurrencePayload) {
-        throw new Error('recurrence_anchor_missing');
-      }
-      await upsertTaskRecurrence(authorizedFetch, task.id, recurrencePayload);
-    } else if (previousTask?.recurrence?.active) {
-      const recurrencePayload = toTaskRecurrenceUpsertPayload({
-        ...draft,
-        recurrence: {
-          ...draft.recurrence,
-          enabled: true,
-          active: false,
-        },
+    setSaving(true);
+    try {
+      const updated = await updateTask(authorizedFetch, selectedTask.id, {
+        title: draft.title.trim(),
+        description: draft.description.trim(),
+        type: selectedTask.type,
+        priority,
+        status: draft.status,
+        plannedTime: selectedTask.plannedTime,
+        dueTime: fromDateTimeInputValue(draft.dueTime),
+        archived: selectedTask.archived,
+        version: selectedTask.version,
       });
 
-      if (!recurrencePayload) {
-        throw new Error('recurrence_anchor_missing');
-      }
-
-      await upsertTaskRecurrence(authorizedFetch, task.id, recurrencePayload);
-    }
-
-    if (draft.reminders.length > 0 || previousTask?.reminders.length) {
-      await replaceTaskReminders(authorizedFetch, task.id, toTaskRemindersReplacePayload(draft));
-    }
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!selectedGoalId || !validateDraft()) {
-      return;
-    }
-
-    const payload = toTaskUpsertPayload(draft);
-
-    setSubmitting(true);
-    setFormError(null);
-    setPartialSaveNotice(null);
-    setTraceId(undefined);
-
-    try {
-      let persistedTask: TaskDto | null = null;
-
-      if (formMode === 'create') {
-        persistedTask = await createTask(authorizedFetch, selectedGoalId, payload);
-        try {
-          await syncScheduling(persistedTask, null);
-          await loadTaskList(selectedGoalId, persistedTask.id);
-          await loadTaskDetail(persistedTask.id);
-          resetForm(null, null);
-        } catch (error) {
-          await loadTaskList(selectedGoalId, persistedTask.id);
-          const freshTask = await loadTaskDetail(persistedTask.id);
-          resetForm('edit', freshTask ?? persistedTask);
-          setPartialSaveNotice(copy.tasks.schedulingPartialSave);
-          const mappedError = mapPlanningError(error, copy);
-          setFormError(mappedError.message);
-          setFieldErrors(normalizeFieldErrors(mappedError.fieldErrors));
-          setTraceId(mappedError.traceId);
-        }
-      }
-
-      if (formMode === 'edit' && selectedTask) {
-        persistedTask = await updateTask(authorizedFetch, selectedTask.id, {
-          ...payload,
-          archived: selectedTask.archived,
-          version: selectedTask.version,
-        });
-
-        try {
-          await syncScheduling(persistedTask, selectedTask);
-          await loadTaskList(selectedGoalId, selectedTask.id);
-          await loadTaskDetail(selectedTask.id);
-          resetForm(null, null);
-        } catch (error) {
-          await loadTaskList(selectedGoalId, selectedTask.id);
-          const freshTask = await loadTaskDetail(selectedTask.id);
-          resetForm('edit', freshTask ?? persistedTask);
-          setPartialSaveNotice(copy.tasks.schedulingPartialSave);
-          const mappedError = mapPlanningError(error, copy);
-          setFormError(mappedError.message);
-          setFieldErrors(normalizeFieldErrors(mappedError.fieldErrors));
-          setTraceId(mappedError.traceId);
-        }
-      }
-    } catch (error) {
-      if (isPlanningApiError(error) && error.status === 409 && selectedTask && selectedGoalId) {
-        await loadTaskList(selectedGoalId, selectedTask.id);
-        const freshTask = await loadTaskDetail(selectedTask.id);
-        resetForm('edit', freshTask);
-        setShowConflict(true);
-      } else if (error instanceof Error && error.message === 'recurrence_anchor_missing') {
-        const message = copy.tasks.validationRecurrenceAnchor;
-        setFormError(message);
-        setFieldErrors({ 'recurrence.anchor': message });
-      } else {
-        const mappedError = mapPlanningError(error, copy);
-        setFormError(mappedError.message);
-        setFieldErrors(normalizeFieldErrors(mappedError.fieldErrors));
-        setTraceId(mappedError.traceId);
-      }
+      setTasksByGoal((current) => ({
+        ...current,
+        [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) => (task.id === updated.id ? updated : task)),
+      }));
+      setSelection((current) => ({ ...current, taskId: updated.id }));
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   }
 
-  async function handleDelete() {
-    if (!selectedTask || !selectedGoalId || !window.confirm(copy.tasks.deleteConfirm)) {
-      return;
-    }
-
+  async function handleToggleTask(task: TaskDto, goal: GoalDto) {
+    setSaving(true);
     try {
-      await deleteTask(authorizedFetch, selectedTask.id);
-      await loadTaskList(selectedGoalId);
-      setSelectedTask(null);
-      resetForm(null, null);
-    } catch (error) {
-      const mappedError = mapPlanningError(error, copy);
-      setLoadError(mappedError.message);
+      const updated = await updateTask(authorizedFetch, task.id, {
+        title: task.title,
+        description: task.description,
+        type: task.type,
+        priority: task.priority,
+        status: isComplete(task) ? 'todo' : 'done',
+        plannedTime: task.plannedTime,
+        dueTime: task.dueTime,
+        archived: task.archived,
+        version: task.version,
+      });
+
+      setTasksByGoal((current) => ({
+        ...current,
+        [goal.id]: (current[goal.id] ?? []).map((item) => (item.id === updated.id ? updated : item)),
+      }));
+      setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: updated.id });
+    } finally {
+      setSaving(false);
     }
   }
 
-  function updateRecurrence(updater: (current: TaskRecurrenceDraft) => TaskRecurrenceDraft) {
-    setDraft((current) => ({ ...current, recurrence: updater(current.recurrence) }));
-  }
+  const totalTasks = tasks.length;
+  const doneTasks = tasks.filter(isComplete).length;
 
-  function updateReminder(index: number, updater: (current: TaskReminderDraft) => TaskReminderDraft) {
-    setDraft((current) => ({
-      ...current,
-      reminders: current.reminders.map((reminder, reminderIndex) =>
-        reminderIndex === index ? updater(reminder) : reminder),
-    }));
-  }
-
-  function addReminder() {
-    setDraft((current) => ({
-      ...current,
-      reminders: [...current.reminders, createDefaultReminderDraft(current.reminders.length)],
-    }));
-  }
-
-  function removeReminder(index: number) {
-    setDraft((current) => ({
-      ...current,
-      reminders: current.reminders.filter((_, reminderIndex) => reminderIndex !== index),
-    }));
-  }
-
-  const listPanelContent = loadingFolders ? (
-    <LoadingState title={copy.common.loadingTitle} description={copy.common.loadingDescription} />
-  ) : loadError ? (
-    <div className="stack stack--tight">
-      <ErrorState title={copy.common.errorTitle} description={loadError} />
-      <RetroButton type="button" onClick={() => void loadFolderList()}>
-        {copy.common.retry}
-      </RetroButton>
-    </div>
-  ) : folders.length === 0 ? (
-    <EmptyState title={copy.tasks.noFoldersTitle} description={copy.tasks.noFoldersDescription} />
-  ) : (
-    <div className="stack stack--tight">
-      <RetroField label={copy.tasks.folderLabel}>
-        <select
-          className="retro-select"
-          value={selectedFolderId ?? ''}
-          onChange={(event) => updateSelection(event.target.value || null, null, null)}
-        >
-          {folders.map((folder) => (
-            <option key={folder.id} value={folder.id}>
-              {folder.name}
-            </option>
-          ))}
-        </select>
-      </RetroField>
-      {goals.length > 0 ? (
-        <RetroField label={copy.tasks.goalLabel}>
-          <select
-            className="retro-select"
-            value={selectedGoalId ?? ''}
-            onChange={(event) => updateSelection(selectedFolderId, event.target.value || null, null)}
-          >
-            {goals.map((goal) => (
-              <option key={goal.id} value={goal.id}>
-                {goal.name}
-              </option>
-            ))}
-          </select>
-        </RetroField>
-      ) : null}
-      {loadingGoals || loadingTasks ? (
-        <LoadingState title={copy.common.loadingTitle} description={copy.common.loadingDescription} />
-      ) : selectedFolder && goals.length === 0 ? (
-        <div className="stack stack--tight">
-          <EmptyState title={copy.tasks.noGoalsTitle} description={copy.tasks.noGoalsDescription} />
-          <RetroButton as={Link} to={`/app/goals?folder=${selectedFolder.id}`}>
-            {copy.common.openGoals}
-          </RetroButton>
-        </div>
-      ) : tasks.length === 0 ? (
-        <EmptyState title={copy.tasks.listEmptyTitle} description={copy.tasks.listEmptyDescription} />
-      ) : (
-        <div className="planning-record-list">
-          {tasks.map((task) => (
-            <PlanningRecordButton
-              key={task.id}
-              active={task.id === selectedTaskId}
-              title={task.title}
-              subtitle={`${copy.enums.taskStatus[task.status]} / ${copy.enums.taskType[task.type]}`}
-              meta={<span>{`${copy.tasks.priorityLabel}: ${task.priority}`}</span>}
-              onClick={() => updateSelection(selectedFolderId, selectedGoalId, task.id)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
-  const detailPanel = formMode ? (
-    <RetroDialogFrame
-      title={formMode === 'create' ? copy.tasks.createTitle : copy.tasks.editTitle}
-      footer={(
-        <div className="cluster">
-          <RetroButton type="submit" form="task-form" variant="primary" disabled={submitting}>
-            {submitting ? copy.common.loadingTitle : copy.common.save}
-          </RetroButton>
-          <RetroButton type="button" onClick={() => resetForm(null, null)} disabled={submitting}>
-            {copy.common.cancel}
-          </RetroButton>
-        </div>
-      )}
-    >
-      {showConflict ? (
-        <ConflictState
-          title={copy.common.conflictTitle}
-          description={copy.common.conflictDescription}
-        />
-      ) : null}
-      {partialSaveNotice ? <PlanningInlineNotice tone="warning">{partialSaveNotice}</PlanningInlineNotice> : null}
-      {formError ? <PlanningInlineNotice tone="error">{formError}</PlanningInlineNotice> : null}
-      {traceId ? (
-        <PlanningInlineNotice tone="info">
-          {copy.common.serverTrace}: {traceId}
-        </PlanningInlineNotice>
-      ) : null}
-      <form id="task-form" className="stack stack--tight" onSubmit={handleSubmit}>
-        <RetroField label={copy.tasks.titleLabel}>
-          <input
-            className="retro-input"
-            value={draft.title}
-            onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-          />
-          <PlanningFieldError message={fieldErrors.title} />
-        </RetroField>
-        <RetroField label={copy.tasks.descriptionLabel}>
-          <textarea
-            className="retro-textarea"
-            value={draft.description}
-            onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
-          />
-        </RetroField>
-        <div className="planning-form-grid">
-          <RetroField label={copy.tasks.typeLabel}>
-            <select
-              className="retro-select"
-              value={draft.type}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, type: event.target.value as TaskType }))
-              }
-            >
-              <option value="green">{copy.enums.taskType.green}</option>
-              <option value="red">{copy.enums.taskType.red}</option>
-            </select>
-          </RetroField>
-          <RetroField label={copy.tasks.statusLabel}>
-            <select
-              className="retro-select"
-              value={draft.status}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, status: event.target.value as TaskStatus }))
-              }
-            >
-              <option value="todo">{copy.enums.taskStatus.todo}</option>
-              <option value="in_progress">{copy.enums.taskStatus.in_progress}</option>
-              <option value="done">{copy.enums.taskStatus.done}</option>
-              <option value="cancelled">{copy.enums.taskStatus.cancelled}</option>
-            </select>
-          </RetroField>
-          <RetroField label={copy.tasks.priorityLabel}>
-            <input
-              className="retro-input"
-              type="number"
-              min={1}
-              max={10}
-              value={draft.priority}
-              onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))}
-            />
-            <PlanningFieldError message={fieldErrors.priority} />
-          </RetroField>
-          <RetroField label={copy.tasks.plannedTimeLabel}>
-            <input
-              className="retro-input"
-              type="datetime-local"
-              value={draft.plannedTime}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, plannedTime: event.target.value }))
-              }
-            />
-          </RetroField>
-          <RetroField label={copy.tasks.dueTimeLabel}>
-            <input
-              className="retro-input"
-              type="datetime-local"
-              value={draft.dueTime}
-              onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))}
-            />
-          </RetroField>
-        </div>
-
-        <div className="stack stack--tight">
-          <div className="surface-title">{copy.tasks.schedulingSectionTitle}</div>
-          <PlanningInlineNotice tone="info">{copy.tasks.schedulingHelp}</PlanningInlineNotice>
-          <RetroField label={copy.tasks.recurrenceLabel}>
-            <label className="cluster">
-              <input
-                type="checkbox"
-                checked={draft.recurrence.enabled}
-                onChange={(event) =>
-                  updateRecurrence((current) => ({
-                    ...current,
-                    enabled: event.target.checked,
-                    active: event.target.checked ? current.active : false,
-                  }))
-                }
-              />
-              <span>{copy.tasks.recurrenceEnabledLabel}</span>
-            </label>
-          </RetroField>
-
-          {draft.recurrence.enabled ? (
-            <div className="stack stack--tight">
-              <PlanningInlineNotice tone="info">{copy.tasks.recurrenceHint}</PlanningInlineNotice>
-              <div className="planning-form-grid">
-                <RetroField label={copy.tasks.recurrenceModeLabel}>
-                  <select
-                    className="retro-select"
-                    value={draft.recurrence.mode}
-                    onChange={(event) =>
-                      updateRecurrence((current) => ({
-                        ...current,
-                        mode: event.target.value as TaskRecurrenceDraft['mode'],
-                        daysOfWeek: event.target.value === 'weekly' ? current.daysOfWeek : [],
-                      }))
-                    }
-                  >
-                    <option value="daily">{copy.tasks.recurrenceModeDaily}</option>
-                    <option value="weekly">{copy.tasks.recurrenceModeWeekly}</option>
-                    <option value="monthly">{copy.tasks.recurrenceModeMonthly}</option>
-                  </select>
-                  <PlanningFieldError message={fieldErrors['recurrence.mode']} />
-                </RetroField>
-                <RetroField label={copy.tasks.recurrenceIntervalLabel}>
-                  <input
-                    className="retro-input"
-                    type="number"
-                    min={1}
-                    value={draft.recurrence.interval}
-                    onChange={(event) =>
-                      updateRecurrence((current) => ({ ...current, interval: event.target.value }))
-                    }
-                  />
-                  <PlanningFieldError message={fieldErrors['recurrence.interval']} />
-                </RetroField>
-                <RetroField label={copy.tasks.recurrenceAnchorLabel}>
-                  <select
-                    className="retro-select"
-                    value={draft.recurrence.anchor}
-                    onChange={(event) =>
-                      updateRecurrence((current) => ({ ...current, anchor: event.target.value as 'planned' | 'due' }))
-                    }
-                  >
-                    {getAnchorOptions().map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <PlanningFieldError message={fieldErrors['recurrence.anchor']} />
-                </RetroField>
-                <RetroField label={copy.tasks.recurrenceEndAtLabel}>
-                  <input
-                    className="retro-input"
-                    type="datetime-local"
-                    value={draft.recurrence.endAt}
-                    onChange={(event) =>
-                      updateRecurrence((current) => ({ ...current, endAt: event.target.value }))
-                    }
-                  />
-                  <PlanningFieldError message={fieldErrors['recurrence.endAt']} />
-                </RetroField>
-              </div>
-
-              <RetroField label={copy.tasks.recurrenceActiveLabel}>
-                <label className="cluster">
-                  <input
-                    type="checkbox"
-                    checked={draft.recurrence.active}
-                    onChange={(event) =>
-                      updateRecurrence((current) => ({ ...current, active: event.target.checked }))
-                    }
-                  />
-                  <span>{copy.tasks.recurrenceActiveLabel}</span>
-                </label>
-              </RetroField>
-
-              {draft.recurrence.mode === 'weekly' ? (
-                <RetroField label={copy.tasks.recurrenceWeekdaysLabel}>
-                  <div className="cluster">
-                    {WEEKDAYS.map((weekday) => (
-                      <label key={weekday} className="cluster">
-                        <input
-                          type="checkbox"
-                          checked={draft.recurrence.daysOfWeek.includes(weekday)}
-                          onChange={(event) =>
-                            updateRecurrence((current) => ({
-                              ...current,
-                              daysOfWeek: event.target.checked
-                                ? [...current.daysOfWeek, weekday]
-                                : current.daysOfWeek.filter((currentDay) => currentDay !== weekday),
-                            }))
-                          }
-                        />
-                        <span>{weekdayLabel(weekday)}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <PlanningFieldError message={fieldErrors['recurrence.daysOfWeek']} />
-                </RetroField>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="stack stack--tight">
-            <div className="surface-title">{copy.tasks.remindersLabel}</div>
-            <PlanningInlineNotice tone="info">{copy.tasks.remindersHint}</PlanningInlineNotice>
-            {draft.reminders.map((reminder, index) => (
-              <div key={reminder.clientId} className="planning-form-grid">
-                <RetroField label={copy.tasks.reminderModeLabel}>
-                  <select
-                    className="retro-select"
-                    value={reminder.mode}
-                    onChange={(event) =>
-                      updateReminder(index, (current) => ({
-                        ...current,
-                        mode: event.target.value as TaskReminderDraft['mode'],
-                      }))
-                    }
-                  >
-                    <option value="before_planned_time">{copy.tasks.reminderModeBeforePlanned}</option>
-                    <option value="before_due_time">{copy.tasks.reminderModeBeforeDue}</option>
-                  </select>
-                </RetroField>
-                <RetroField label={copy.tasks.reminderOffsetLabel}>
-                  <input
-                    className="retro-input"
-                    type="number"
-                    min={1}
-                    value={reminder.offsetMinutes}
-                    onChange={(event) =>
-                      updateReminder(index, (current) => ({ ...current, offsetMinutes: event.target.value }))
-                    }
-                  />
-                  <PlanningFieldError message={fieldErrors[`reminders.${index}.offsetMinutes`]} />
-                </RetroField>
-                <RetroField label={copy.tasks.reminderActiveLabel}>
-                  <label className="cluster">
-                    <input
-                      type="checkbox"
-                      checked={reminder.active}
-                      onChange={(event) =>
-                        updateReminder(index, (current) => ({ ...current, active: event.target.checked }))
-                      }
-                    />
-                    <span>{copy.tasks.reminderActiveLabel}</span>
-                  </label>
-                </RetroField>
-                <div className="cluster">
-                  <RetroButton type="button" variant="ghost" onClick={() => removeReminder(index)}>
-                    {copy.tasks.reminderRemove}
-                  </RetroButton>
-                </div>
-              </div>
-            ))}
-            <RetroButton type="button" variant="ghost" onClick={addReminder}>
-              {copy.tasks.reminderAdd}
-            </RetroButton>
-          </div>
-        </div>
-      </form>
-    </RetroDialogFrame>
-  ) : loadingDetail ? (
-    <LoadingState title={copy.common.loadingTitle} description={copy.common.loadingDescription} />
-  ) : selectedTask ? (
-    <RetroPanel
-      title={copy.tasks.detailTitle}
-      aside={<RetroBadge tone={selectedTask.shared ? 'warning' : 'info'}>{copy.common.details}</RetroBadge>}
-    >
-      <div className="stack">
-        <div className="surface-header">
-          <div className="stack stack--tight">
-            <div className="surface-title">{selectedTask.title}</div>
-            <div className="surface-subtitle">
-              {selectedTask.description || copy.common.noDescription}
-            </div>
-          </div>
-          <div className="surface-meta">
-            <RetroBadge tone={selectedTask.type === 'green' ? 'success' : 'danger'}>
-              {copy.enums.taskType[selectedTask.type]}
-            </RetroBadge>
-            <RetroBadge tone="info">{copy.enums.taskStatus[selectedTask.status]}</RetroBadge>
-          </div>
-        </div>
-        <PlanningMetaList
-          items={[
-            { label: copy.tasks.goalLabel, value: selectedGoal?.name ?? '-' },
-            { label: copy.tasks.priorityLabel, value: selectedTask.priority },
-            { label: copy.tasks.plannedTimeLabel, value: formatDateTime(selectedTask.plannedTime, locale) },
-            { label: copy.tasks.dueTimeLabel, value: formatDateTime(selectedTask.dueTime, locale) },
-            { label: copy.tasks.tagsLabel, value: describeTags(selectedTask) },
-            {
-              label: copy.tasks.recurrenceLabel,
-              value: selectedTask.recurrence ? describeRecurrence(selectedTask.recurrence, locale) : copy.tasks.recurrenceLater,
-            },
-            {
-              label: copy.tasks.remindersLabel,
-              value: selectedTask.reminders.length > 0 ? describeReminders(selectedTask.reminders, locale) : copy.tasks.remindersLater,
-            },
-            { label: copy.common.createdAt, value: formatDateTime(selectedTask.createdAt, locale) },
-            { label: copy.common.updatedAt, value: formatDateTime(selectedTask.updatedAt, locale) },
-          ]}
-        />
-        <div className="cluster">
-          <RetroButton type="button" variant="primary" onClick={() => resetForm('edit', selectedTask)}>
-            {copy.common.edit}
-          </RetroButton>
-          <RetroButton type="button" variant="danger" onClick={handleDelete}>
-            {copy.common.delete}
-          </RetroButton>
-          <RetroButton
-            as={Link}
-            to={`/app/sharing?folder=${selectedFolderId ?? ''}&goal=${selectedGoalId ?? ''}&task=${selectedTask.id}`}
-            variant="ghost"
-          >
-            Share
-          </RetroButton>
-          {selectedGoal ? (
-            <RetroButton
-              as={Link}
-              to={`/app/goals?folder=${selectedGoal.folderId}&goal=${selectedGoal.id}`}
-              variant="ghost"
-            >
-              {copy.common.openGoals}
-            </RetroButton>
-          ) : null}
-        </div>
+  if (loading) {
+    return (
+      <div className="planner planner--center">
+        <Cloud aria-hidden="true" size={24} strokeWidth={1.75} />
+        <span>{copy.loading}</span>
       </div>
-    </RetroPanel>
-  ) : (
-    <EmptyState title={copy.tasks.detailTitle} description={copy.tasks.noFoldersDescription} />
-  );
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="planner planner--center">
+        <Folder aria-hidden="true" size={28} strokeWidth={1.75} />
+        <h1>{copy.loadError}</h1>
+        <p>{loadError}</p>
+        <button className="button button--primary" type="button" onClick={() => void loadPlan()}>
+          {copy.retry}
+        </button>
+      </div>
+    );
+  }
+
+  const empty = folders.length === 0;
 
   return (
-    <div className="stack">
-      <div className="surface-header">
-        <div className="stack stack--tight">
-          <div className="caps">Planning / F3</div>
-          <div className="surface-title">{copy.tasks.title}</div>
-          <div className="surface-subtitle">{copy.tasks.subtitle}</div>
-        </div>
-      </div>
-
-      <PlanningSplitLayout
-        sidebar={(
-          <RetroPanel
-            title={copy.tasks.listTitle}
-            aside={(
-              <RetroButton
+    <div className="planner">
+      <section className="planner-canvas">
+        <header className="planner-header">
+          <div>
+            <h1>{copy.plan}</h1>
+            <div className="planner-header__meta">
+              <span>{doneTasks}/{totalTasks}</span>
+              <span>{copy.synced}</span>
+            </div>
+          </div>
+          <div className="planner-toolbar">
+            <button className="icon-button" type="button" aria-label={copy.search} title={copy.search}>
+              <Search aria-hidden="true" size={18} strokeWidth={1.75} />
+            </button>
+            <div className="create-menu">
+              <button
+                className="icon-button"
                 type="button"
-                size="small"
-                variant="primary"
-                disabled={!selectedGoalId}
-                onClick={() => resetForm('create', null)}
+                aria-label={copy.add}
+                title={copy.add}
+                disabled={saving}
+                aria-haspopup="menu"
+                aria-expanded={isCreateMenuOpen}
+                onClick={() => setIsCreateMenuOpen((current) => !current)}
               >
-                {copy.common.create}
-              </RetroButton>
-            )}
-          >
-            {listPanelContent}
-          </RetroPanel>
+                <Plus aria-hidden="true" size={20} strokeWidth={1.75} />
+              </button>
+              {isCreateMenuOpen ? (
+                <div className="create-menu__panel" role="menu">
+                  <button type="button" role="menuitem" onClick={() => { setIsCreateMenuOpen(false); void handleCreateFolder(); }}>
+                    <Folder aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.folder}</span>
+                  </button>
+                  <button type="button" role="menuitem" disabled={!selection.folderId} onClick={() => { setIsCreateMenuOpen(false); void handleCreateGoal(); }}>
+                    <Target aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.goal}</span>
+                  </button>
+                  <button type="button" role="menuitem" disabled={!selection.goalId} onClick={() => { setIsCreateMenuOpen(false); void handleCreateTask(); }}>
+                    <Circle aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.task}</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </header>
+
+        {empty ? (
+          <div className="planner-empty">
+            <Folder aria-hidden="true" size={34} strokeWidth={1.75} />
+            <h2>{copy.emptyTitle}</h2>
+            <p>{copy.emptyBody}</p>
+            <button className="button button--primary" type="button" disabled={saving} onClick={() => void handleCreateFolder()}>
+              {copy.newFolder}
+            </button>
+          </div>
+        ) : (
+          <div className="plan-tree" role="tree" aria-label={copy.plan}>
+            {folders.map((folder) => {
+              const folderGoals = goalsByFolder[folder.id] ?? [];
+              const folderTasks = folderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []);
+
+              return (
+                <div className="plan-tree__group" key={folder.id}>
+                  <button
+                    type="button"
+                    className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.taskId ? ' is-selected' : ''}`}
+                    onClick={() => setSelection({ folderId: folder.id, goalId: folderGoals[0]?.id ?? null, taskId: null })}
+                    role="treeitem"
+                    aria-expanded="true"
+                  >
+                    <ChevronDown aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <Folder aria-hidden="true" size={18} strokeWidth={1.75} />
+                    <span className="plan-row__title">{folder.name}</span>
+                    <span className="plan-row__meta">{folderTasks.length ? progress(folderTasks) : '0'}</span>
+                    <span className="plan-row__actions">
+                      <span className="plan-row__icon" title={copy.newGoal}>
+                        <Plus size={15} strokeWidth={1.75} />
+                      </span>
+                      <span className="plan-row__icon" title={copy.more}>
+                        <MoreHorizontal size={15} strokeWidth={1.75} />
+                      </span>
+                    </span>
+                  </button>
+
+                  {folderGoals.length === 0 ? (
+                    <button type="button" className="plan-row plan-row--inline" onClick={() => void handleCreateGoal(folder.id)}>
+                      <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
+                      <span>{copy.addGoal}</span>
+                    </button>
+                  ) : null}
+
+                  {folderGoals.map((goal) => {
+                    const goalTasks = tasksByGoal[goal.id] ?? [];
+                    return (
+                      <div className="plan-tree__group" key={goal.id}>
+                        <button
+                          type="button"
+                          className={`plan-row plan-row--goal${selection.goalId === goal.id && !selection.taskId ? ' is-selected' : ''}`}
+                          onClick={() => setSelection({ folderId: folder.id, goalId: goal.id, taskId: goalTasks[0]?.id ?? null })}
+                          role="treeitem"
+                          aria-expanded="true"
+                        >
+                          <ChevronDown aria-hidden="true" size={16} strokeWidth={1.75} />
+                          <Target aria-hidden="true" size={18} strokeWidth={1.75} />
+                          <span className="plan-row__main">
+                            <span className="plan-row__title">{goal.name}</span>
+                            <span className="plan-row__progress" aria-hidden="true">
+                              <span style={{ width: `${progressPercent(goalTasks)}%` }} />
+                            </span>
+                          </span>
+                          <span className="plan-row__meta">{progress(goalTasks)}</span>
+                          <span className="plan-row__actions">
+                            <span className="plan-row__icon" title={copy.newTask}>
+                              <Plus size={15} strokeWidth={1.75} />
+                            </span>
+                            <span className="plan-row__icon" title={copy.more}>
+                              <MoreHorizontal size={15} strokeWidth={1.75} />
+                            </span>
+                          </span>
+                        </button>
+
+                        {goalTasks.length === 0 ? (
+                          <button type="button" className="plan-row plan-row--inline plan-row--task" onClick={() => void handleCreateTask(goal.id)}>
+                            <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
+                            <span>{copy.addTask}</span>
+                          </button>
+                        ) : null}
+
+                        {goalTasks.map((task) => {
+                          const dueChip = formatDueChip(task.dueTime, locale);
+                          const complete = isComplete(task);
+                          const statusLabel = planningCopy.enums.taskStatus[task.status];
+                          const typeLabel = planningCopy.enums.taskType[task.type];
+                          const priorityLabel = `${copy.priority} ${task.priority}`;
+
+                          return (
+                            <div
+                              key={task.id}
+                              className={`plan-row plan-row--task${selection.taskId === task.id ? ' is-selected' : ''}${complete ? ' is-complete' : ''}`}
+                              role="treeitem"
+                              aria-selected={selection.taskId === task.id}
+                            >
+                              <button
+                                type="button"
+                                className="plan-row__check"
+                                aria-label={complete ? rowCopy.reopen : rowCopy.complete}
+                                title={complete ? rowCopy.reopen : rowCopy.complete}
+                                disabled={saving}
+                                onClick={() => void handleToggleTask(task, goal)}
+                              >
+                                {complete ? (
+                                  <CheckCircle2 aria-hidden="true" size={17} strokeWidth={1.75} />
+                                ) : (
+                                  <Circle aria-hidden="true" size={17} strokeWidth={1.75} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className="plan-row__content"
+                                onClick={() => setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id })}
+                              >
+                                <span
+                                  className={`marker-dot marker-dot--${markerToneForTask(task)}`}
+                                  aria-label={`${rowCopy.type}: ${typeLabel}. ${copy.status}: ${statusLabel}`}
+                                  title={`${typeLabel} / ${statusLabel}`}
+                                />
+                                <span className="plan-row__title">{task.title}</span>
+                              </button>
+                              {dueChip ? (
+                                <span className={`due-chip due-chip--${dueTone(task.dueTime)}`} title={formatDateTime(task.dueTime, locale)}>
+                                  {dueChip}
+                                </span>
+                              ) : null}
+                              <span
+                                className={`priority-dot priority-dot--${markerToneForPriority(task.priority)}`}
+                                aria-label={priorityLabel}
+                                title={priorityLabel}
+                              />
+                              <span className="plan-row__actions">
+                                <button
+                                  type="button"
+                                  className="plan-row__icon"
+                                  aria-label={rowCopy.editTask}
+                                  title={rowCopy.editTask}
+                                  onClick={() => setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id })}
+                                >
+                                  <Pencil size={14} strokeWidth={1.75} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="plan-row__icon"
+                                  aria-label={copy.more}
+                                  title={copy.more}
+                                  onClick={() => setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id })}
+                                >
+                                  <MoreHorizontal size={15} strokeWidth={1.75} />
+                                </button>
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
         )}
-        detail={detailPanel}
-      />
+      </section>
+
+      <aside className={`detail-panel${isPanelOpen ? ' is-open' : ''}`}>
+        {selectedTask && selectedGoal && selectedFolder ? (
+          <>
+            <header className="detail-panel__header">
+              <div>
+                <h2>{selectedTask.title}</h2>
+                <div className="detail-panel__badges" aria-label={copy.details}>
+                  <span className="meta-chip" title={copy.status}>
+                    <span className={`marker-dot marker-dot--${markerToneForTask(selectedTask)}`} aria-hidden="true" />
+                    {planningCopy.enums.taskStatus[selectedTask.status]}
+                  </span>
+                  <span className="meta-chip" title={rowCopy.type}>
+                    <span className={`marker-dot marker-dot--${selectedTask.type === 'red' ? 'red' : 'green'}`} aria-hidden="true" />
+                    {planningCopy.enums.taskType[selectedTask.type]}
+                  </span>
+                  <span className="meta-chip" title={copy.priority}>
+                    <Flag aria-hidden="true" size={14} strokeWidth={1.75} />
+                    P{selectedTask.priority}
+                  </span>
+                  {selectedTask.dueTime ? (
+                    <span className={`meta-chip meta-chip--${dueTone(selectedTask.dueTime)}`} title={copy.due}>
+                      <CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />
+                      {formatDateTime(selectedTask.dueTime, locale)}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <button className="icon-button" type="button" aria-label={copy.collapse} title={copy.collapse} onClick={() => setIsPanelOpen(false)}>
+                <PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} />
+              </button>
+            </header>
+
+            <div className="detail-panel__body">
+              <div className="detail-section">
+                <div className="detail-label">{copy.path}</div>
+                <div className="breadcrumb">
+                  <Folder aria-hidden="true" size={15} strokeWidth={1.75} />
+                  <span>{selectedFolder.name} / {selectedGoal.name}</span>
+                </div>
+              </div>
+
+              <div className="detail-section">
+                <div className="detail-label">{copy.notes}</div>
+                <div className="detail-note">
+                  <StickyNote aria-hidden="true" size={15} strokeWidth={1.75} />
+                  <p>{selectedTask.description || planningCopy.common.noDescription}</p>
+                </div>
+              </div>
+
+              <details className="detail-disclosure">
+                <summary>{copy.details}</summary>
+                <div className="detail-editor">
+                  <label className="field detail-grid__wide">
+                    <span>{copy.task}</span>
+                    <input className="field__control" value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
+                  </label>
+                  <label className="field detail-grid__wide">
+                    <span>{copy.notes}</span>
+                    <textarea className="field__control field__control--area" value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
+                  </label>
+                  <label className="field">
+                    <span>{copy.status}</span>
+                    <select className="field__control" value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as TaskStatus }))}>
+                      <option value="todo">{planningCopy.enums.taskStatus.todo}</option>
+                      <option value="in_progress">{planningCopy.enums.taskStatus.in_progress}</option>
+                      <option value="done">{planningCopy.enums.taskStatus.done}</option>
+                      <option value="cancelled">{planningCopy.enums.taskStatus.cancelled}</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>{copy.priority}</span>
+                    <input className="field__control" type="number" min={1} max={10} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} />
+                  </label>
+                  <label className="field detail-grid__wide">
+                    <span>{copy.due}</span>
+                    <input className="field__control" type="datetime-local" value={draft.dueTime} onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))} />
+                  </label>
+                  <button className="button button--primary detail-save" type="button" disabled={saving} onClick={() => void handleSaveTask()}>
+                    <Save aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.save}</span>
+                  </button>
+                </div>
+                <dl>
+                  <div>
+                    <dt>{copy.synced}</dt>
+                    <dd>{formatDateTime(selectedTask.updatedAt, locale)}</dd>
+                  </div>
+                  <div>
+                    <dt>{planningCopy.common.createdAt}</dt>
+                    <dd>{formatDateTime(selectedTask.createdAt, locale)}</dd>
+                  </div>
+                </dl>
+              </details>
+            </div>
+          </>
+        ) : (
+          <div className="detail-empty">
+            <Circle aria-hidden="true" size={28} strokeWidth={1.75} />
+            <span>{copy.selectTask}</span>
+          </div>
+        )}
+      </aside>
     </div>
   );
 }

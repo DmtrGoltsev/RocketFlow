@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useI18n } from '../../../i18n';
-import { RetroButton } from '../../../ui/primitives/RetroButton';
-import { RetroField } from '../../../ui/primitives/RetroField';
 import { AuthCard } from '../components/AuthCard';
 import { AuthNotice } from '../components/AuthNotice';
 import { mapAuthErrorMessage, useAuth } from '../AuthProvider';
@@ -65,7 +63,6 @@ export function LoginRoute() {
   });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [traceId, setTraceId] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -87,7 +84,6 @@ export function LoginRoute() {
     const nextErrors = validateForm(formState, t);
     setFieldErrors(nextErrors);
     setFormError(null);
-    setTraceId(undefined);
 
     if (Object.keys(nextErrors).length > 0) {
       return;
@@ -108,7 +104,6 @@ export function LoginRoute() {
       const mapped = mapAuthErrorMessage(error, t);
       setFieldErrors(mapped.fieldErrors);
       setFormError(mapped.formError);
-      setTraceId(mapped.traceId);
     } finally {
       setSubmitting(false);
     }
@@ -117,7 +112,7 @@ export function LoginRoute() {
   return (
     <div className="stack">
       {noticeMessage ? <AuthNotice message={noticeMessage} /> : null}
-      {formError ? <AuthNotice tone="error" message={formError} traceId={traceId} /> : null}
+      {formError ? <AuthNotice tone="error" message={formError} /> : null}
 
       <AuthCard
         title={t('auth.login.title')}
@@ -127,38 +122,39 @@ export function LoginRoute() {
         alternateTo="/auth/register"
       >
         <form className="stack" onSubmit={handleSubmit}>
-          <RetroField label={t('auth.form.email')}>
+          <label className="field">
+            <span>{t('auth.form.email')}</span>
             <input
-              className="retro-input"
+              className="field__control"
               autoComplete="email"
               value={formState.email}
               onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
             />
-          </RetroField>
-          {fieldErrors.email ? <div className="muted">{fieldErrors.email}</div> : null}
+            {fieldErrors.email ? <span className="field__error">{fieldErrors.email}</span> : null}
+          </label>
 
-          <RetroField label={t('auth.form.password')}>
+          <label className="field">
+            <span>{t('auth.form.password')}</span>
             <input
-              className="retro-input"
+              className="field__control"
               type="password"
               autoComplete="current-password"
               value={formState.password}
               onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))}
             />
-          </RetroField>
-          {fieldErrors.password ? <div className="muted">{fieldErrors.password}</div> : null}
+            {fieldErrors.password ? <span className="field__error">{fieldErrors.password}</span> : null}
+          </label>
 
           <div className="cluster">
-            <RetroButton type="submit" variant="primary" disabled={submitting}>
+            <button className="button button--primary" type="submit" disabled={submitting}>
               {submitting ? t('auth.login.loading') : t('auth.login.submit')}
-            </RetroButton>
-            <RetroButton as={Link} to="/" variant="ghost">
+            </button>
+            <Link className="button button--ghost" to="/">
               {t('routes.home.label')}
-            </RetroButton>
+            </Link>
           </div>
         </form>
       </AuthCard>
     </div>
   );
 }
-

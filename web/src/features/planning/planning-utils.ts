@@ -16,7 +16,7 @@ import type {
 
 type NamedEntity = FolderDto | GoalDto;
 
-const EMPTY_VALUE = '—';
+const EMPTY_VALUE = '-';
 const WEEKDAYS: DayOfWeek[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 
 export interface TaskEditorDraft {
@@ -69,8 +69,10 @@ export function formatDateTime(value: string | null, locale: 'ru' | 'en') {
   }
 
   return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
   }).format(date);
 }
 
@@ -287,7 +289,7 @@ export function describeReminders(reminders: TaskReminderDto[], locale: 'ru' | '
 
   return reminders.map((reminder) => {
     const modeLabel = reminder.mode === 'before_due_time'
-      ? (locale === 'ru' ? 'до дедлайна' : 'before due time')
+      ? (locale === 'ru' ? 'до срока' : 'before due time')
       : (locale === 'ru' ? 'до плана' : 'before planned time');
     const activeLabel = reminder.active ? '' : locale === 'ru' ? ' (приостановлено)' : ' (paused)';
     return locale === 'ru'

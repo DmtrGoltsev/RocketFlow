@@ -43,7 +43,6 @@ async function parseError(response: Response): Promise<AdvancedApiErrorPayload> 
         code: body.error.code,
         message: body.error.message,
         details: body.error.details ?? [],
-        traceId: body.error.traceId,
       };
     }
   } catch {
@@ -194,4 +193,3 @@ export async function updateSettings(
     body: JSON.stringify(payload),
   });
 }
-

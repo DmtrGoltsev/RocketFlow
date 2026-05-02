@@ -34,8 +34,7 @@ async function parseError(response: Response): Promise<AuthApiError> {
       return {
         code: body.error.code,
         message: body.error.message,
-        details: body.error.details ?? [],
-        traceId: body.error.traceId
+        details: body.error.details ?? []
       };
     }
   } catch {
@@ -163,4 +162,3 @@ export async function authorizedRequest(
 }
 
 export { ApiError };
-

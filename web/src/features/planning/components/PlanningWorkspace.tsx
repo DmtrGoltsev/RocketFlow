@@ -18,6 +18,15 @@ interface PlanningInlineNoticeProps {
   children: ReactNode;
 }
 
+interface PlanningHierarchyRowProps {
+  active: boolean;
+  depth: 0 | 1 | 2;
+  title: string;
+  meta?: ReactNode;
+  marker?: ReactNode;
+  onClick: () => void;
+}
+
 interface PlanningMetaListProps {
   items: Array<{
     label: string;
@@ -54,6 +63,32 @@ export function PlanningRecordButton({
   );
 }
 
+export function PlanningHierarchyRow({
+  active,
+  depth,
+  title,
+  meta,
+  marker,
+  onClick,
+}: PlanningHierarchyRowProps) {
+  return (
+    <button
+      type="button"
+      className={`planning-tree-row planning-tree-row--depth-${depth}${active ? ' planning-tree-row--active' : ''}`}
+      onClick={onClick}
+    >
+      <span className="planning-tree-row__rail" aria-hidden="true" />
+      <span className="planning-tree-row__marker" aria-hidden="true">
+        {marker}
+      </span>
+      <span className="planning-tree-row__main">
+        <span className="planning-tree-row__title">{title}</span>
+        {meta ? <span className="planning-tree-row__meta">{meta}</span> : null}
+      </span>
+    </button>
+  );
+}
+
 export function PlanningInlineNotice({ tone, children }: PlanningInlineNoticeProps) {
   return <div className={`planning-inline planning-inline--${tone}`}>{children}</div>;
 }
@@ -74,4 +109,3 @@ export function PlanningMetaList({ items }: PlanningMetaListProps) {
 export function PlanningFieldError({ message }: { message?: string }) {
   return message ? <div className="planning-field-error">{message}</div> : null;
 }
-
