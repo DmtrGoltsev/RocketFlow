@@ -20,6 +20,14 @@ class HttpJsonClient(private val baseUrl: String) {
         return requestJson("POST", path, body, accessToken)
     }
 
+    suspend fun patch(path: String, body: JSONObject, accessToken: String? = null): JSONObject {
+        return requestJson("PATCH", path, body, accessToken)
+    }
+
+    suspend fun put(path: String, body: JSONObject, accessToken: String? = null): JSONObject {
+        return requestJson("PUT", path, body, accessToken)
+    }
+
     suspend fun delete(path: String, accessToken: String? = null): JSONObject {
         return requestJson("DELETE", path, null, accessToken)
     }

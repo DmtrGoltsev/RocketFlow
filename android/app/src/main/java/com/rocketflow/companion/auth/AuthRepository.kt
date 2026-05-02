@@ -8,6 +8,13 @@ class AuthRepository(
     private val httpJsonClient: HttpJsonClient,
     private val sessionStore: SessionStore
 ) {
+    private var onSessionClearedListener: (() -> Unit)? = null
+
+    fun setOnSessionClearedListener(listener: (() -> Unit)?) {
+        onSessionClearedListener = listener
+    }
+
+    fun readStoredSession(): AuthSession? = sessionStore.readSession()
 
     suspend fun bootstrapSession(): AuthSession? {
         val stored = sessionStore.readSession() ?: return null
@@ -18,7 +25,7 @@ class AuthRepository(
             restored
         } catch (error: ApiException) {
             if (error.status != 401) {
-                throw error
+                return stored
             }
 
             try {
@@ -28,12 +35,14 @@ class AuthRepository(
                 sessionStore.writeSession(restored)
                 restored
             } catch (refreshError: ApiException) {
-                sessionStore.clear()
+                clearStoredSession(notifyListener = refreshError.status == 401)
                 if (refreshError.status == 401) {
                     return null
                 }
-                throw refreshError
+                return stored
             }
+        } catch (_: Exception) {
+            stored
         }
     }
 
@@ -43,6 +52,28 @@ class AuthRepository(
             body = JSONObject()
                 .put("email", email)
                 .put("password", password)
+        )
+
+        val session = parseAuthSession(response)
+        sessionStore.writeSession(session)
+        return session
+    }
+
+    suspend fun register(
+        email: String,
+        password: String,
+        displayName: String,
+        timezone: String,
+        language: String
+    ): AuthSession {
+        val response = httpJsonClient.post(
+            path = "/auth/register",
+            body = JSONObject()
+                .put("email", email)
+                .put("password", password)
+                .put("displayName", displayName)
+                .put("timezone", timezone)
+                .put("language", language)
         )
 
         val session = parseAuthSession(response)
@@ -64,7 +95,7 @@ class AuthRepository(
             }
         }
 
-        sessionStore.clear()
+        clearStoredSession(notifyListener = false)
     }
 
     suspend fun refreshCurrentUser(session: AuthSession): AuthSession {
@@ -86,7 +117,7 @@ class AuthRepository(
                 refreshed
             } catch (refreshError: ApiException) {
                 if (refreshError.status == 401) {
-                    sessionStore.clear()
+                    clearStoredSession(notifyListener = true)
                 }
                 throw refreshError
             }
@@ -115,7 +146,7 @@ class AuthRepository(
                 )
             } catch (refreshError: ApiException) {
                 if (refreshError.status == 401) {
-                    sessionStore.clear()
+                    clearStoredSession(notifyListener = true)
                 }
                 throw refreshError
             }
@@ -148,7 +179,73 @@ class AuthRepository(
                 )
             } catch (refreshError: ApiException) {
                 if (refreshError.status == 401) {
-                    sessionStore.clear()
+                    clearStoredSession(notifyListener = true)
+                }
+                throw refreshError
+            }
+        }
+    }
+
+    suspend fun authorizedPatch(
+        session: AuthSession,
+        path: String,
+        body: JSONObject
+    ): SessionBoundResult<JSONObject> {
+        return try {
+            SessionBoundResult(
+                session = session,
+                value = httpJsonClient.patch(path = path, body = body, accessToken = session.tokens.accessToken)
+            )
+        } catch (error: ApiException) {
+            if (error.status != 401) {
+                throw error
+            }
+
+            try {
+                val tokens = refreshTokens(session.tokens.refreshToken)
+                val user = fetchCurrentUser(tokens.accessToken)
+                val refreshed = AuthSession(user, tokens)
+                sessionStore.writeSession(refreshed)
+                SessionBoundResult(
+                    session = refreshed,
+                    value = httpJsonClient.patch(path = path, body = body, accessToken = refreshed.tokens.accessToken)
+                )
+            } catch (refreshError: ApiException) {
+                if (refreshError.status == 401) {
+                    clearStoredSession(notifyListener = true)
+                }
+                throw refreshError
+            }
+        }
+    }
+
+    suspend fun authorizedPut(
+        session: AuthSession,
+        path: String,
+        body: JSONObject
+    ): SessionBoundResult<JSONObject> {
+        return try {
+            SessionBoundResult(
+                session = session,
+                value = httpJsonClient.put(path = path, body = body, accessToken = session.tokens.accessToken)
+            )
+        } catch (error: ApiException) {
+            if (error.status != 401) {
+                throw error
+            }
+
+            try {
+                val tokens = refreshTokens(session.tokens.refreshToken)
+                val user = fetchCurrentUser(tokens.accessToken)
+                val refreshed = AuthSession(user, tokens)
+                sessionStore.writeSession(refreshed)
+                SessionBoundResult(
+                    session = refreshed,
+                    value = httpJsonClient.put(path = path, body = body, accessToken = refreshed.tokens.accessToken)
+                )
+            } catch (refreshError: ApiException) {
+                if (refreshError.status == 401) {
+                    clearStoredSession(notifyListener = true)
                 }
                 throw refreshError
             }
@@ -173,10 +270,17 @@ class AuthRepository(
                 refreshed
             } catch (refreshError: ApiException) {
                 if (refreshError.status == 401) {
-                    sessionStore.clear()
+                    clearStoredSession(notifyListener = true)
                 }
                 throw refreshError
             }
+        }
+    }
+
+    private fun clearStoredSession(notifyListener: Boolean) {
+        sessionStore.clear()
+        if (notifyListener) {
+            onSessionClearedListener?.invoke()
         }
     }
 

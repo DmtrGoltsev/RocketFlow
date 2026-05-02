@@ -1,86 +1,314 @@
 package com.rocketflow.companion
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.text.InputType
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import com.rocketflow.companion.auth.AuthCopy
+import android.widget.Toast
+import com.rocketflow.companion.auth.AuthTokens
+import com.rocketflow.companion.auth.CurrentUser
 import com.rocketflow.companion.auth.AuthSession
-import com.rocketflow.companion.auth.authCopy
-import com.rocketflow.companion.browse.FolderSummary
-import com.rocketflow.companion.browse.GoalSummary
-import com.rocketflow.companion.browse.SharedResources
-import com.rocketflow.companion.browse.TaskSummary
-import com.rocketflow.companion.detail.TaskDetail
+import com.rocketflow.companion.auth.SessionStore
 import com.rocketflow.companion.network.ApiException
 import com.rocketflow.companion.notifications.DeviceRegistration
 import com.rocketflow.companion.notifications.NotificationIntents
 import com.rocketflow.companion.notifications.NotificationRuntime
+import com.rocketflow.companion.notifications.PushTokenSnapshot
+import com.rocketflow.companion.planning.FolderDraft
+import com.rocketflow.companion.planning.GoalDraft
+import com.rocketflow.companion.planning.PlanningFolder
+import com.rocketflow.companion.planning.PlanningGoal
+import com.rocketflow.companion.planning.PlanningLoadResult
+import com.rocketflow.companion.planning.PlanningLocalStore
+import com.rocketflow.companion.planning.PlanningSnapshot
+import com.rocketflow.companion.planning.PlanningSyncReason
+import com.rocketflow.companion.planning.PlanningTask
+import com.rocketflow.companion.planning.SyncState
+import com.rocketflow.companion.planning.TaskDraft
+import com.rocketflow.companion.planning.TaskTag
+import com.rocketflow.companion.planning.TaskTagDraft
+import com.rocketflow.companion.settings.PriorityDecayPolicy
+import com.rocketflow.companion.settings.UserSettings
+import com.rocketflow.companion.sharing.ShareLink
+import com.rocketflow.companion.sharing.ShareTarget
+import com.rocketflow.companion.sharing.ShareTargetType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.Locale
 
 class MainActivity : Activity() {
+
+    private object Ui {
+        const val CANVAS = "#F8F4EC"
+        const val SURFACE = "#FFFDF7"
+        const val ELEVATED = "#FFFDF7"
+        const val TEXT = "#20201D"
+        const val MUTED = "#716B61"
+        const val HAIRLINE = "#D9D0C1"
+        const val ACCENT = "#2F6B57"
+        const val ACCENT_SOFT = "#E7EFE8"
+        const val ROW_PRESSED = "#F1ECE2"
+        const val DANGER = "#9B4A43"
+        const val INFO = "#456D8B"
+        const val AMBER = "#9A7A32"
+        const val LOW = "#8C887F"
+        const val INK = "#171713"
+    }
+
+    private enum class Screen {
+        Auth,
+        Planner,
+        Detail,
+        Settings
+    }
+
+    private data class Copy(
+        val signInTitle: String,
+        val email: String,
+        val password: String,
+        val signIn: String,
+        val createAccount: String,
+        val displayName: String,
+        val plan: String,
+        val settings: String,
+        val syncDiagnostics: String,
+        val folder: String,
+        val goal: String,
+        val task: String,
+        val create: String,
+        val newFolder: String,
+        val newGoal: String,
+        val newTask: String,
+        val edit: String,
+        val delete: String,
+        val cancel: String,
+        val save: String,
+        val search: String,
+        val searchHint: String,
+        val clearSearch: String,
+        val nothingHere: String,
+        val emptyBody: String,
+        val selectTask: String,
+        val taskDetail: String,
+        val notes: String,
+        val status: String,
+        val priority: String,
+        val planned: String = "����",
+        val due: String,
+        val tags: String = "����",
+        val recurrence: String = "������",
+        val noRecurrence: String = "��� �������",
+        val daily: String = "������ ����",
+        val weekly: String = "������ ������",
+        val monthly: String = "������ �����",
+        val remindersBeforeDue: String = "�� �����",
+        val remindersBeforePlanned: String = "�� �����",
+        val addTag: String = "�������� ���",
+        val newTag: String = "����� ���",
+        val colorField: String = "����, �������� #2F6B57",
+        val metadata: String = "����������",
+        val path: String,
+        val details: String,
+        val created: String,
+        val updated: String,
+        val synced: String,
+        val offline: String,
+        val pending: String,
+        val savedOffline: String,
+        val couldNotSync: String,
+        val account: String,
+        val language: String,
+        val reminders: String,
+        val priorityDecay: String = "�������� ����������",
+        val priorityDecayHelp: String = "�������� ��������� ����� �������� ��������.",
+        val greenTasks: String = "������� ������",
+        val redTasks: String = "������� ������",
+        val threshold: String = "�����",
+        val decayAmount: String = "���",
+        val remindersOn: String,
+        val remindersOff: String,
+        val enableNotifications: String,
+        val registerDevice: String,
+        val unregisterDevice: String,
+        val firebaseUnavailable: String,
+        val signedOut: String,
+        val signInAgain: String,
+        val requestFailed: String,
+        val loading: String,
+        val noGoalYet: String,
+        val noTaskYet: String,
+        val nameRequired: String,
+        val titleRequired: String,
+        val folderFirst: String,
+        val goalFirst: String,
+        val noDate: String,
+        val pickDate: String = "������� ����",
+        val clearDate: String = "��������",
+        val invalidDate: String = "������: yyyy-MM-dd HH:mm.",
+        val today: String,
+        val tomorrow: String,
+        val reschedule: String = "���������",
+        val later30m: String = "30 ���",
+        val later1h: String = "1 ���",
+        val later3h: String = "3 ����",
+        val later24h: String = "24 ����",
+        val decayApplied: String = "��������� ������",
+        val decayNotApplied: String = "��������� ��� ���������",
+        val statusTodo: String,
+        val statusInProgress: String,
+        val statusDone: String,
+        val statusCancelled: String,
+        val openingTask: String,
+        val syncNow: String,
+        val signOut: String,
+        val titleField: String,
+        val nameField: String,
+        val notesField: String,
+        val dueField: String,
+        val plannedField: String = "����, �������� 2026-05-01 09:00",
+        val priorityField: String = "��������� 1-10",
+        val priorityRequired: String = "��������� ������ ���� �� 1 �� 10.",
+        val priorityShort: String,
+        val sharing: String,
+        val share: String,
+        val shareByEmail: String,
+        val shareByUserId: String,
+        val shareLink: String,
+        val invite: String,
+        val inviteSent: String,
+        val userId: String,
+        val userIdField: String,
+        val createLink: String,
+        val existingLinks: String,
+        val noLinks: String,
+        val linkCreated: String,
+        val linkCopied: String,
+        val copyLink: String,
+        val revoke: String,
+        val revoked: String,
+        val acceptLink: String,
+        val tokenField: String,
+        val resolve: String,
+        val accept: String,
+        val linkAccepted: String,
+        val linkResolved: String,
+        val expires: String,
+        val active: String,
+        val noExpiry: String,
+        val offlineSharing: String
+    )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val appContainer by lazy { (application as RocketFlowCompanionApp).container }
     private val authRepository by lazy { appContainer.authRepository }
-    private val browseRepository by lazy { appContainer.browseRepository }
-    private val taskDetailRepository by lazy { appContainer.taskDetailRepository }
+    private val languageStore by lazy { appContainer.languageStore }
+    private val planningRepository by lazy { appContainer.planningRepository }
+    private val userSettingsRepository by lazy { appContainer.userSettingsRepository }
+    private val sharingRepository by lazy { appContainer.sharingRepository }
+    private val planningSyncScheduler by lazy { appContainer.planningSyncScheduler }
     private val notificationsRepository by lazy { appContainer.notificationsRepository }
     private val notificationRuntime by lazy { appContainer.notificationRuntime }
+    private val connectivityManager by lazy { getSystemService(ConnectivityManager::class.java) }
+    private val zone: ZoneId by lazy { ZoneId.systemDefault() }
 
-    private lateinit var titleView: TextView
-    private lateinit var subtitleView: TextView
-    private lateinit var noticeView: TextView
-    private lateinit var loadingView: TextView
-    private lateinit var sessionCard: LinearLayout
-    private lateinit var loginCard: LinearLayout
-    private lateinit var browseCard: LinearLayout
-    private lateinit var detailCard: LinearLayout
-    private lateinit var notificationsCard: LinearLayout
-    private lateinit var emailInput: EditText
-    private lateinit var passwordInput: EditText
-    private lateinit var pushTokenInput: EditText
-    private lateinit var deviceNameInput: EditText
-    private lateinit var sessionInfoView: TextView
-    private lateinit var loginButton: Button
-    private lateinit var refreshButton: Button
-    private lateinit var logoutButton: Button
-    private lateinit var registerDeviceButton: Button
-    private lateinit var unregisterDeviceButton: Button
-    private lateinit var notificationPermissionButton: Button
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            runOnUiThread {
+                if (currentSession != null) {
+                    planningSyncScheduler.enqueuePlanningSync(PlanningSyncReason.NetworkRestore)
+                    reloadPlanner(showBusy = false)
+                }
+            }
+        }
+    }
 
+    private var currentLanguage = "ru"
+    private var currentScreen = Screen.Auth
     private var currentSession: AuthSession? = null
-    private var folders: List<FolderSummary> = emptyList()
-    private var goals: List<GoalSummary> = emptyList()
-    private var tasks: List<TaskSummary> = emptyList()
-    private var sharedResources: SharedResources = SharedResources(emptyList(), emptyList())
+    private var currentDeviceRegistration: DeviceRegistration? = null
+    private var currentPushToken: PushTokenSnapshot? = null
+    private var currentSettings: UserSettings? = null
+    private var settingsLoading = false
+    private var settingsLoadAttempted = false
+
+    private var folders: List<PlanningFolder> = emptyList()
+    private var goals: List<PlanningGoal> = emptyList()
+    private var tasks: List<PlanningTask> = emptyList()
+    private var sharedGoals: List<PlanningGoal> = emptyList()
+    private var sharedTasks: List<PlanningTask> = emptyList()
+    private var taskTags: List<TaskTag> = emptyList()
+    private var planningOffline = false
+    private var planningPendingCount = 0
+    private var planningLastSyncError: String? = null
+
     private var selectedFolderId: String? = null
     private var selectedGoalId: String? = null
     private var selectedTaskId: String? = null
-    private var selectedTaskDetail: TaskDetail? = null
-    private var loadingTaskDetail = false
-    private var currentDeviceRegistration: DeviceRegistration? = null
+    private var selectedTaskDetail: PlanningTask? = null
     private var pendingTaskOpenId: String? = null
+
+    private val collapsedFolderIds = mutableSetOf<String>()
+    private val collapsedGoalIds = mutableSetOf<String>()
+    private var detailsExpanded = false
+    private var diagnosticsExpanded = false
+    private var searchQuery = ""
+    private var busy = false
+    private var message: String? = null
+
+    private var emailInput: EditText? = null
+    private var passwordInput: EditText? = null
+    private var emailDraft = ""
+    private var passwordDraft = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        currentLanguage = languageStore.readLanguage()
+        seedAcceptanceScenarioIfRequested(intent)
+        authRepository.setOnSessionClearedListener(::handleTerminalSessionFailure)
         currentDeviceRegistration = notificationsRepository.readStoredRegistration()
-        setupUi()
+        currentPushToken = notificationsRepository.readStoredPushToken()
+        window.statusBarColor = color(Ui.CANVAS)
+        window.navigationBarColor = color(Ui.CANVAS)
         handleIncomingIntent(intent)
         render()
+        registerNetworkRestore()
+        refreshPushToken(showProgress = false)
         bootstrapSession()
     }
 
@@ -93,8 +321,20 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        authRepository.setOnSessionClearedListener(null)
+        unregisterNetworkRestore()
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onBackPressed() {
+        when (currentScreen) {
+            Screen.Detail, Screen.Settings -> {
+                currentScreen = Screen.Planner
+                render()
+            }
+            else -> super.onBackPressed()
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -104,120 +344,28 @@ class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == NotificationRuntime.REQUEST_CODE) {
-            val copy = authCopy(currentSession?.user?.language)
-            noticeView.text = if (notificationRuntime.hasNotificationPermission()) {
-                copy.ready
-            } else {
-                copy.notificationPermissionRequired
+            message = if (notificationRuntime.hasNotificationPermission()) copy().remindersOn else copy().remindersOff
+            if (notificationRuntime.hasNotificationPermission()) {
+                maybeSyncRegisteredDevice()
             }
             render()
         }
     }
 
-    private fun setupUi() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(40, 48, 40, 48)
-        }
-
-        titleView = TextView(this).apply {
-            textSize = 24f
-        }
-        subtitleView = TextView(this).apply {
-            textSize = 15f
-            setPadding(0, 12, 0, 0)
-        }
-        noticeView = TextView(this).apply {
-            textSize = 14f
-            setPadding(0, 24, 0, 0)
-        }
-        loadingView = TextView(this).apply {
-            textSize = 14f
-            setPadding(0, 24, 0, 0)
-        }
-
-        emailInput = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-        }
-        passwordInput = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        pushTokenInput = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT
-        }
-        deviceNameInput = EditText(this).apply {
-            setText(defaultDeviceName())
-        }
-        loginButton = Button(this).apply {
-            setOnClickListener { submitLogin() }
-        }
-        refreshButton = Button(this).apply {
-            setOnClickListener { refreshSession() }
-        }
-        logoutButton = Button(this).apply {
-            setOnClickListener { logout() }
-        }
-        registerDeviceButton = Button(this).apply {
-            setOnClickListener { registerDevice() }
-        }
-        unregisterDeviceButton = Button(this).apply {
-            setOnClickListener { unregisterDevice() }
-        }
-        notificationPermissionButton = Button(this).apply {
-            setOnClickListener { requestNotificationPermission() }
-        }
-        sessionInfoView = TextView(this).apply {
-            textSize = 15f
-        }
-
-        loginCard = sectionCard(
-            emailInput,
-            passwordInput,
-            buttonRow(loginButton)
-        )
-
-        sessionCard = sectionCard(
-            sessionInfoView,
-            buttonRow(refreshButton, logoutButton)
-        )
-
-        notificationsCard = sectionCard()
-        browseCard = sectionCard()
-        detailCard = sectionCard()
-
-        root.addView(titleView)
-        root.addView(subtitleView)
-        root.addView(noticeView)
-        root.addView(loadingView)
-        root.addView(loginCard)
-        root.addView(sessionCard)
-        root.addView(notificationsCard)
-        root.addView(browseCard)
-        root.addView(detailCard)
-
-        setContentView(
-            ScrollView(this).apply {
-                addView(root)
-            }
-        )
-    }
-
     private fun bootstrapSession() {
         setBusy(true)
-        noticeView.text = ""
-
         scope.launch {
             try {
                 currentSession = authRepository.bootstrapSession()
                 if (currentSession != null) {
-                    loadBrowseData()
+                    currentScreen = Screen.Planner
+                    loadPlannerData()
+                    syncRegisteredDeviceIfPossible(currentSession ?: return@launch)
                     maybeOpenPendingTask()
                 }
-                render()
             } catch (error: Exception) {
                 currentSession = null
-                showError(error)
-                render()
+                message = humanError(error)
             } finally {
                 setBusy(false)
             }
@@ -225,54 +373,149 @@ class MainActivity : Activity() {
     }
 
     private fun submitLogin() {
-        val email = emailInput.text.toString().trim()
-        val password = passwordInput.text.toString()
+        emailDraft = emailInput?.text?.toString()?.trim().orEmpty()
+        passwordDraft = passwordInput?.text?.toString().orEmpty()
 
-        if (email.isBlank() || password.isBlank()) {
-            noticeView.text = authCopy(currentSession?.user?.language).loginRequired
+        if (emailDraft.isBlank() || passwordDraft.isBlank()) {
+            message = copy().signInAgain
+            render()
             return
         }
 
         setBusy(true)
-        noticeView.text = ""
-
+        message = null
         scope.launch {
             try {
-                currentSession = authRepository.login(email, password)
-                passwordInput.setText("")
-                loadBrowseData()
+                currentSession = authRepository.login(emailDraft, passwordDraft)
+                passwordDraft = ""
+                currentScreen = Screen.Planner
+                loadPlannerData()
+                syncRegisteredDeviceIfPossible(currentSession ?: return@launch)
                 maybeOpenPendingTask()
-                render()
             } catch (error: Exception) {
-                showError(error)
+                message = humanError(error)
             } finally {
                 setBusy(false)
             }
         }
     }
 
-    private fun refreshSession() {
-        val session = currentSession ?: return
-        setBusy(true)
-        noticeView.text = ""
+    private fun showRegisterDialog() {
+        val c = copy()
+        val email = dialogInput(c.email, emailInput?.text?.toString().orEmpty())
+        val password = dialogInput(c.password, "", isPassword = true)
+        val name = dialogInput(c.displayName, "")
+        val form = dialogForm(email, password, name)
 
+        AlertDialog.Builder(this)
+            .setTitle(c.createAccount)
+            .setView(form)
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.createAccount) { _, _ ->
+                val registerEmail = email.text.toString().trim()
+                val registerPassword = password.text.toString()
+                val displayName = name.text.toString().trim().ifBlank { "RocketFlow" }
+                if (registerEmail.isBlank() || registerPassword.isBlank()) {
+                    message = c.signInAgain
+                    render()
+                    return@setPositiveButton
+                }
+                register(registerEmail, registerPassword, displayName)
+            }
+            .show()
+    }
+
+    private fun register(email: String, password: String, displayName: String) {
+        setBusy(true)
+        message = null
         scope.launch {
             try {
-                currentSession = authRepository.refreshCurrentUser(session)
-                loadBrowseData()
-                render()
+                currentSession = authRepository.register(
+                    email = email,
+                    password = password,
+                    displayName = displayName,
+                    timezone = zone.id,
+                    language = currentLanguage
+                )
+                currentScreen = Screen.Planner
+                loadPlannerData()
+                syncRegisteredDeviceIfPossible(currentSession ?: return@launch)
             } catch (error: Exception) {
-                showError(error)
+                message = humanError(error)
             } finally {
                 setBusy(false)
+            }
+        }
+    }
+
+    private suspend fun loadPlannerData() {
+        val session = currentSession ?: return
+        val result = planningRepository.syncAndLoad(session)
+        currentSession = result.session
+        applyPlanningSnapshot(result.snapshot)
+    }
+
+    private fun applyPlanningSnapshot(snapshot: PlanningSnapshot) {
+        folders = snapshot.folders
+        goals = snapshot.goals
+        tasks = snapshot.tasks
+        sharedGoals = snapshot.sharedGoals
+        sharedTasks = snapshot.sharedTasks
+        taskTags = snapshot.taskTags
+        planningOffline = snapshot.offline
+        planningPendingCount = snapshot.pendingCount
+        planningLastSyncError = snapshot.lastSyncError
+
+        selectedFolderId = selectedFolderId
+            ?.takeIf { id -> folders.any { it.id == id } }
+            ?: folders.firstOrNull()?.id
+
+        selectedGoalId = selectedGoalId
+            ?.takeIf { id -> goals.any { it.id == id } || sharedGoals.any { it.id == id } }
+            ?: selectedFolderId?.let { folderId -> goals.firstOrNull { it.folderId == folderId }?.id }
+
+        selectedTaskId = selectedTaskId?.takeIf { id -> allTasks().any { it.id == id } }
+        selectedTaskDetail = selectedTaskId?.let(::findTask)
+    }
+
+    private fun clearPlannerState() {
+        folders = emptyList()
+        goals = emptyList()
+        tasks = emptyList()
+        sharedGoals = emptyList()
+        sharedTasks = emptyList()
+        taskTags = emptyList()
+        planningOffline = false
+        planningPendingCount = 0
+        planningLastSyncError = null
+        selectedFolderId = null
+        selectedGoalId = null
+        selectedTaskId = null
+        selectedTaskDetail = null
+        collapsedFolderIds.clear()
+        collapsedGoalIds.clear()
+        searchQuery = ""
+    }
+
+    private fun reloadPlanner(showBusy: Boolean = true) {
+        if (currentSession == null) return
+        planningSyncScheduler.enqueuePlanningSync(PlanningSyncReason.Manual)
+        if (showBusy) setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                loadPlannerData()
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                if (showBusy) setBusy(false) else render()
             }
         }
     }
 
     private fun logout() {
         setBusy(true)
-        noticeView.text = ""
-
+        message = null
         scope.launch {
             try {
                 val session = currentSession
@@ -280,125 +523,1804 @@ class MainActivity : Activity() {
                 if (session != null && registration != null) {
                     try {
                         currentSession = notificationsRepository.unregisterDevice(session, registration.id)
+                        currentDeviceRegistration = null
                     } catch (_: Exception) {
-                        notificationsRepository.clearStoredRegistration()
+                        currentDeviceRegistration = notificationsRepository.readStoredRegistration()
                     }
-                } else {
-                    notificationsRepository.clearStoredRegistration()
                 }
                 authRepository.logout()
             } finally {
                 currentSession = null
-                currentDeviceRegistration = null
-                clearBrowseState()
-                render()
+                currentSettings = null
+                settingsLoadAttempted = false
+                currentScreen = Screen.Auth
+                clearPlannerState()
+                message = copy().signedOut
                 setBusy(false)
             }
         }
     }
 
-    private suspend fun loadBrowseData() {
-        val session = currentSession ?: return
-
-        val foldersResult = browseRepository.listFolders(session)
-        currentSession = foldersResult.session
-        folders = foldersResult.value.filterNot { it.archived }
-        selectedFolderId = selectedFolderId
-            ?.takeIf { candidate -> folders.any { it.id == candidate } }
-            ?: folders.firstOrNull()?.id
-
-        if (selectedFolderId != null) {
-            val goalsResult = browseRepository.listGoals(currentSession ?: return, selectedFolderId ?: return)
-            currentSession = goalsResult.session
-            goals = goalsResult.value.filterNot { it.archived }
-        } else {
-            goals = emptyList()
-        }
-
-        selectedGoalId = selectedGoalId
-            ?.takeIf { candidate -> goals.any { it.id == candidate } }
-            ?: goals.firstOrNull()?.id
-
-        if (selectedGoalId != null) {
-            val tasksResult = browseRepository.listTasks(currentSession ?: return, selectedGoalId ?: return)
-            currentSession = tasksResult.session
-            tasks = tasksResult.value.filterNot { it.shared }
-        } else {
-            tasks = emptyList()
-        }
-
-        val sharedResult = browseRepository.getSharedResources(currentSession ?: return)
-        currentSession = sharedResult.session
-        sharedResources = sharedResult.value
-
-        val visibleTaskIds = tasks.map { it.id }.toSet() + sharedResources.tasks.map { it.id }.toSet()
-        if (selectedTaskId != null && selectedTaskId !in visibleTaskIds) {
-            selectedTaskId = null
-            selectedTaskDetail = null
-        }
-    }
-
-    private fun clearBrowseState() {
-        folders = emptyList()
-        goals = emptyList()
-        tasks = emptyList()
-        sharedResources = SharedResources(emptyList(), emptyList())
-        selectedFolderId = null
-        selectedGoalId = null
-        selectedTaskId = null
-        selectedTaskDetail = null
-        loadingTaskDetail = false
-    }
-
-    private fun reloadBrowse() {
-        if (currentSession == null) {
+    private fun render() {
+        val session = currentSession
+        if (session == null) {
+            currentScreen = Screen.Auth
+            renderAuth()
             return
         }
 
-        setBusy(true)
-        noticeView.text = ""
+        when (currentScreen) {
+            Screen.Auth, Screen.Planner -> renderPlanner()
+            Screen.Detail -> renderDetail()
+            Screen.Settings -> renderSettings(session)
+        }
+    }
 
+    private fun renderAuth() {
+        val c = copy()
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(Ui.CANVAS))
+            setPadding(dp(16), dp(32), dp(16), dp(24))
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(
+            TextView(this).apply {
+                text = "RocketFlow"
+                textSize = 34f
+                setTextColor(color(Ui.INK))
+                setTypeface(Typeface.create(Typeface.SERIF, Typeface.BOLD), Typeface.BOLD)
+                includeFontPadding = false
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+        )
+        header.addView(languageSegment(compact = true))
+        root.addView(header)
+
+        root.addView(
+            TextView(this).apply {
+                text = c.signInTitle
+                textSize = 23f
+                setTextColor(color(Ui.TEXT))
+                setTypeface(typeface, Typeface.BOLD)
+                includeFontPadding = false
+                setPadding(0, dp(46), 0, dp(10))
+            }
+        )
+
+        emailInput = EditText(this).apply {
+            hint = c.email
+            setText(emailDraft)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            setSingleLine(true)
+            styleInput()
+        }
+        passwordInput = EditText(this).apply {
+            hint = c.password
+            setText(passwordDraft)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+            styleInput()
+        }
+        root.addView(emailInput)
+        root.addView(passwordInput)
+
+        root.addView(
+            textButton(c.signIn, primary = true) { submitLogin() }.apply {
+                isEnabled = !busy
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(48)
+                ).apply { topMargin = dp(12) }
+            }
+        )
+        root.addView(
+            textButton(c.createAccount, quiet = true) { showRegisterDialog() }.apply {
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(44)
+                )
+            }
+        )
+
+        messageLine()?.let { root.addView(it) }
+
+        setContentView(
+            ScrollView(this).apply {
+                isFillViewport = true
+                setBackgroundColor(color(Ui.CANVAS))
+                addView(root)
+            }
+        )
+    }
+
+    private fun renderPlanner() {
+        val c = copy()
+        val frame = FrameLayout(this).apply { setBackgroundColor(color(Ui.CANVAS)) }
+        val shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(Ui.CANVAS))
+        }
+        shell.addView(appBar(title = c.plan, showBack = false, mode = Screen.Planner))
+        shell.addView(divider())
+        messageLine(inset = true)?.let { shell.addView(it) }
+
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(6), 0, dp(96))
+        }
+
+        if (filteredFolders().isEmpty()) {
+            list.addView(emptyPlannerView())
+        } else {
+            filteredFolders().forEach { folder -> renderFolder(list, folder) }
+            if (sharedGoals.isNotEmpty() || sharedTasks.isNotEmpty()) {
+                list.addView(sectionLabel(if (currentLanguage == "en") "Shared" else "�����"))
+                sharedGoals.forEach { goal -> renderGoal(list, goal, shared = true) }
+                sharedTasks.filter { task -> sharedGoals.none { it.id == task.goalId } }
+                    .forEach { task ->
+                        list.addView(taskRow(task, indentLevel = 1))
+                        list.addView(rowDivider(indentLevel = 1))
+                    }
+            }
+        }
+
+        shell.addView(
+            ScrollView(this).apply {
+                setBackgroundColor(color(Ui.CANVAS))
+                addView(list)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f
+                )
+            }
+        )
+        frame.addView(shell)
+        frame.addView(
+            ImageButton(this).apply {
+                setImageResource(R.drawable.ic_add)
+                setColorFilter(color(Ui.ELEVATED))
+                contentDescription = c.create
+                background = roundedDrawable(Ui.ACCENT, radiusDp = 28)
+                setOnClickListener { showCreateDialog() }
+                layoutParams = FrameLayout.LayoutParams(dp(56), dp(56), Gravity.BOTTOM or Gravity.END).apply {
+                    marginEnd = dp(16)
+                    bottomMargin = dp(16)
+                }
+            }
+        )
+
+        setContentView(frame)
+    }
+
+    private fun renderFolder(parent: LinearLayout, folder: PlanningFolder) {
+        parent.addView(folderRow(folder))
+        parent.addView(rowDivider(indentLevel = 0))
+        if (folder.id in collapsedFolderIds) return
+
+        val folderGoals = goalsForFolder(folder.id)
+        if (folderGoals.isEmpty()) {
+            parent.addView(hintRow(copy().noGoalYet, indentLevel = 1))
+            parent.addView(rowDivider(indentLevel = 1))
+        } else {
+            folderGoals.forEach { goal -> renderGoal(parent, goal, shared = false) }
+        }
+    }
+
+    private fun renderGoal(parent: LinearLayout, goal: PlanningGoal, shared: Boolean) {
+        parent.addView(goalRow(goal, shared = shared))
+        parent.addView(rowDivider(indentLevel = 1))
+        if (goal.id in collapsedGoalIds) return
+
+        val goalTasks = tasksForGoal(goal.id, includeShared = shared)
+        if (goalTasks.isEmpty()) {
+            parent.addView(hintRow(copy().noTaskYet, indentLevel = 2))
+            parent.addView(rowDivider(indentLevel = 2))
+        } else {
+            goalTasks.forEach { task ->
+                parent.addView(taskRow(task, indentLevel = 2))
+                parent.addView(rowDivider(indentLevel = 2))
+            }
+        }
+    }
+
+    private fun renderDetail() {
+        val c = copy()
+        val task = selectedTaskDetail ?: selectedTaskId?.let(::findTask)
+        selectedTaskDetail = task
+        val shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(Ui.CANVAS))
+        }
+        shell.addView(appBar(title = task?.title ?: c.taskDetail, showBack = true, mode = Screen.Detail))
+        shell.addView(divider())
+        messageLine(inset = true)?.let { shell.addView(it) }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(32))
+        }
+
+        if (task == null) {
+            content.addView(emptyDetailView())
+        } else {
+            content.addView(
+                TextView(this).apply {
+                    text = task.title
+                    textSize = 22f
+                    setTextColor(color(Ui.TEXT))
+                    setTypeface(typeface, Typeface.BOLD)
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    includeFontPadding = false
+                    setPadding(0, dp(4), 0, dp(18))
+                }
+            )
+            content.addView(detailMarkerStrip(task))
+            content.addView(pathLine(taskPath(task)))
+            content.addView(sectionLabel(c.notes))
+            content.addView(
+                TextView(this).apply {
+                    text = task.description.ifBlank { c.noDate }
+                    textSize = 15f
+                    setTextColor(color(if (task.description.isBlank()) Ui.MUTED else Ui.TEXT))
+                    setLineSpacing(dp(2).toFloat(), 1f)
+                    setPadding(0, dp(8), 0, dp(16))
+                }
+            )
+            content.addView(propertyRow(c.details, if (detailsExpanded) c.cancel else "", clickable = true) {
+                detailsExpanded = !detailsExpanded
+                render()
+            })
+            if (detailsExpanded) {
+                content.addView(propertyRow(c.status, localizedStatus(task.status), clickable = true) {
+                    showStatusDialog(task)
+                })
+                content.addView(propertyRow(c.priority, "${c.priorityShort}${task.priority}", clickable = true) {
+                    showPriorityDialog(task)
+                })
+                content.addView(propertyRow(c.planned, formatDateTime(task.plannedTime), clickable = true) {
+                    showPlannedDialog(task)
+                })
+                content.addView(propertyRow(c.due, formatDateTime(task.dueTime), clickable = true) {
+                    showDueDialog(task)
+                })
+                content.addView(propertyRow(c.tags, describeTaskTags(task), clickable = !task.shared) {
+                    showTaskTagsDialog(task)
+                })
+                content.addView(propertyRow(c.recurrence, describeRecurrence(task.recurrenceJson), clickable = !task.shared) {
+                    showRecurrenceDialog(task)
+                })
+                content.addView(propertyRow(c.reminders, describeReminders(task.remindersJson), clickable = !task.shared) {
+                    showRemindersDialog(task)
+                })
+                content.addView(propertyRow(c.reschedule, c.later3h, clickable = true) {
+                    showRescheduleDialog(task)
+                })
+                content.addView(propertyRow(c.created, formatDateTime(task.createdAt), clickable = false))
+                content.addView(propertyRow(c.updated, formatDateTime(task.updatedAt), clickable = false))
+                content.addView(propertyRow(c.syncDiagnostics, syncLabel(task.syncState), clickable = false))
+            }
+        }
+
+        shell.addView(
+            ScrollView(this).apply {
+                addView(content)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f
+                )
+            }
+        )
+        setContentView(shell)
+    }
+
+    private fun renderSettings(session: AuthSession) {
+        val c = copy()
+        if (currentSettings == null && !settingsLoading && !settingsLoadAttempted) {
+            loadUserSettings()
+        }
+        val shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(Ui.CANVAS))
+        }
+        shell.addView(appBar(title = c.settings, showBack = true, mode = Screen.Settings))
+        shell.addView(divider())
+        messageLine(inset = true)?.let { shell.addView(it) }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(32))
+        }
+        content.addView(sectionLabel(c.language))
+        content.addView(languageSegment(compact = false))
+        content.addView(settingsRow(c.account, session.user.email))
+        content.addView(settingsRow(c.synced, planningStatusText()))
+        content.addView(sectionLabel(c.sharing))
+        content.addView(settingsRow(c.acceptLink, c.shareLink) { showAcceptShareLinkDialog() })
+        content.addView(sectionLabel(c.priorityDecay))
+        content.addView(
+            TextView(this).apply {
+                text = c.priorityDecayHelp
+                textSize = 13f
+                setTextColor(color(Ui.MUTED))
+                setLineSpacing(dp(2).toFloat(), 1f)
+                setPadding(0, dp(4), 0, dp(6))
+            }
+        )
+        val settings = currentSettings
+        if (settings == null) {
+            content.addView(settingsRow(c.priorityDecay, if (settingsLoading) c.loading else c.couldNotSync))
+        } else {
+            content.addView(settingsRow(c.greenTasks, decayPolicySummary(settings.greenPriorityDecayPolicy)) {
+                showDecayPolicyDialog(settings.greenPriorityDecayPolicy)
+            })
+            content.addView(settingsRow(c.redTasks, decayPolicySummary(settings.redPriorityDecayPolicy)) {
+                showDecayPolicyDialog(settings.redPriorityDecayPolicy)
+            })
+        }
+        content.addView(
+            settingsRow(c.syncDiagnostics, if (diagnosticsExpanded) c.cancel else c.details) {
+                diagnosticsExpanded = !diagnosticsExpanded
+                render()
+            }
+        )
+        if (diagnosticsExpanded) {
+            content.addView(settingsRow(c.couldNotSync, planningLastSyncError?.let { humanText(it) } ?: c.synced))
+            content.addView(settingsRow(c.reminders, notificationPermissionLabel()))
+            if (!notificationsRepository.isFirebaseConfigured()) {
+                content.addView(settingsRow(c.reminders, c.firebaseUnavailable))
+            }
+        }
+        content.addView(sectionLabel(c.reminders))
+        if (!notificationRuntime.hasNotificationPermission()) {
+            content.addView(textButton(c.enableNotifications, primary = true) {
+                notificationRuntime.requestNotificationPermission(this)
+            })
+        }
+        content.addView(settingsRow(c.reminders, notificationRegistrationLabel()))
+        val registration = currentDeviceRegistration
+        content.addView(
+            textButton(if (registration == null) c.registerDevice else c.unregisterDevice, primary = registration == null) {
+                if (registration == null) registerDevice() else unregisterDevice()
+            }
+        )
+        content.addView(textButton(c.syncNow, quiet = true) { reloadPlanner(showBusy = true) })
+        content.addView(textButton(c.signOut, danger = true) { logout() })
+
+        shell.addView(
+            ScrollView(this).apply {
+                addView(content)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f
+                )
+            }
+        )
+        setContentView(shell)
+    }
+
+    private fun loadUserSettings() {
+        val session = currentSession ?: return
+        settingsLoading = true
+        settingsLoadAttempted = true
         scope.launch {
             try {
-                loadBrowseData()
-                render()
+                val result = userSettingsRepository.getSettings(session)
+                currentSession = result.session
+                currentSettings = result.value
             } catch (error: Exception) {
-                showError(error)
+                message = humanError(error)
+            } finally {
+                settingsLoading = false
+                if (currentScreen == Screen.Settings) render()
+            }
+        }
+    }
+
+    private fun showDecayPolicyDialog(policy: PriorityDecayPolicy) {
+        val c = copy()
+        val enabledInput = CheckBox(this).apply {
+            text = c.remindersOn
+            isChecked = policy.enabled
+            setTextColor(color(Ui.TEXT))
+            textSize = 15f
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        val thresholdInput = dialogInput(c.threshold, policy.thresholdPreset)
+        val amountInput = dialogInput(c.decayAmount, policy.decayAmount.toString()).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+        }
+        AlertDialog.Builder(this)
+            .setTitle(if (policy.taskType == "red") c.redTasks else c.greenTasks)
+            .setView(dialogForm(enabledInput, thresholdInput, amountInput))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val preset = thresholdInput.text.toString().trim().lowercase(Locale.ROOT)
+                val amount = amountInput.text.toString().trim().toIntOrNull()
+                if (preset !in setOf("day", "week", "month") || amount == null || amount < 1) {
+                    message = c.invalidDate
+                    render()
+                    return@setPositiveButton
+                }
+                updateDecayPolicy(
+                    policy.copy(
+                        enabled = enabledInput.isChecked,
+                        thresholdPreset = preset,
+                        decayAmount = amount
+                    )
+                )
+            }
+            .show()
+    }
+
+    private fun updateDecayPolicy(policy: PriorityDecayPolicy) {
+        val session = currentSession ?: return
+        val settings = currentSettings ?: return
+        val next = if (policy.taskType == "red") {
+            settings.copy(language = currentLanguage, redPriorityDecayPolicy = policy)
+        } else {
+            settings.copy(language = currentLanguage, greenPriorityDecayPolicy = policy)
+        }
+        setBusy(true)
+        scope.launch {
+            try {
+                val result = userSettingsRepository.updateSettings(session, next)
+                currentSession = result.session
+                currentSettings = result.value
+                message = copy().synced
+            } catch (error: Exception) {
+                message = humanError(error)
             } finally {
                 setBusy(false)
             }
         }
     }
 
+    private fun decayPolicySummary(policy: PriorityDecayPolicy): String {
+        val enabled = if (policy.enabled) copy().remindersOn else copy().remindersOff
+        return "$enabled � ${thresholdLabel(policy.thresholdPreset)} � -${policy.decayAmount}"
+    }
+
+    private fun thresholdLabel(preset: String): String {
+        return when (preset) {
+            "day" -> if (currentLanguage == "en") "day" else "����"
+            "week" -> if (currentLanguage == "en") "week" else "������"
+            "month" -> if (currentLanguage == "en") "month" else "�����"
+            else -> preset
+        }
+    }
+
+    private fun appBar(title: String, showBack: Boolean, mode: Screen): LinearLayout {
+        val c = copy()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, dp(4), 0)
+            background = bottomBorderDrawable(Ui.CANVAS)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56))
+
+            if (showBack) {
+                addView(iconButton(R.drawable.ic_arrow_back, if (currentLanguage == "en") "Back" else "�����") {
+                    currentScreen = Screen.Planner
+                    render()
+                })
+            } else {
+                addView(
+                    TextView(context).apply {
+                        text = "RF"
+                        textSize = 18f
+                        setTextColor(color(Ui.INK))
+                        setTypeface(Typeface.create(Typeface.SERIF, Typeface.BOLD), Typeface.BOLD)
+                        gravity = Gravity.CENTER
+                        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+                    }
+                )
+            }
+
+            addView(
+                TextView(context).apply {
+                    text = title
+                    textSize = 20f
+                    setTextColor(color(Ui.TEXT))
+                    setTypeface(typeface, Typeface.BOLD)
+                    maxLines = if (mode == Screen.Detail) 2 else 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    includeFontPadding = false
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+            )
+
+            when (mode) {
+                Screen.Planner -> {
+                    addView(syncIconButton())
+                    addView(iconButton(R.drawable.ic_search, c.search) { showSearchDialog() })
+                    addView(iconButton(R.drawable.ic_settings, c.settings) {
+                        currentScreen = Screen.Settings
+                        render()
+                    })
+                }
+                Screen.Detail -> {
+                    selectedTaskDetail?.let { task ->
+                        if (!task.shared) {
+                            addView(iconButton(R.drawable.ic_share, c.share) { showShareDialog(task.toShareTarget()) })
+                        }
+                        addView(iconButton(R.drawable.ic_edit, c.edit) { showTaskDialog(task) })
+                        addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
+                    }
+                }
+                Screen.Settings -> Unit
+                Screen.Auth -> Unit
+            }
+        }
+    }
+
+    private fun folderRow(folder: PlanningFolder): View {
+        val c = copy()
+        val totalTasks = goalsForFolder(folder.id).sumOf { tasksForGoal(it.id).size }
+        val doneTasks = goalsForFolder(folder.id).sumOf { goal -> tasksForGoal(goal.id).count { isDone(it) } }
+        return hierarchyContainer(indentLevel = 0, heightDp = 56, selected = false).apply {
+            addView(
+                iconButton(
+                    if (folder.id in collapsedFolderIds) R.drawable.ic_chevron_right else R.drawable.ic_chevron_down,
+                    folder.name
+                ) {
+                    if (folder.id in collapsedFolderIds) collapsedFolderIds.remove(folder.id) else collapsedFolderIds.add(folder.id)
+                    render()
+                }
+            )
+            addView(iconView(R.drawable.ic_folder))
+            addView(rowText(folder.name, "", weight = 1f, titleSize = 16f, titleStyle = Typeface.BOLD).apply {
+                setOnClickListener {
+                    selectedFolderId = folder.id
+                    selectedGoalId = goalsForFolder(folder.id).firstOrNull()?.id
+                    selectedTaskId = null
+                    selectedTaskDetail = null
+                    render()
+                }
+            })
+            addView(counterText(if (totalTasks == 0) "0" else "$doneTasks/$totalTasks"))
+            addView(iconButton(R.drawable.ic_more_horiz, c.details) { showFolderActions(folder) })
+        }
+    }
+
+    private fun goalRow(goal: PlanningGoal, shared: Boolean): View {
+        val c = copy()
+        val goalTasks = tasksForGoal(goal.id, includeShared = shared)
+        val doneTasks = goalTasks.count { isDone(it) }
+        return hierarchyContainer(indentLevel = 1, heightDp = 52, selected = false).apply {
+            addView(
+                iconButton(
+                    if (goal.id in collapsedGoalIds) R.drawable.ic_chevron_right else R.drawable.ic_chevron_down,
+                    goal.name
+                ) {
+                    if (goal.id in collapsedGoalIds) collapsedGoalIds.remove(goal.id) else collapsedGoalIds.add(goal.id)
+                    render()
+                }
+            )
+            addView(iconView(R.drawable.ic_target))
+            addView(rowText(goal.name, "", weight = 1f, titleSize = 15f, titleStyle = Typeface.BOLD).apply {
+                setOnClickListener {
+                    selectedGoalId = goal.id
+                    selectedFolderId = goal.folderId.takeIf { it.isNotBlank() } ?: selectedFolderId
+                    selectedTaskId = null
+                    selectedTaskDetail = null
+                    render()
+                }
+            })
+            addView(counterText(if (goalTasks.isEmpty()) "0" else "$doneTasks/${goalTasks.size}"))
+            if (!shared) {
+                addView(iconButton(R.drawable.ic_more_horiz, c.details) { showGoalActions(goal) })
+            }
+        }
+    }
+
+    private fun taskRow(task: PlanningTask, indentLevel: Int): View {
+        val c = copy()
+        return hierarchyContainer(indentLevel = indentLevel, heightDp = 48, selected = task.id == selectedTaskId).apply {
+            addView(
+                iconButton(
+                    if (isDone(task)) R.drawable.ic_check_circle else R.drawable.ic_radio_button_unchecked,
+                    localizedStatus(task.status)
+                ) {
+                    toggleTaskDone(task)
+                }
+            )
+            addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
+            addView(rowText(task.title, "", weight = 1f, titleSize = 15.5f, titleStyle = Typeface.NORMAL).apply {
+                setOnClickListener { openTaskDetail(task.id) }
+            })
+            dueChip(task)?.let { addView(it) }
+            addView(markerDot(priorityColor(task.priority), priorityA11y(task.priority), sizeDp = 7))
+            if (!task.shared) {
+                addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
+            }
+        }
+    }
+
+    private fun hierarchyContainer(indentLevel: Int, heightDp: Int, selected: Boolean): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16 + indentLevel * 18), 0, dp(4), 0)
+            background = if (selected) roundedDrawable(Ui.ACCENT_SOFT, radiusDp = 6) else roundedDrawable("#00FFFFFF", radiusDp = 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(heightDp)
+            ).apply {
+                topMargin = if (selected) dp(2) else 0
+                bottomMargin = if (selected) dp(2) else 0
+            }
+        }
+    }
+
+    private fun rowText(
+        title: String,
+        subtitle: String,
+        weight: Float,
+        titleSize: Float = 15.5f,
+        titleStyle: Int = Typeface.NORMAL
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, weight)
+            addView(
+                TextView(context).apply {
+                    text = title
+                    textSize = titleSize
+                    setTextColor(color(Ui.TEXT))
+                    setTypeface(typeface, titleStyle)
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    includeFontPadding = false
+                }
+            )
+            if (subtitle.isNotBlank()) {
+                addView(
+                    TextView(context).apply {
+                        text = subtitle
+                        textSize = 12.5f
+                        setTextColor(color(Ui.MUTED))
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.END
+                        includeFontPadding = false
+                        setPadding(0, dp(3), 0, 0)
+                    }
+                )
+            }
+        }
+    }
+
+    private fun counterText(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 12.5f
+            setTextColor(color(Ui.MUTED))
+            gravity = Gravity.CENTER
+            minWidth = dp(34)
+            includeFontPadding = false
+        }
+    }
+
+    private fun rowDivider(indentLevel: Int): View {
+        return View(this).apply {
+            setBackgroundColor(color(Ui.HAIRLINE))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(1)
+            ).apply {
+                marginStart = dp(16 + indentLevel * 18)
+            }
+        }
+    }
+
+    private fun markerDot(colorHex: String, description: String, sizeDp: Int = 8): View {
+        return View(this).apply {
+            contentDescription = description
+            background = ovalDrawable(colorHex)
+            layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)).apply {
+                marginEnd = dp(10)
+            }
+        }
+    }
+
+    private fun dueChip(task: PlanningTask): TextView? {
+        val due = task.dueTime ?: task.plannedTime ?: return null
+        val label = formatDateTime(due)
+        val chipColor = dueChipColor(due)
+        return TextView(this).apply {
+            text = label
+            contentDescription = "${copy().due}: $label"
+            textSize = 12f
+            setTextColor(color(chipColor))
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            background = roundedDrawable("#00FFFFFF", strokeColorHex = chipColor, radiusDp = 8)
+            setPadding(dp(8), 0, dp(8), 0)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(26)).apply {
+                marginEnd = dp(10)
+                width = LinearLayout.LayoutParams.WRAP_CONTENT
+            }
+        }
+    }
+
+    private fun hintRow(text: String, indentLevel: Int): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTextColor(color(Ui.MUTED))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16 + indentLevel * 18), 0, dp(16), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(44)
+            )
+        }
+    }
+
+    private fun emptyPlannerView(): LinearLayout {
+        val c = copy()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(96), dp(24), 0)
+            addView(iconView(R.drawable.ic_folder, sizeDp = 42, tint = Ui.ACCENT))
+            addView(
+                TextView(context).apply {
+                    text = c.nothingHere
+                    textSize = 20f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(color(Ui.TEXT))
+                    includeFontPadding = false
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(18), 0, 0)
+                }
+            )
+            addView(
+                TextView(context).apply {
+                    text = c.emptyBody
+                    textSize = 14f
+                    setTextColor(color(Ui.MUTED))
+                    gravity = Gravity.CENTER
+                    setLineSpacing(dp(2).toFloat(), 1f)
+                    setPadding(0, dp(8), 0, dp(16))
+                }
+            )
+            addView(textButton(c.newFolder, primary = true) { showFolderDialog(null) })
+        }
+    }
+
+    private fun emptyDetailView(): LinearLayout {
+        val c = copy()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20), dp(110), dp(20), 0)
+            addView(iconView(R.drawable.ic_radio_button_unchecked, sizeDp = 40, tint = Ui.ACCENT))
+            addView(
+                TextView(context).apply {
+                    text = c.selectTask
+                    textSize = 20f
+                    setTextColor(color(Ui.TEXT))
+                    setTypeface(typeface, Typeface.BOLD)
+                    setPadding(0, dp(16), 0, 0)
+                }
+            )
+        }
+    }
+
+    private fun showCreateDialog() {
+        val c = copy()
+        val dialogContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            addView(sheetHeader(c.create))
+        }
+
+        val dialog = AlertDialog.Builder(this).setView(dialogContent).create()
+        dialogContent.addView(createOption(R.drawable.ic_folder, c.folder) {
+            dialog.dismiss()
+            showFolderDialog(null)
+        })
+        dialogContent.addView(createOption(R.drawable.ic_target, c.goal) {
+            dialog.dismiss()
+            if (selectedFolderId == null) {
+                message = c.folderFirst
+                render()
+            } else {
+                showGoalDialog(null)
+            }
+        })
+        dialogContent.addView(createOption(R.drawable.ic_radio_button_unchecked, c.task) {
+            dialog.dismiss()
+            if (selectedGoalId == null) {
+                message = c.goalFirst
+                render()
+            } else {
+                showTaskDialog(null)
+            }
+        })
+        dialog.show()
+    }
+
+    private fun sheetHeader(title: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(8), dp(4), dp(8))
+            addView(
+                TextView(context).apply {
+                    text = title
+                    textSize = 20f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(color(Ui.TEXT))
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+            )
+        }
+    }
+
+    private fun createOption(icon: Int, label: String, onClick: () -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), 0, dp(14), 0)
+            minimumHeight = dp(48)
+            addView(iconView(icon, sizeDp = 24, tint = Ui.ACCENT))
+            addView(
+                TextView(context).apply {
+                    text = label
+                    textSize = 16f
+                    setTextColor(color(Ui.TEXT))
+                    setPadding(dp(14), 0, 0, 0)
+                }
+            )
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun showFolderActions(folder: PlanningFolder) {
+        val c = copy()
+        AlertDialog.Builder(this)
+            .setTitle(folder.name)
+            .setItems(arrayOf(c.share, c.edit, c.delete)) { _, which ->
+                when (which) {
+                    0 -> showShareDialog(folder.toShareTarget())
+                    1 -> showFolderDialog(folder)
+                    else -> confirmDelete(folder.name) { deleteFolder(folder) }
+                }
+            }
+            .show()
+    }
+
+    private fun showGoalActions(goal: PlanningGoal) {
+        val c = copy()
+        AlertDialog.Builder(this)
+            .setTitle(goal.name)
+            .setItems(arrayOf(c.share, c.edit, c.delete)) { _, which ->
+                when (which) {
+                    0 -> showShareDialog(goal.toShareTarget())
+                    1 -> showGoalDialog(goal)
+                    else -> confirmDelete(goal.name) { deleteGoal(goal) }
+                }
+            }
+            .show()
+    }
+
+    private fun showTaskActions(task: PlanningTask) {
+        val c = copy()
+        AlertDialog.Builder(this)
+            .setTitle(task.title)
+            .setItems(arrayOf(c.share, c.edit, c.reschedule, c.delete)) { _, which ->
+                when (which) {
+                    0 -> showShareDialog(task.toShareTarget())
+                    1 -> showTaskDialog(task)
+                    2 -> showRescheduleDialog(task)
+                    else -> confirmDelete(task.title) { deleteTask(task) }
+                }
+            }
+            .show()
+    }
+
+    private fun showShareDialog(target: ShareTarget) {
+        val c = copy()
+        AlertDialog.Builder(this)
+            .setTitle("${c.share}: ${target.title}")
+            .setItems(arrayOf(c.shareByEmail, c.shareByUserId, c.shareLink)) { _, which ->
+                when (which) {
+                    0 -> showShareInviteDialog(target, byEmail = true)
+                    1 -> showShareInviteDialog(target, byEmail = false)
+                    else -> showShareLinksDialog(target)
+                }
+            }
+            .show()
+    }
+
+    private fun showShareInviteDialog(target: ShareTarget, byEmail: Boolean) {
+        val c = copy()
+        val input = dialogInput(
+            hint = if (byEmail) c.email else c.userIdField,
+            value = ""
+        ).apply {
+            inputType = if (byEmail) {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            } else {
+                InputType.TYPE_CLASS_TEXT
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (byEmail) c.shareByEmail else c.shareByUserId)
+            .setView(dialogForm(input))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.invite) { _, _ ->
+                val value = input.text.toString().trim()
+                if (value.isBlank()) {
+                    message = if (byEmail) c.email else c.userId
+                    render()
+                    return@setPositiveButton
+                }
+                sendShareInvite(target, value, byEmail)
+            }
+            .show()
+    }
+
+    private fun sendShareInvite(target: ShareTarget, value: String, byEmail: Boolean) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = if (byEmail) {
+                    sharingRepository.inviteByEmail(session, target, value)
+                } else {
+                    sharingRepository.inviteByUserId(session, target, value)
+                }
+                currentSession = result.session
+                message = copy().inviteSent
+            } catch (error: Exception) {
+                message = sharingError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun showShareLinksDialog(target: ShareTarget) {
+        val c = copy()
+        val status = TextView(this).apply {
+            textSize = 13f
+            setTextColor(color(Ui.MUTED))
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(dp(14), dp(6), dp(14), dp(4))
+        }
+        val tokenContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val linksContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            addView(textButton(c.createLink, primary = true) {
+                createShareLink(target, status, tokenContainer, linksContainer)
+            })
+            addView(status)
+            addView(tokenContainer)
+            addView(sectionLabel(c.existingLinks))
+            addView(linksContainer)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("${c.shareLink}: ${target.title}")
+            .setView(
+                ScrollView(this).apply {
+                    addView(content)
+                }
+            )
+            .setNegativeButton(c.cancel, null)
+            .show()
+
+        loadShareLinks(target, status, linksContainer)
+    }
+
+    private fun createShareLink(
+        target: ShareTarget,
+        status: TextView,
+        tokenContainer: LinearLayout,
+        linksContainer: LinearLayout
+    ) {
+        val session = currentSession ?: return
+        status.text = copy().loading
+        scope.launch {
+            try {
+                val result = sharingRepository.createLink(session, target)
+                currentSession = result.session
+                val linkText = shareLinkText(result.value.token)
+                status.text = copy().linkCreated
+                tokenContainer.removeAllViews()
+                tokenContainer.addView(shareCreatedLinkView(linkText))
+                loadShareLinks(target, status, linksContainer)
+            } catch (error: Exception) {
+                status.text = sharingError(error)
+            }
+        }
+    }
+
+    private fun loadShareLinks(target: ShareTarget, status: TextView, linksContainer: LinearLayout) {
+        val session = currentSession ?: return
+        status.text = copy().loading
+        scope.launch {
+            try {
+                val result = sharingRepository.listLinks(session, target)
+                currentSession = result.session
+                status.text = ""
+                renderShareLinks(result.value, linksContainer)
+            } catch (error: Exception) {
+                status.text = sharingError(error)
+            }
+        }
+    }
+
+    private fun renderShareLinks(links: List<ShareLink>, container: LinearLayout) {
+        val c = copy()
+        container.removeAllViews()
+        if (links.isEmpty()) {
+            container.addView(hintRow(c.noLinks, indentLevel = 0))
+            return
+        }
+        links.forEach { link ->
+            container.addView(shareLinkRow(link))
+            container.addView(rowDivider(indentLevel = 0))
+        }
+    }
+
+    private fun shareCreatedLinkView(linkText: String): LinearLayout {
+        val c = copy()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(6), dp(14), dp(4))
+            addView(
+                TextView(context).apply {
+                    text = linkText
+                    textSize = 13f
+                    setTextColor(color(Ui.TEXT))
+                    maxLines = 3
+                    ellipsize = TextUtils.TruncateAt.MIDDLE
+                    setPadding(0, dp(4), 0, dp(4))
+                }
+            )
+            addView(textButton(c.copyLink, quiet = true) {
+                copyToClipboard(c.shareLink, linkText)
+            })
+        }
+    }
+
+    private fun shareLinkRow(link: ShareLink): LinearLayout {
+        val c = copy()
+        val revoked = link.revokedAt != null || link.status.equals("revoked", ignoreCase = true)
+        val status = if (revoked) c.revoked else c.active
+        val expires = link.expiresAt?.let(::formatDateTime) ?: c.noExpiry
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(56)
+            setPadding(dp(14), 0, dp(4), 0)
+            addView(
+                rowText(
+                    title = status,
+                    subtitle = "${c.expires}: $expires",
+                    weight = 1f,
+                    titleSize = 14.5f,
+                    titleStyle = Typeface.BOLD
+                )
+            )
+            if (!revoked) {
+                addView(textButton(c.revoke, danger = true) {
+                    revokeShareLink(link.id)
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(112), dp(42))
+                })
+            }
+        }
+    }
+
+    private fun revokeShareLink(linkId: String) {
+        val session = currentSession ?: return
+        setBusy(true)
+        scope.launch {
+            try {
+                val result = sharingRepository.revokeLink(session, linkId)
+                currentSession = result.session
+                message = copy().revoked
+            } catch (error: Exception) {
+                message = sharingError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun showAcceptShareLinkDialog() {
+        val c = copy()
+        val input = dialogInput(c.tokenField, "")
+        AlertDialog.Builder(this)
+            .setTitle(c.acceptLink)
+            .setView(dialogForm(input))
+            .setNegativeButton(c.cancel, null)
+            .setNeutralButton(c.resolve) { _, _ ->
+                resolveShareLinkInput(input.text.toString())
+            }
+            .setPositiveButton(c.accept) { _, _ ->
+                acceptShareLinkInput(input.text.toString())
+            }
+            .show()
+    }
+
+    private fun resolveShareLinkInput(raw: String) {
+        val session = currentSession ?: return
+        val token = extractShareToken(raw)
+        if (token.isBlank()) {
+            message = copy().tokenField
+            render()
+            return
+        }
+        setBusy(true)
+        scope.launch {
+            try {
+                val result = sharingRepository.resolveLink(session, token)
+                currentSession = result.session
+                message = "${copy().linkResolved} ${localizedShareTargetType(result.value.targetType)}"
+            } catch (error: Exception) {
+                message = sharingError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun acceptShareLinkInput(raw: String) {
+        val session = currentSession ?: return
+        val token = extractShareToken(raw)
+        if (token.isBlank()) {
+            message = copy().tokenField
+            render()
+            return
+        }
+        setBusy(true)
+        scope.launch {
+            try {
+                val result = sharingRepository.acceptLink(session, token)
+                currentSession = result.session
+                message = "${copy().linkAccepted} ${localizedShareTargetType(result.value.targetType)}"
+                loadPlannerData()
+            } catch (error: Exception) {
+                message = sharingError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun showFolderDialog(folder: PlanningFolder?) {
+        val c = copy()
+        val nameInput = dialogInput(c.nameField, folder?.name.orEmpty())
+        val notesInput = dialogInput(c.notesField, folder?.description.orEmpty(), multiline = true)
+        AlertDialog.Builder(this)
+            .setTitle(if (folder == null) c.newFolder else c.edit)
+            .setView(dialogForm(nameInput, notesInput))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val draft = FolderDraft(nameInput.text.toString().trim(), notesInput.text.toString().trim())
+                if (draft.name.isBlank()) {
+                    message = c.nameRequired
+                    render()
+                    return@setPositiveButton
+                }
+                saveFolder(folder, draft)
+            }
+            .show()
+    }
+
+    private fun showGoalDialog(goal: PlanningGoal?) {
+        val folderId = selectedFolderId ?: run {
+            message = copy().folderFirst
+            render()
+            return
+        }
+        val c = copy()
+        val nameInput = dialogInput(c.nameField, goal?.name.orEmpty())
+        val notesInput = dialogInput(c.notesField, goal?.description.orEmpty(), multiline = true)
+        AlertDialog.Builder(this)
+            .setTitle(if (goal == null) c.newGoal else c.edit)
+            .setView(dialogForm(nameInput, notesInput))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val draft = GoalDraft(nameInput.text.toString().trim(), notesInput.text.toString().trim())
+                if (draft.name.isBlank()) {
+                    message = c.nameRequired
+                    render()
+                    return@setPositiveButton
+                }
+                saveGoal(folderId, goal, draft)
+            }
+            .show()
+    }
+
+    private fun showTaskDialog(task: PlanningTask?) {
+        val goalId = selectedGoalId ?: run {
+            message = copy().goalFirst
+            render()
+            return
+        }
+        val c = copy()
+        val titleInput = dialogInput(c.titleField, task?.title.orEmpty())
+        val notesInput = dialogInput(c.notesField, task?.description.orEmpty(), multiline = true)
+        val priorityInput = dialogInput(c.priorityField, (task?.priority ?: 5).toString()).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+        }
+        val plannedField = dateTimeField(c.plannedField, task?.plannedTime)
+        val dueField = dateTimeField(c.dueField, task?.dueTime)
+        AlertDialog.Builder(this)
+            .setTitle(if (task == null) c.newTask else c.edit)
+            .setView(dialogForm(titleInput, notesInput, priorityInput, plannedField.view, dueField.view))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val priority = priorityInput.text.toString().trim().toIntOrNull()
+                val draft = TaskDraft(
+                    title = titleInput.text.toString().trim(),
+                    description = notesInput.text.toString().trim(),
+                    type = task?.type ?: "green",
+                    priority = priority ?: 5,
+                    status = task?.status ?: "todo",
+                    plannedTime = plannedField.isoValue(),
+                    dueTime = dueField.isoValue()
+                )
+                if (draft.title.isBlank()) {
+                    message = c.titleRequired
+                    render()
+                    return@setPositiveButton
+                }
+                if (priority == null || priority !in 1..10) {
+                    message = c.priorityRequired
+                    render()
+                    return@setPositiveButton
+                }
+                saveTask(goalId, task, draft)
+            }
+            .show()
+    }
+
+    private fun showStatusDialog(task: PlanningTask) {
+        val labels = arrayOf(copy().statusTodo, copy().statusInProgress, copy().statusDone, copy().statusCancelled)
+        val values = arrayOf("todo", "in_progress", "done", "cancelled")
+        val checked = values.indexOf(task.status).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(copy().status)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                saveTask(task.goalId, task, task.toDraft(status = values[which]))
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun showPriorityDialog(task: PlanningTask) {
+        val labels = (1..10).map { "${copy().priorityShort}$it" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(copy().priority)
+            .setSingleChoiceItems(labels, (task.priority - 1).coerceIn(0, 9)) { dialog, which ->
+                saveTask(task.goalId, task, task.toDraft(priority = which + 1))
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun showDueDialog(task: PlanningTask) {
+        val c = copy()
+        val dueField = dateTimeField(c.dueField, task.dueTime)
+        AlertDialog.Builder(this)
+            .setTitle(c.due)
+            .setView(dialogForm(dueField.view))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                saveTask(task.goalId, task, task.toDraft(dueTime = dueField.isoValue()))
+            }
+            .show()
+    }
+
+    private fun showPlannedDialog(task: PlanningTask) {
+        val c = copy()
+        val plannedField = dateTimeField(c.plannedField, task.plannedTime)
+        AlertDialog.Builder(this)
+            .setTitle(c.planned)
+            .setView(dialogForm(plannedField.view))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                saveTask(task.goalId, task, task.toDraft(plannedTime = plannedField.isoValue()))
+            }
+            .show()
+    }
+
+    private fun showTaskTagsDialog(task: PlanningTask) {
+        val c = copy()
+        val tags = taskTags
+        if (tags.isEmpty()) {
+            showCreateTagDialog { tagId ->
+                saveTask(task.goalId, task, task.toDraft(tagIds = (task.tagIds + tagId).distinct()))
+            }
+            return
+        }
+
+        val selected = task.tagIds.toMutableSet()
+        AlertDialog.Builder(this)
+            .setTitle(c.tags)
+            .setMultiChoiceItems(
+                tags.map { it.name }.toTypedArray(),
+                tags.map { it.id in selected }.toBooleanArray()
+            ) { _, which, isChecked ->
+                if (isChecked) selected += tags[which].id else selected -= tags[which].id
+            }
+            .setNeutralButton(c.newTag) { _, _ ->
+                showCreateTagDialog { tagId ->
+                    saveTask(task.goalId, task, task.toDraft(tagIds = (selected + tagId).toList()))
+                }
+            }
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                saveTask(task.goalId, task, task.toDraft(tagIds = selected.toList()))
+            }
+            .show()
+    }
+
+    private fun showCreateTagDialog(onCreated: (String) -> Unit) {
+        val c = copy()
+        val nameInput = dialogInput(c.newTag, "")
+        val colorInput = dialogInput(c.colorField, "#2F6B57")
+        val beforeIds = taskTags.map { it.id }.toSet()
+        AlertDialog.Builder(this)
+            .setTitle(c.newTag)
+            .setView(dialogForm(nameInput, colorInput))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val session = currentSession ?: return@setPositiveButton
+                val draft = TaskTagDraft(
+                    name = nameInput.text.toString().trim(),
+                    color = colorInput.text.toString().trim().ifBlank { "#2F6B57" }
+                )
+                if (draft.name.isBlank()) {
+                    message = c.nameRequired
+                    render()
+                    return@setPositiveButton
+                }
+                setBusy(true)
+                message = null
+                scope.launch {
+                    try {
+                        val result = planningRepository.createTag(session, draft)
+                        applyPlanningResult(result)
+                        val tagId = result.snapshot.taskTags.firstOrNull { it.id !in beforeIds && it.name == draft.name }?.id
+                            ?: result.snapshot.taskTags.firstOrNull { it.name == draft.name }?.id
+                        tagId?.let(onCreated)
+                    } catch (error: Exception) {
+                        message = humanError(error)
+                    } finally {
+                        setBusy(false)
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun showRecurrenceDialog(task: PlanningTask) {
+        val c = copy()
+        val labels = arrayOf(c.noRecurrence, c.daily, c.weekly, c.monthly)
+        val modes = arrayOf("", "daily", "weekly", "monthly")
+        val currentMode = recurrenceMode(task.recurrenceJson)
+        val checked = modes.indexOf(currentMode).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(c.recurrence)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                val payload = recurrencePayload(task, modes[which], active = which != 0)
+                saveTask(task.goalId, task, task.toDraft(recurrenceJson = payload.toString()))
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun showRemindersDialog(task: PlanningTask) {
+        val c = copy()
+        val labels = arrayOf(
+            c.noDate,
+            "15 min ${c.remindersBeforeDue.lowercase(Locale.ROOT)}",
+            "30 min ${c.remindersBeforeDue.lowercase(Locale.ROOT)}",
+            "60 min ${c.remindersBeforeDue.lowercase(Locale.ROOT)}",
+            "30 min ${c.remindersBeforePlanned.lowercase(Locale.ROOT)}"
+        )
+        AlertDialog.Builder(this)
+            .setTitle(c.reminders)
+            .setItems(labels) { _, which ->
+                val reminders = JSONArray()
+                when (which) {
+                    1 -> reminders.put(reminderPayload("before_due_time", 15))
+                    2 -> reminders.put(reminderPayload("before_due_time", 30))
+                    3 -> reminders.put(reminderPayload("before_due_time", 60))
+                    4 -> reminders.put(reminderPayload("before_planned_time", 30))
+                }
+                saveTask(task.goalId, task, task.toDraft(remindersJson = reminders.toString()))
+            }
+            .show()
+    }
+
+    private fun showRescheduleDialog(task: PlanningTask) {
+        val c = copy()
+        val labels = arrayOf(c.later30m, c.later1h, c.later3h, c.later24h)
+        val presets = arrayOf("30m", "1h", "3h", "24h")
+        AlertDialog.Builder(this)
+            .setTitle(c.reschedule)
+            .setItems(labels) { _, which -> quickRescheduleTask(task, presets[which]) }
+            .show()
+    }
+
+    private fun saveFolder(folder: PlanningFolder?, draft: FolderDraft) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = if (folder == null) {
+                    planningRepository.createFolder(session, draft)
+                } else {
+                    planningRepository.updateFolder(session, folder, draft)
+                }
+                applyPlanningResult(result)
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun saveGoal(folderId: String, goal: PlanningGoal?, draft: GoalDraft) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = if (goal == null) {
+                    planningRepository.createGoal(session, folderId, draft)
+                } else {
+                    planningRepository.updateGoal(session, goal, draft)
+                }
+                applyPlanningResult(result)
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun saveTask(goalId: String, task: PlanningTask?, draft: TaskDraft) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = if (task == null) {
+                    planningRepository.createTask(session, goalId, draft)
+                } else {
+                    planningRepository.updateTask(session, task, draft)
+                }
+                applyPlanningResult(result)
+                selectedTaskId = result.snapshot.tasks.firstOrNull { it.title == draft.title }?.id ?: selectedTaskId
+                selectedTaskDetail = selectedTaskId?.let(::findTask)
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun deleteFolder(folder: PlanningFolder) {
+        val session = currentSession ?: return
+        setBusy(true)
+        scope.launch {
+            try {
+                applyPlanningResult(planningRepository.deleteFolder(session, folder))
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun deleteGoal(goal: PlanningGoal) {
+        val session = currentSession ?: return
+        setBusy(true)
+        scope.launch {
+            try {
+                applyPlanningResult(planningRepository.deleteGoal(session, goal))
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun deleteTask(task: PlanningTask) {
+        val session = currentSession ?: return
+        setBusy(true)
+        scope.launch {
+            try {
+                applyPlanningResult(planningRepository.deleteTask(session, task))
+                if (selectedTaskId == task.id) {
+                    selectedTaskId = null
+                    selectedTaskDetail = null
+                    currentScreen = Screen.Planner
+                }
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun toggleTaskDone(task: PlanningTask) {
+        val nextStatus = if (isDone(task)) "todo" else "done"
+        saveTask(task.goalId, task, task.toDraft(status = nextStatus))
+    }
+
+    private fun quickRescheduleTask(task: PlanningTask, preset: String) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = planningRepository.quickRescheduleTask(session, task, preset)
+                currentSession = result.session
+                applyPlanningSnapshot(result.snapshot)
+                selectedTaskId = task.id
+                selectedTaskDetail = findTask(task.id)
+                message = if (result.priorityDecayApplied) copy().decayApplied else copy().decayNotApplied
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun applyPlanningResult(result: PlanningLoadResult) {
+        currentSession = result.session
+        applyPlanningSnapshot(result.snapshot)
+        message = if (result.snapshot.offline) copy().savedOffline else null
+    }
+
+    private fun confirmDelete(name: String, onConfirm: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle(copy().delete)
+            .setMessage(name)
+            .setNegativeButton(copy().cancel, null)
+            .setPositiveButton(copy().delete) { _, _ -> onConfirm() }
+            .show()
+    }
+
+    private fun openTaskDetail(taskId: String, consumePendingOnSuccess: Boolean = false) {
+        val session = currentSession ?: return
+        selectedTaskId = taskId
+        selectedTaskDetail = findTask(taskId)
+        currentScreen = Screen.Detail
+        render()
+
+        scope.launch {
+            try {
+                val result = planningRepository.getTask(session, taskId)
+                currentSession = result.first
+                selectedTaskDetail = result.second
+                if (consumePendingOnSuccess && pendingTaskOpenId == taskId) {
+                    pendingTaskOpenId = null
+                    message = null
+                }
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                render()
+            }
+        }
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        val taskId = NotificationIntents.extractTaskId(intent) ?: return
+        pendingTaskOpenId = taskId
+        message = copy().openingTask
+    }
+
+    private fun seedAcceptanceScenarioIfRequested(intent: Intent?) {
+        if (!BuildConfig.DEBUG || intent?.getBooleanExtra(EXTRA_ACCEPTANCE_SEED, false) != true) {
+            return
+        }
+        val language = intent.getStringExtra(EXTRA_ACCEPTANCE_LANGUAGE)
+            ?.takeIf { it == "ru" || it == "en" }
+            ?: currentLanguage
+        currentLanguage = language
+        languageStore.writeLanguage(language)
+
+        val session = AuthSession(
+            user = CurrentUser(
+                id = "acceptance-user",
+                email = "design@rocketflow.app",
+                displayName = "RocketFlow",
+                timezone = zone.id,
+                language = language
+            ),
+            tokens = AuthTokens(
+                accessToken = "acceptance-access",
+                refreshToken = "acceptance-refresh",
+                expiresAt = "2026-12-31T21:00:00Z"
+            )
+        )
+        SessionStore(this).writeSession(session)
+        currentSession = session
+
+        val localStore = PlanningLocalStore(this)
+        val existing = localStore.snapshot(session.user.id, offline = true, lastSyncError = null)
+        if (intent.getBooleanExtra(EXTRA_ACCEPTANCE_EMPTY, false)) {
+            return
+        }
+        if (existing.folders.isNotEmpty()) {
+            return
+        }
+
+        val data = if (language == "en") {
+            AcceptanceData(
+                folder = "Product launch",
+                goal = "Soft release",
+                firstTask = "Prepare the sign-in screen",
+                secondTask = "Check Pixel 7",
+                thirdTask = "Team call",
+                notes = "Review copy, error states, and the first empty screen."
+            )
+        } else {
+            AcceptanceData(
+                folder = "������ ��������",
+                goal = "������ �����",
+                firstTask = "����������� �������� �����",
+                secondTask = "��������� Pixel 7",
+                thirdTask = "������ � ��������",
+                notes = "�������� ������, ��������� ������ � ������ ������ �����."
+            )
+        }
+
+        val folderId = localStore.createFolder(session.user.id, FolderDraft(data.folder, ""))
+        val goalId = localStore.createGoal(session.user.id, folderId, GoalDraft(data.goal, ""))
+        val tagId = localStore.createTag(
+            session.user.id,
+            TaskTagDraft(
+                name = if (language == "en") "QA" else "QA",
+                color = "#2F6B57"
+            )
+        )
+        val recurrenceJson = JSONObject()
+            .put("mode", "weekly")
+            .put("interval", 1)
+            .put("daysOfWeek", JSONArray().put("SATURDAY"))
+            .put("dayOfMonth", JSONObject.NULL)
+            .put("startAt", "2026-05-02T09:00:00Z")
+            .put("endAt", JSONObject.NULL)
+            .put("active", true)
+            .toString()
+        val remindersJson = JSONArray()
+            .put(reminderPayload("before_due_time", 30))
+            .toString()
+        localStore.createTask(
+            session.user.id,
+            goalId,
+            TaskDraft(
+                title = data.firstTask,
+                description = data.notes,
+                type = "green",
+                priority = 2,
+                status = "in_progress",
+                plannedTime = "2026-05-02T09:00:00Z",
+                dueTime = "2026-05-02T09:00:00Z",
+                tagIds = listOf(tagId),
+                recurrenceJson = recurrenceJson,
+                remindersJson = remindersJson
+            )
+        )
+        localStore.createTask(
+            session.user.id,
+            goalId,
+            TaskDraft(
+                title = data.secondTask,
+                description = "",
+                type = "green",
+                priority = 3,
+                status = "todo",
+                plannedTime = null,
+                dueTime = null
+            )
+        )
+        localStore.createTask(
+            session.user.id,
+            goalId,
+            TaskDraft(
+                title = data.thirdTask,
+                description = "",
+                type = "green",
+                priority = 5,
+                status = "done",
+                plannedTime = null,
+                dueTime = null
+            )
+        )
+    }
+
+    private fun maybeOpenPendingTask() {
+        val taskId = pendingTaskOpenId ?: return
+        if (currentSession == null) return
+        openTaskDetail(taskId, consumePendingOnSuccess = true)
+    }
+
+    private fun showSearchDialog() {
+        val c = copy()
+        val input = dialogInput(c.searchHint, searchQuery)
+        AlertDialog.Builder(this)
+            .setTitle(c.search)
+            .setView(dialogForm(input))
+            .setNegativeButton(c.clearSearch) { _, _ ->
+                searchQuery = ""
+                render()
+            }
+            .setPositiveButton(c.search) { _, _ ->
+                searchQuery = input.text.toString().trim()
+                render()
+            }
+            .show()
+    }
+
     private fun registerDevice() {
         val session = currentSession ?: return
-        val pushToken = pushTokenInput.text.toString().trim()
-        val deviceName = deviceNameInput.text.toString().trim()
-        val copy = authCopy(currentSession?.user?.language)
-
+        val c = copy()
         if (!notificationRuntime.hasNotificationPermission()) {
-            noticeView.text = copy.notificationPermissionRequired
+            message = c.remindersOff
             notificationRuntime.requestNotificationPermission(this)
             render()
             return
         }
 
-        if (pushToken.isBlank()) {
-            noticeView.text = copy.pushTokenRequired
+        val token = currentPushToken?.value ?: notificationsRepository.readStoredPushToken()?.value
+        if (token.isNullOrBlank()) {
+            refreshPushToken(showProgress = true)
             return
         }
 
         setBusy(true)
-        noticeView.text = ""
-
         scope.launch {
             try {
-                val result = notificationsRepository.registerDevice(session, pushToken, deviceName)
+                val result = notificationsRepository.registerDevice(session, token, defaultDeviceName())
                 currentSession = result.session
                 currentDeviceRegistration = result.value
-                render()
+                message = c.remindersOn
             } catch (error: Exception) {
-                showError(error)
+                message = humanError(error)
             } finally {
                 setBusy(false)
             }
@@ -408,401 +2330,1181 @@ class MainActivity : Activity() {
     private fun unregisterDevice() {
         val session = currentSession ?: return
         val registration = currentDeviceRegistration ?: return
-
         setBusy(true)
-        noticeView.text = ""
-
         scope.launch {
             try {
                 currentSession = notificationsRepository.unregisterDevice(session, registration.id)
                 currentDeviceRegistration = null
-                render()
+                message = copy().remindersOff
             } catch (error: Exception) {
-                showError(error)
+                currentDeviceRegistration = notificationsRepository.readStoredRegistration()
+                message = humanError(error)
             } finally {
                 setBusy(false)
             }
         }
     }
 
-    private fun selectFolder(folderId: String) {
-        selectedFolderId = folderId
-        selectedGoalId = null
-        selectedTaskId = null
-        selectedTaskDetail = null
-        reloadBrowse()
-    }
-
-    private fun selectGoal(goalId: String) {
-        selectedGoalId = goalId
-        selectedTaskId = null
-        selectedTaskDetail = null
-        reloadBrowse()
-    }
-
-    private fun openTaskDetail(taskId: String) {
-        val session = currentSession ?: return
-        selectedTaskId = taskId
-        selectedTaskDetail = null
-        loadingTaskDetail = true
-        render()
-
-        scope.launch {
-            try {
-                val result = taskDetailRepository.getTaskDetail(session, taskId)
-                currentSession = result.session
-                selectedTaskDetail = result.value
-            } catch (error: Exception) {
-                showError(error)
-            } finally {
-                loadingTaskDetail = false
+    private fun refreshPushToken(showProgress: Boolean) {
+        if (showProgress) {
+            message = copy().loading
+            render()
+        }
+        notificationsRepository.refreshPushToken { result ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                currentPushToken = result.token ?: notificationsRepository.readStoredPushToken()
+                if (showProgress) {
+                    message = if (result.errorMessage == null) copy().remindersOn else humanText(result.errorMessage)
+                }
+                maybeSyncRegisteredDevice()
                 render()
             }
         }
     }
 
-    private fun handleIncomingIntent(intent: Intent?) {
-        val taskId = NotificationIntents.extractTaskId(intent) ?: return
-        pendingTaskOpenId = taskId
-        val copy = authCopy(currentSession?.user?.language)
-        noticeView.text = "${copy.deepLinkPending}: $taskId"
-    }
-
-    private fun maybeOpenPendingTask() {
-        val taskId = pendingTaskOpenId ?: return
-        if (currentSession == null) {
-            return
-        }
-
-        pendingTaskOpenId = null
-        noticeView.text = "${authCopy(currentSession?.user?.language).deepLinkOpened}: $taskId"
-        openTaskDetail(taskId)
-    }
-
-    private fun render() {
-        val copy = authCopy(currentSession?.user?.language)
-        titleView.text = copy.title
-        subtitleView.text = copy.subtitle
-        loadingView.text = if (loadingView.visibility == View.VISIBLE) copy.loading else ""
-
-        loginButton.text = copy.login
-        refreshButton.text = copy.restore
-        logoutButton.text = copy.logout
-        registerDeviceButton.text = copy.registerDevice
-        unregisterDeviceButton.text = copy.unregisterDevice
-        emailInput.hint = copy.email
-        passwordInput.hint = copy.password
-        pushTokenInput.hint = copy.pushToken
-        deviceNameInput.hint = copy.deviceName
-
-        if (currentSession == null) {
-            loginCard.visibility = View.VISIBLE
-            sessionCard.visibility = View.GONE
-            notificationsCard.visibility = View.GONE
-            browseCard.visibility = View.GONE
-            detailCard.visibility = View.GONE
-            if (noticeView.text.isNullOrBlank()) {
-                noticeView.text = copy.noSession
-            }
-            return
-        }
-
+    private fun maybeSyncRegisteredDevice() {
         val session = currentSession ?: return
-        loginCard.visibility = View.GONE
-        sessionCard.visibility = View.VISIBLE
-        notificationsCard.visibility = View.VISIBLE
-        browseCard.visibility = View.VISIBLE
-        detailCard.visibility = View.VISIBLE
-        if (noticeView.text.isNullOrBlank()) {
-            noticeView.text = copy.ready
-        }
-        sessionInfoView.text = listOf(
-            "${copy.sessionLabel}: ${session.user.displayName} <${session.user.email}>",
-            "${copy.timezoneLabel}: ${session.user.timezone}",
-            "${copy.expiresAtLabel}: ${session.tokens.expiresAt}"
-        ).joinToString(separator = "\n")
-
-        renderNotificationsCard(copy)
-        renderBrowseCard(copy)
-        renderDetailCard(copy)
-    }
-
-    private fun renderNotificationsCard(copy: AuthCopy) {
-        notificationsCard.removeAllViews()
-        notificationsCard.addView(sectionTitle(copy.notificationsTitle))
-        notificationsCard.addView(bodyText("${copy.deepLinkTitle}: rocketflow://task/{taskId}"))
-        if (!notificationRuntime.hasNotificationPermission()) {
-            notificationPermissionButton.text = copy.notificationPermissionAction
-            notificationsCard.addView(bodyText(copy.notificationPermissionRequired))
-            notificationsCard.addView(buttonRow(notificationPermissionButton))
-        }
-
-        val registration = currentDeviceRegistration
-        if (registration == null) {
-            notificationsCard.addView(bodyText(copy.noRegisteredDevice))
-        } else {
-            notificationsCard.addView(bodyText("${copy.currentDevice}: ${registration.id}"))
-            notificationsCard.addView(bodyText("${copy.deviceName}: ${registration.deviceName ?: copy.none}"))
-            notificationsCard.addView(bodyText("Platform: ${registration.platform}"))
-            notificationsCard.addView(bodyText("Created: ${registration.createdAt}"))
-            notificationsCard.addView(bodyText("Active: ${yesNo(registration.active, copy)}"))
-        }
-
-        notificationsCard.addView(pushTokenInput)
-        notificationsCard.addView(deviceNameInput)
-        notificationsCard.addView(buttonRow(registerDeviceButton, unregisterDeviceButton))
-    }
-
-    private fun requestNotificationPermission() {
-        notificationRuntime.requestNotificationPermission(this)
-    }
-
-    private fun renderBrowseCard(copy: AuthCopy) {
-        browseCard.removeAllViews()
-        browseCard.addView(sectionTitle(copy.browseTitle))
-        browseCard.addView(buttonRow(button(copy.restore) { reloadBrowse() }))
-
-        browseCard.addView(subsectionTitle(copy.foldersTitle))
-        if (folders.isEmpty()) {
-            browseCard.addView(bodyText(copy.noFolders))
-        } else {
-            folders.forEach { folder ->
-                val label = if (folder.id == selectedFolderId) "[${folder.name}]" else folder.name
-                browseCard.addView(button(label) { selectFolder(folder.id) })
+        if (!notificationRuntime.hasNotificationPermission()) return
+        scope.launch {
+            try {
+                syncRegisteredDeviceIfPossible(session)
+                render()
+            } catch (error: Exception) {
+                message = humanError(error)
+                render()
             }
-        }
-
-        browseCard.addView(subsectionTitle(copy.goalsTitle))
-        if (goals.isEmpty()) {
-            browseCard.addView(bodyText(copy.noGoals))
-        } else {
-            goals.forEach { goal ->
-                val label = buildString {
-                    if (goal.id == selectedGoalId) {
-                        append("[")
-                    }
-                    append(goal.name)
-                    if (goal.shared) {
-                        append(" | ")
-                        append(copy.sharedLabel)
-                    }
-                    if (goal.id == selectedGoalId) {
-                        append("]")
-                    }
-                }
-                browseCard.addView(button(label) { selectGoal(goal.id) })
-            }
-        }
-
-        browseCard.addView(subsectionTitle(copy.tasksTitle))
-        if (tasks.isEmpty()) {
-            browseCard.addView(bodyText(copy.noTasks))
-        } else {
-            tasks.forEach { task ->
-                browseCard.addView(taskButton(copy, task))
-            }
-        }
-
-        browseCard.addView(subsectionTitle(copy.sharedGoalsTitle))
-        if (sharedResources.goals.isEmpty()) {
-            browseCard.addView(bodyText(copy.none))
-        } else {
-            sharedResources.goals.forEach { goal ->
-                browseCard.addView(bodyText(goal.name))
-            }
-        }
-
-        browseCard.addView(subsectionTitle(copy.sharedTasksTitle))
-        if (sharedResources.tasks.isEmpty()) {
-            browseCard.addView(bodyText(copy.none))
-        } else {
-            sharedResources.tasks.forEach { task ->
-                browseCard.addView(taskButton(copy, task))
-            }
-        }
-
-        browseCard.addView(sectionTitle(copy.nextSurfaces))
-        browseCard.addView(bulletView(copy.browseLater))
-        browseCard.addView(bulletView(copy.detailLater))
-        browseCard.addView(bulletView(copy.pushLater))
-    }
-
-    private fun renderDetailCard(copy: AuthCopy) {
-        detailCard.removeAllViews()
-        detailCard.addView(sectionTitle(copy.detailTitle))
-
-        if (loadingTaskDetail) {
-            detailCard.addView(bodyText(copy.detailLoading))
-            return
-        }
-
-        val detail = selectedTaskDetail
-        if (detail == null) {
-            detailCard.addView(bodyText(copy.detailEmpty))
-            return
-        }
-
-        detailCard.addView(
-            TextView(this).apply {
-                text = detail.title
-                textSize = 19f
-                setTypeface(typeface, Typeface.BOLD)
-                setPadding(0, 12, 0, 0)
-            }
-        )
-        detailCard.addView(bodyText(detail.description.ifBlank { copy.none }))
-        detailCard.addView(bodyText("Status: ${detail.status}"))
-        detailCard.addView(bodyText("Type: ${detail.type}"))
-        detailCard.addView(bodyText("Priority: ${detail.priority}"))
-        detailCard.addView(bodyText("Planned: ${detail.plannedTime ?: copy.none}"))
-        detailCard.addView(bodyText("Due: ${detail.dueTime ?: copy.none}"))
-        detailCard.addView(bodyText("${copy.sharedLabel}: ${yesNo(detail.shared, copy)}"))
-        detailCard.addView(bodyText("${copy.archivedLabel}: ${yesNo(detail.archived, copy)}"))
-        detailCard.addView(
-            bodyText(
-                "${copy.tagsTitle}: ${detail.tags.joinToString(separator = ", ") { it.name }.ifBlank { copy.none }}"
-            )
-        )
-        detailCard.addView(bodyText("${copy.recurrenceTitle}: ${recurrenceSummary(detail, copy)}"))
-        detailCard.addView(bodyText("${copy.remindersTitle}: ${reminderSummary(detail, copy)}"))
-    }
-
-    private fun taskButton(copy: AuthCopy, task: TaskSummary): View {
-        val label = buildString {
-            append(task.title)
-            append(" | ")
-            append(task.status)
-            append(" | ")
-            append(task.priority)
-            task.plannedTime?.let {
-                append(" | ")
-                append(it)
-            }
-            if (task.shared) {
-                append(" | ")
-                append(copy.sharedLabel)
-            }
-        }
-        return button(label) { openTaskDetail(task.id) }
-    }
-
-    private fun showError(error: Exception) {
-        noticeView.text = when (error) {
-            is ApiException -> buildString {
-                append(error.message)
-                if (!error.traceId.isNullOrBlank()) {
-                    append("\nTrace ID: ")
-                    append(error.traceId)
-                }
-            }
-
-            else -> error.message ?: "Request failed."
         }
     }
 
-    private fun setBusy(isBusy: Boolean) {
-        loadingView.visibility = if (isBusy) View.VISIBLE else View.GONE
-        loginButton.isEnabled = !isBusy
-        refreshButton.isEnabled = !isBusy
-        logoutButton.isEnabled = !isBusy
-        registerDeviceButton.isEnabled = !isBusy
-        unregisterDeviceButton.isEnabled = !isBusy
+    private suspend fun syncRegisteredDeviceIfPossible(session: AuthSession) {
+        if (!notificationRuntime.hasNotificationPermission()) return
+        val result = notificationsRepository.syncStoredDeviceRegistration(session, defaultDeviceName()) ?: return
+        currentSession = result.session
+        currentDeviceRegistration = result.value
     }
 
-    private fun sectionCard(vararg views: View): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 28, 0, 0)
-            views.forEach { addView(it) }
-        }
+    private fun setBusy(value: Boolean) {
+        busy = value
+        render()
     }
 
-    private fun buttonRow(vararg buttons: Button): LinearLayout {
+    private fun languageSegment(compact: Boolean): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START
-            setPadding(0, 16, 0, 0)
-            buttons.forEachIndexed { index, button ->
-                if (index > 0) {
-                    button.setPadding(24, button.paddingTop, 24, button.paddingBottom)
-                }
-                addView(button)
+            gravity = Gravity.CENTER
+            background = roundedDrawable(Ui.SURFACE, strokeColorHex = Ui.HAIRLINE, radiusDp = 8)
+            layoutParams = LinearLayout.LayoutParams(
+                if (compact) dp(92) else LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(32)
+            ).apply {
+                if (!compact) topMargin = dp(4)
+            }
+            addView(languageButton("ru", "RU"))
+            addView(languageButton("en", "EN"))
+        }
+    }
+
+    private fun languageButton(language: String, label: String): TextView {
+        return TextView(this).apply {
+            text = label
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(color(if (currentLanguage == language) Ui.ELEVATED else Ui.TEXT))
+            background = if (currentLanguage == language) roundedDrawable(Ui.ACCENT, radiusDp = 7) else null
+            layoutParams = LinearLayout.LayoutParams(dp(44), dp(30))
+            setOnClickListener {
+                emailDraft = emailInput?.text?.toString().orEmpty()
+                passwordDraft = passwordInput?.text?.toString().orEmpty()
+                currentLanguage = language
+                languageStore.writeLanguage(language)
+                message = null
+                render()
             }
         }
     }
 
-    private fun button(label: String, onClick: () -> Unit): Button {
+    private fun textButton(
+        label: String,
+        primary: Boolean = false,
+        quiet: Boolean = false,
+        danger: Boolean = false,
+        onClick: () -> Unit
+    ): Button {
         return Button(this).apply {
             text = label
+            setAllCaps(false)
+            textSize = 14.5f
+            includeFontPadding = false
+            minHeight = dp(44)
+            isEnabled = !busy
+            setTextColor(
+                color(
+                    when {
+                        primary -> Ui.ELEVATED
+                        danger -> Ui.DANGER
+                        else -> Ui.TEXT
+                    }
+                )
+            )
+            background = roundedDrawable(
+                fillColorHex = when {
+                    primary -> Ui.ACCENT
+                    quiet -> "#00FFFFFF"
+                    else -> Ui.SURFACE
+                },
+                strokeColorHex = when {
+                    primary -> Ui.ACCENT
+                    quiet -> "#00FFFFFF"
+                    danger -> Ui.DANGER
+                    else -> Ui.HAIRLINE
+                },
+                radiusDp = 8
+            )
             setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(44)
+            ).apply { topMargin = dp(10) }
         }
     }
 
-    private fun sectionTitle(text: String): TextView {
+    private fun iconButton(icon: Int, description: String, onClick: () -> Unit): ImageButton {
+        return ImageButton(this).apply {
+            setImageResource(icon)
+            setColorFilter(color(Ui.TEXT))
+            contentDescription = description
+            background = roundedDrawable("#00FFFFFF", radiusDp = 8)
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+            scaleType = ImageView.ScaleType.CENTER
+        }
+    }
+
+    private fun syncIconButton(): ImageButton {
+        val c = copy()
+        val hasError = planningLastSyncError != null
+        val drawable = when {
+            hasError -> R.drawable.ic_warning
+            planningOffline || planningPendingCount > 0 -> R.drawable.ic_cloud_off
+            else -> R.drawable.ic_cloud_done
+        }
+        val description = when {
+            hasError -> c.couldNotSync
+            planningOffline -> c.offline
+            planningPendingCount > 0 -> "${planningPendingCount} ${c.pending}"
+            else -> c.synced
+        }
+        return iconButton(drawable, description) {
+            currentScreen = Screen.Settings
+            diagnosticsExpanded = hasError
+            render()
+        }.apply {
+            setColorFilter(color(if (hasError) Ui.DANGER else Ui.ACCENT))
+        }
+    }
+
+    private fun iconView(icon: Int, sizeDp: Int = 24, tint: String = Ui.TEXT): ImageView {
+        return ImageView(this).apply {
+            setImageResource(icon)
+            setColorFilter(color(tint))
+            layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)).apply {
+                marginEnd = dp(10)
+            }
+        }
+    }
+
+    private fun messageLine(inset: Boolean = false): TextView? {
+        val text = when {
+            busy -> copy().loading
+            !message.isNullOrBlank() -> message
+            else -> null
+        } ?: return null
         return TextView(this).apply {
             this.text = text
-            textSize = 18f
+            textSize = 13f
+            setTextColor(color(Ui.ACCENT))
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+            background = roundedDrawable(Ui.ACCENT_SOFT, radiusDp = 8)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                val side = if (inset) dp(16) else 0
+                setMargins(side, dp(12), side, 0)
+            }
+        }
+    }
+
+    private fun sectionLabel(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTextColor(color(Ui.MUTED))
             setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, 24, 0, 0)
+            gravity = Gravity.CENTER_VERTICAL
+            includeFontPadding = false
+            setPadding(dp(16), dp(18), dp(16), dp(6))
         }
     }
 
-    private fun subsectionTitle(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 16f
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, 18, 0, 0)
+    private fun propertyRow(label: String, value: String, clickable: Boolean, onClick: (() -> Unit)? = null): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(46)
+            addView(
+                TextView(context).apply {
+                    text = label
+                    textSize = 14f
+                    setTextColor(color(Ui.MUTED))
+                    includeFontPadding = false
+                    layoutParams = LinearLayout.LayoutParams(dp(112), LinearLayout.LayoutParams.WRAP_CONTENT)
+                }
+            )
+            addView(
+                TextView(context).apply {
+                    text = value
+                    textSize = 15f
+                    setTextColor(color(Ui.TEXT))
+                    includeFontPadding = false
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+            )
+            if (clickable && onClick != null) {
+                background = roundedDrawable("#00FFFFFF", radiusDp = 6)
+                setOnClickListener { onClick() }
+            }
         }
     }
 
-    private fun bodyText(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 15f
-            setPadding(0, 8, 0, 0)
+    private fun detailMarkerStrip(task: PlanningTask): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(38)
+            setPadding(0, 0, 0, dp(6))
+            addView(
+                iconButton(
+                    if (isDone(task)) R.drawable.ic_check_circle else R.drawable.ic_radio_button_unchecked,
+                    localizedStatus(task.status)
+                ) {
+                    showStatusDialog(task)
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(4) }
+                }
+            )
+            addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
+            addView(markerDot(priorityColor(task.priority), priorityA11y(task.priority), sizeDp = 8))
+            dueChip(task)?.let {
+                addView(it.apply { setOnClickListener { showDueDialog(task) } })
+            }
+            addView(
+                View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                }
+            )
+            addView(iconButton(R.drawable.ic_edit, copy().edit) { showTaskDialog(task) }.apply {
+                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+            })
+            addView(iconButton(R.drawable.ic_chevron_right, copy().reschedule) { showRescheduleDialog(task) }.apply {
+                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+            })
         }
     }
 
-    private fun bulletView(text: String): TextView {
+    private fun pathLine(path: String): TextView {
         return TextView(this).apply {
-            this.text = "- $text"
-            textSize = 15f
-            setPadding(0, 12, 0, 0)
+            text = path
+            textSize = 13f
+            setTextColor(color(Ui.MUTED))
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            includeFontPadding = false
+            setPadding(0, dp(2), 0, dp(14))
         }
+    }
+
+    private fun settingsRow(label: String, value: String, onClick: (() -> Unit)? = null): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(52)
+            setPadding(0, 0, 0, 0)
+            addView(
+                TextView(context).apply {
+                    text = label
+                    textSize = 15f
+                    setTextColor(color(Ui.TEXT))
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+            )
+            addView(
+                TextView(context).apply {
+                    text = value
+                    textSize = 14f
+                    setTextColor(color(Ui.MUTED))
+                    gravity = Gravity.END
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+            )
+            onClick?.let { click ->
+                setOnClickListener { click() }
+            }
+        }
+    }
+
+    private data class DateTimeField(
+        val view: View,
+        val isoValue: () -> String?
+    )
+
+    private fun dateTimeField(label: String, initialIso: String?): DateTimeField {
+        var value = parseInstant(initialIso)?.atZone(zone)?.toLocalDateTime()
+        lateinit var pickerButton: Button
+
+        fun buttonText(): String {
+            val formatted = value?.let { formatDateTime(it.atZone(zone).toInstant().toString()) } ?: copy().noDate
+            return "$label: $formatted"
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            pickerButton = textButton(buttonText(), quiet = true) {
+                pickDateTime(value ?: LocalDateTime.now(zone).plusHours(1).withMinute(0).withSecond(0).withNano(0)) {
+                    value = it
+                    pickerButton.text = buttonText()
+                }
+            }
+            addView(pickerButton)
+            addView(textButton(copy().clearDate, quiet = true) {
+                value = null
+                pickerButton.text = buttonText()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(38)
+                ).apply { topMargin = dp(4) }
+            })
+        }
+
+        return DateTimeField(
+            view = container,
+            isoValue = { value?.atZone(zone)?.toInstant()?.toString() }
+        )
+    }
+
+    private fun pickDateTime(initial: LocalDateTime, onSelected: (LocalDateTime) -> Unit) {
+        DatePickerDialog(
+            this,
+            { _, year, month, day ->
+                TimePickerDialog(
+                    this,
+                    { _, hour, minute ->
+                        onSelected(LocalDateTime.of(year, month + 1, day, hour, minute))
+                    },
+                    initial.hour,
+                    initial.minute,
+                    currentLanguage != "en"
+                ).show()
+            },
+            initial.year,
+            initial.monthValue - 1,
+            initial.dayOfMonth
+        ).show()
+    }
+
+    private fun dialogInput(
+        hint: String,
+        value: String,
+        multiline: Boolean = false,
+        isPassword: Boolean = false
+    ): EditText {
+        return EditText(this).apply {
+            this.hint = hint
+            setText(value)
+            styleInput()
+            inputType = when {
+                isPassword -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                multiline -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                else -> InputType.TYPE_CLASS_TEXT
+            }
+            if (multiline) {
+                minLines = 2
+                maxLines = 4
+            } else {
+                setSingleLine(true)
+            }
+        }
+    }
+
+    private fun dialogForm(vararg inputs: View): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            inputs.forEach { input ->
+                (input.parent as? ViewGroup)?.removeView(input)
+                addView(input)
+            }
+        }
+    }
+
+    private fun EditText.styleInput() {
+        textSize = 15f
+        setTextColor(color(Ui.TEXT))
+        setHintTextColor(color(Ui.MUTED))
+        background = roundedDrawable(Ui.SURFACE, strokeColorHex = Ui.HAIRLINE, radiusDp = 8)
+        setPadding(dp(12), 0, dp(12), 0)
+        minHeight = dp(48)
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(48)
+        ).apply { topMargin = dp(10) }
+    }
+
+    private fun filteredFolders(): List<PlanningFolder> {
+        val query = searchQuery.trim().lowercase(Locale.ROOT)
+        if (query.isBlank()) return folders
+        return folders.filter { folder ->
+            folder.name.lowercase(Locale.ROOT).contains(query) ||
+                goalsForFolder(folder.id).any { goal ->
+                    goal.name.lowercase(Locale.ROOT).contains(query) ||
+                        tasksForGoal(goal.id).any { it.title.lowercase(Locale.ROOT).contains(query) }
+                }
+        }
+    }
+
+    private fun goalsForFolder(folderId: String): List<PlanningGoal> {
+        return goals.filter { it.folderId == folderId }
+    }
+
+    private fun tasksForGoal(goalId: String, includeShared: Boolean = false): List<PlanningTask> {
+        val own = tasks.filter { it.goalId == goalId }
+        return if (includeShared) own + sharedTasks.filter { it.goalId == goalId } else own
+    }
+
+    private fun allTasks(): List<PlanningTask> = tasks + sharedTasks
+
+    private fun findTask(taskId: String?): PlanningTask? {
+        if (taskId == null) return null
+        return allTasks().firstOrNull { it.id == taskId }
+    }
+
+    private fun isDone(task: PlanningTask): Boolean = task.status == "done"
+
+    private fun taskSubtitle(task: PlanningTask): String {
+        val due = task.dueTime ?: task.plannedTime
+        return due?.let(::formatDateTime) ?: localizedStatus(task.status)
+    }
+
+    private fun describeTaskTags(task: PlanningTask): String {
+        val names = task.tagIds.mapNotNull { id -> taskTags.firstOrNull { it.id == id }?.name }
+        return names.joinToString(", ").ifBlank { copy().noDate }
+    }
+
+    private fun describeRecurrence(raw: String?): String {
+        val json = raw?.let(::jsonObjectOrNull) ?: return copy().noRecurrence
+        if (!json.optBoolean("active", false)) return copy().noRecurrence
+        val interval = json.optInt("interval", 1).coerceAtLeast(1)
+        val start = formatDateTime(json.optString("startAt").ifBlank { null })
+        val prefix = when (json.optString("mode")) {
+            "weekly" -> "${copy().weekly}: ${weekdaySummary(json.optJSONArray("daysOfWeek"))}"
+            "monthly" -> "${copy().monthly}: ${json.optInt("dayOfMonth", 1)}"
+            else -> copy().daily
+        }
+        val every = if (currentLanguage == "en") "every $interval" else "����. $interval"
+        return "$prefix, $every, $start"
+    }
+
+    private fun describeReminders(raw: String?): String {
+        val reminders = raw?.let(::jsonArrayOrNull) ?: return copy().noDate
+        if (reminders.length() == 0) return copy().noDate
+        return (0 until reminders.length()).joinToString("; ") { index ->
+            val item = reminders.optJSONObject(index) ?: JSONObject()
+            val mode = if (item.optString("mode") == "before_planned_time") {
+                copy().remindersBeforePlanned
+            } else {
+                copy().remindersBeforeDue
+            }
+            val paused = if (item.optBoolean("active", true)) "" else " (${copy().remindersOff.lowercase(Locale.ROOT)})"
+            "${item.optInt("offsetMinutes", 0)} min $mode$paused"
+        }
+    }
+
+    private fun recurrenceMode(raw: String?): String {
+        val json = raw?.let(::jsonObjectOrNull) ?: return ""
+        return if (json.optBoolean("active", false)) json.optString("mode") else ""
+    }
+
+    private fun recurrencePayload(task: PlanningTask, selectedMode: String, active: Boolean): JSONObject {
+        val mode = selectedMode.ifBlank { recurrenceMode(task.recurrenceJson).ifBlank { "daily" } }
+        val startAt = task.plannedTime ?: task.dueTime ?: Instant.now().toString()
+        val startDate = parseInstant(startAt)?.atZone(zone)?.toLocalDate() ?: LocalDate.now(zone)
+        return JSONObject()
+            .put("mode", mode)
+            .put("interval", 1)
+            .put("daysOfWeek", if (mode == "weekly") JSONArray().put(startDate.dayOfWeek.name) else JSONArray())
+            .put("dayOfMonth", if (mode == "monthly") startDate.dayOfMonth else JSONObject.NULL)
+            .put("startAt", startAt)
+            .put("endAt", JSONObject.NULL)
+            .put("active", active)
+    }
+
+    private fun reminderPayload(mode: String, offsetMinutes: Int): JSONObject {
+        return JSONObject()
+            .put("mode", mode)
+            .put("offsetMinutes", offsetMinutes)
+            .put("active", true)
+    }
+
+    private fun weekdaySummary(days: JSONArray?): String {
+        if (days == null || days.length() == 0) return copy().noDate
+        return (0 until days.length()).joinToString(", ") { index ->
+            when (days.optString(index)) {
+                "MONDAY" -> if (currentLanguage == "en") "Mon" else "��"
+                "TUESDAY" -> if (currentLanguage == "en") "Tue" else "��"
+                "WEDNESDAY" -> if (currentLanguage == "en") "Wed" else "��"
+                "THURSDAY" -> if (currentLanguage == "en") "Thu" else "��"
+                "FRIDAY" -> if (currentLanguage == "en") "Fri" else "��"
+                "SATURDAY" -> if (currentLanguage == "en") "Sat" else "��"
+                "SUNDAY" -> if (currentLanguage == "en") "Sun" else "��"
+                else -> days.optString(index)
+            }
+        }
+    }
+
+    private fun jsonObjectOrNull(raw: String): JSONObject? {
+        return try {
+            JSONObject(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun jsonArrayOrNull(raw: String): JSONArray? {
+        return try {
+            JSONArray(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun taskTypeColor(task: PlanningTask): String {
+        return when (task.type.lowercase(Locale.ROOT)) {
+            "red", "risk", "blocked" -> Ui.DANGER
+            "blue", "info", "planned" -> Ui.INFO
+            else -> Ui.ACCENT
+        }
+    }
+
+    private fun taskTypeA11y(task: PlanningTask): String {
+        val label = when (task.type.lowercase(Locale.ROOT)) {
+            "red", "risk", "blocked" -> if (currentLanguage == "en") "Risk type" else "����"
+            "blue", "info", "planned" -> if (currentLanguage == "en") "Planned type" else "����"
+            else -> if (currentLanguage == "en") "Action type" else "��������"
+        }
+        return label
+    }
+
+    private fun priorityColor(priority: Int): String {
+        return when {
+            priority <= 2 -> Ui.DANGER
+            priority <= 5 -> Ui.AMBER
+            else -> Ui.LOW
+        }
+    }
+
+    private fun priorityA11y(priority: Int): String {
+        val level = when {
+            priority <= 2 -> if (currentLanguage == "en") "high" else "�������"
+            priority <= 5 -> if (currentLanguage == "en") "medium" else "�������"
+            else -> if (currentLanguage == "en") "low" else "������"
+        }
+        return if (currentLanguage == "en") "Priority $level" else "���������: $level"
+    }
+
+    private fun dueChipColor(raw: String?): String {
+        val date = parseInstant(raw)?.atZone(zone)?.toLocalDate() ?: return Ui.MUTED
+        val today = LocalDate.now(zone)
+        return when {
+            date.isBefore(today) -> Ui.DANGER
+            date == today -> Ui.AMBER
+            else -> Ui.ACCENT
+        }
+    }
+
+    private fun taskPath(task: PlanningTask): String {
+        val goal = goals.firstOrNull { it.id == task.goalId } ?: sharedGoals.firstOrNull { it.id == task.goalId }
+        val folder = goal?.let { g -> folders.firstOrNull { it.id == g.folderId } }
+        return listOfNotNull(folder?.name, goal?.name).joinToString(" / ").ifBlank { copy().plan }
+    }
+
+    private fun localizedStatus(status: String): String {
+        val c = copy()
+        return when (status) {
+            "todo" -> c.statusTodo
+            "in_progress" -> c.statusInProgress
+            "done" -> c.statusDone
+            "cancelled" -> c.statusCancelled
+            else -> c.statusTodo
+        }
+    }
+
+    private fun syncLabel(state: SyncState): String {
+        val c = copy()
+        return when (state) {
+            SyncState.Synced -> c.synced
+            SyncState.PendingCreate, SyncState.PendingUpdate, SyncState.PendingDelete -> c.pending
+            SyncState.Conflict -> c.couldNotSync
+        }
+    }
+
+    private fun planningStatusText(): String {
+        val c = copy()
+        return when {
+            planningLastSyncError != null -> c.couldNotSync
+            planningOffline -> c.offline
+            planningPendingCount > 0 -> "${planningPendingCount} ${c.pending}"
+            else -> c.synced
+        }
+    }
+
+    private fun notificationPermissionLabel(): String {
+        return if (notificationRuntime.hasNotificationPermission()) copy().remindersOn else copy().remindersOff
+    }
+
+    private fun notificationRegistrationLabel(): String {
+        return if (currentDeviceRegistration?.active == true) copy().remindersOn else copy().remindersOff
+    }
+
+    private fun PlanningTask.toDraft(
+        title: String = this.title,
+        description: String = this.description,
+        status: String = this.status,
+        priority: Int = this.priority,
+        plannedTime: String? = this.plannedTime,
+        dueTime: String? = this.dueTime,
+        tagIds: List<String>? = this.tagIds,
+        recurrenceJson: String? = this.recurrenceJson,
+        remindersJson: String? = this.remindersJson
+    ): TaskDraft {
+        return TaskDraft(
+            title = title,
+            description = description,
+            type = type,
+            priority = priority,
+            status = status,
+            plannedTime = plannedTime,
+            dueTime = dueTime,
+            tagIds = tagIds,
+            recurrenceJson = recurrenceJson,
+            remindersJson = remindersJson
+        )
+    }
+
+    private fun formatDateTime(raw: String?): String {
+        if (raw.isNullOrBlank()) return copy().noDate
+        val zoned = parseInstant(raw)?.atZone(zone) ?: return if (raw.contains("T")) copy().noDate else raw
+        val date = zoned.toLocalDate()
+        val today = LocalDate.now(zone)
+        val locale = if (currentLanguage == "en") Locale.ENGLISH else Locale("ru")
+        val timePattern = if (currentLanguage == "en") "h:mm a" else "HH:mm"
+        val time = DateTimeFormatter.ofPattern(timePattern, locale).format(zoned)
+        return when (date) {
+            today -> "${copy().today}, $time"
+            today.plusDays(1) -> "${copy().tomorrow}, $time"
+            else -> {
+                val pattern = if (currentLanguage == "en") "MMM d, h:mm a" else "d MMM, HH:mm"
+                DateTimeFormatter.ofPattern(pattern, locale).format(zoned)
+            }
+        }
+    }
+
+    private fun formatDateInput(raw: String?): String {
+        val zoned = parseInstant(raw)?.atZone(zone) ?: return ""
+        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT).format(zoned)
+    }
+
+    private fun parseDateInput(input: String): String? {
+        if (input.isBlank()) return null
+        parseInstant(input)?.let { return it.toString() }
+        return try {
+            LocalDateTime.parse(input, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.ROOT))
+                .atZone(zone)
+                .toInstant()
+                .toString()
+        } catch (_: DateTimeParseException) {
+            null
+        }
+    }
+
+    private fun parseInstant(raw: String?): Instant? {
+        if (raw.isNullOrBlank()) return null
+        return try {
+            Instant.parse(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun PlanningFolder.toShareTarget(): ShareTarget {
+        return ShareTarget(ShareTargetType.Folder, id, name)
+    }
+
+    private fun PlanningGoal.toShareTarget(): ShareTarget {
+        return ShareTarget(ShareTargetType.Goal, id, name)
+    }
+
+    private fun PlanningTask.toShareTarget(): ShareTarget {
+        return ShareTarget(ShareTargetType.Task, id, title)
+    }
+
+    private fun shareLinkText(token: String): String {
+        return "${BuildConfig.ROCKETFLOW_API_BASE_URL.trimEnd('/')}/shares/links/$token"
+    }
+
+    private fun copyToClipboard(label: String, value: String) {
+        getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText(label, value))
+        Toast.makeText(this, copy().linkCopied, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun extractShareToken(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return ""
+
+        val queryToken = runCatching {
+            if ("://" in trimmed) Uri.parse(trimmed).getQueryParameter("token") else null
+        }.getOrNull()
+        if (!queryToken.isNullOrBlank()) return queryToken.trim()
+
+        val marker = "/shares/links/"
+        val candidate = if (marker in trimmed) trimmed.substringAfter(marker) else trimmed
+        return candidate
+            .substringBefore("/accept")
+            .substringBefore("/")
+            .substringBefore("?")
+            .substringBefore("#")
+            .trim()
+    }
+
+    private fun localizedShareTargetType(raw: String): String {
+        return when (raw.lowercase(Locale.ROOT)) {
+            "folder" -> copy().folder
+            "goal" -> copy().goal
+            "task" -> copy().task
+            else -> raw
+        }
+    }
+
+    private fun sharingError(error: Exception): String {
+        val raw = error.message.orEmpty().lowercase(Locale.ROOT)
+        return if (
+            "network" in raw ||
+            "failed to connect" in raw ||
+            "timeout" in raw ||
+            "unable to resolve host" in raw ||
+            "connection refused" in raw
+        ) {
+            copy().offlineSharing
+        } else {
+            humanError(error)
+        }
+    }
+
+    private fun humanError(error: Exception): String {
+        if (isTerminalSessionFailure(error)) return copy().signInAgain
+        return when (error) {
+            is ApiException -> when (error.status) {
+                401 -> copy().signInAgain
+                else -> copy().requestFailed
+            }
+            else -> humanText(error.message)
+        }
+    }
+
+    private fun humanText(raw: String?): String {
+        if (raw.isNullOrBlank()) return copy().requestFailed
+        val lower = raw.lowercase(Locale.ROOT)
+        return when {
+            "network" in lower || "failed to connect" in lower || "timeout" in lower -> copy().couldNotSync
+            "firebase" in lower -> copy().firebaseUnavailable
+            else -> copy().requestFailed
+        }
+    }
+
+    private fun isTerminalSessionFailure(error: Exception): Boolean {
+        return error is ApiException && error.status == 401 && authRepository.readStoredSession() == null
     }
 
     private fun defaultDeviceName(): String {
         return listOfNotNull(Build.MANUFACTURER, Build.MODEL)
-            .joinToString(separator = " ")
+            .joinToString(" ")
             .trim()
-            .ifBlank { "Android companion" }
+            .ifBlank { "Android" }
     }
 
-    private fun yesNo(value: Boolean, copy: AuthCopy): String {
-        return if (value) "Yes" else copy.none
+    private fun handleTerminalSessionFailure() {
+        runOnUiThread {
+            currentSession = null
+            currentSettings = null
+            settingsLoadAttempted = false
+            currentDeviceRegistration = notificationsRepository.readStoredRegistration()
+            currentPushToken = notificationsRepository.readStoredPushToken()
+            currentScreen = Screen.Auth
+            clearPlannerState()
+            message = copy().signedOut
+            busy = false
+            render()
+        }
     }
 
-    private fun recurrenceSummary(detail: TaskDetail, copy: AuthCopy): String {
-        val recurrence = detail.recurrence ?: return copy.none
-        val parts = mutableListOf(recurrence.mode)
-        recurrence.interval?.let { parts += "interval=$it" }
-        if (recurrence.daysOfWeek.isNotEmpty()) {
-            parts += recurrence.daysOfWeek.joinToString(separator = ",")
+    private fun registerNetworkRestore() {
+        try {
+            connectivityManager.registerDefaultNetworkCallback(networkCallback)
+        } catch (_: Exception) {
+            Toast.makeText(this, copy().couldNotSync, Toast.LENGTH_SHORT).show()
         }
-        recurrence.startAt?.let { parts += "start=$it" }
-        recurrence.endAt?.let { parts += "end=$it" }
-        recurrence.active?.let { parts += "active=$it" }
-        return parts.joinToString(separator = " | ")
     }
 
-    private fun reminderSummary(detail: TaskDetail, copy: AuthCopy): String {
-        if (detail.reminders.isEmpty()) {
-            return copy.none
+    private fun unregisterNetworkRestore() {
+        try {
+            connectivityManager.unregisterNetworkCallback(networkCallback)
+        } catch (_: Exception) {
+            // The callback may not have been registered on this device.
         }
+    }
 
-        return detail.reminders.joinToString(separator = "; ") { reminder ->
-            "${reminder.mode}:${reminder.offsetMinutes}m:${reminder.active}"
+    private fun bottomBorderDrawable(fillColorHex: String): GradientDrawable {
+        return roundedDrawable(fillColorHex, radiusDp = 0)
+    }
+
+    private fun divider(): View {
+        return View(this).apply {
+            setBackgroundColor(color(Ui.HAIRLINE))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(1)
+            )
         }
+    }
+
+    private fun roundedDrawable(fillColorHex: String, strokeColorHex: String? = null, radiusDp: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(radiusDp).toFloat()
+            setColor(color(fillColorHex))
+            strokeColorHex?.let { setStroke(dp(1), color(it)) }
+        }
+    }
+
+    private fun ovalDrawable(fillColorHex: String): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(color(fillColorHex))
+        }
+    }
+
+    private fun color(hex: String): Int = Color.parseColor(hex)
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private data class AcceptanceData(
+        val folder: String,
+        val goal: String,
+        val firstTask: String,
+        val secondTask: String,
+        val thirdTask: String,
+        val notes: String
+    )
+
+    private fun copy(): Copy {
+        val en = currentLanguage == "en"
+        return if (en) {
+            Copy(
+                signInTitle = "Sign in",
+                email = "Email",
+                password = "Password",
+                signIn = "Sign in",
+                createAccount = "Create account",
+                displayName = "Name",
+                plan = "Plan",
+                settings = "Settings",
+                syncDiagnostics = "Sync diagnostics",
+                folder = "Folder",
+                goal = "Goal",
+                task = "Task",
+                create = "Create",
+                newFolder = "New folder",
+                newGoal = "New goal",
+                newTask = "New task",
+                edit = "Edit",
+                delete = "Delete",
+                cancel = "Cancel",
+                save = "Save",
+                search = "Search",
+                searchHint = "Task, goal, or folder",
+                clearSearch = "Clear",
+                nothingHere = "Nothing here yet",
+                emptyBody = "Create a folder, then add a goal and tasks.",
+                selectTask = "Select a task",
+                taskDetail = "Task",
+                notes = "Notes",
+                status = "Status",
+                priority = "Priority",
+                planned = "Planned",
+                due = "Due",
+                tags = "Tags",
+                recurrence = "Repeat",
+                noRecurrence = "No repeat",
+                daily = "Daily",
+                weekly = "Weekly",
+                monthly = "Monthly",
+                remindersBeforeDue = "Before due",
+                remindersBeforePlanned = "Before planned",
+                addTag = "Add tag",
+                newTag = "New tag",
+                colorField = "Color, for example #2F6B57",
+                metadata = "Scheduling",
+                path = "Path",
+                details = "Details",
+                created = "Created",
+                updated = "Updated",
+                synced = "Synced",
+                offline = "Offline",
+                pending = "pending",
+                savedOffline = "Saved offline",
+                couldNotSync = "Could not sync",
+                account = "Account",
+                language = "Language",
+                reminders = "Reminders",
+                priorityDecay = "Priority decay",
+                priorityDecayHelp = "Lower priority after quick reschedule.",
+                greenTasks = "Green tasks",
+                redTasks = "Red tasks",
+                threshold = "Threshold",
+                decayAmount = "Decay",
+                remindersOn = "On",
+                remindersOff = "Off",
+                enableNotifications = "Enable notifications",
+                registerDevice = "Enable reminders",
+                unregisterDevice = "Turn off reminders",
+                firebaseUnavailable = "Reminders are not configured in this build.",
+                signedOut = "Signed out",
+                signInAgain = "Sign in again to continue.",
+                requestFailed = "Request failed.",
+                loading = "Loading...",
+                noGoalYet = "No goals yet",
+                noTaskYet = "No tasks yet",
+                nameRequired = "Name is required.",
+                titleRequired = "Title is required.",
+                folderFirst = "Create or select a folder first.",
+                goalFirst = "Create or select a goal first.",
+                noDate = "None",
+                pickDate = "Pick date",
+                clearDate = "Clear",
+                invalidDate = "Use day/week/month and a positive number.",
+                today = "Today",
+                tomorrow = "Tomorrow",
+                reschedule = "Reschedule",
+                later30m = "30 min",
+                later1h = "1 hour",
+                later3h = "3 hours",
+                later24h = "24 hours",
+                decayApplied = "Priority lowered",
+                decayNotApplied = "Priority unchanged",
+                statusTodo = "To do",
+                statusInProgress = "In progress",
+                statusDone = "Done",
+                statusCancelled = "Cancelled",
+                openingTask = "Opening task",
+                syncNow = "Sync",
+                signOut = "Sign out",
+                titleField = "Title",
+                nameField = "Name",
+                notesField = "Notes",
+                dueField = "Due, for example 2026-05-01 09:00",
+                plannedField = "Planned, for example 2026-05-01 09:00",
+                priorityField = "Priority 1-10",
+                priorityRequired = "Priority must be from 1 to 10.",
+                priorityShort = "P",
+                sharing = "Sharing",
+                share = "Share",
+                shareByEmail = "Email",
+                shareByUserId = "User ID",
+                shareLink = "Link",
+                invite = "Invite",
+                inviteSent = "Invitation sent.",
+                userId = "User ID",
+                userIdField = "User ID",
+                createLink = "Create link",
+                existingLinks = "Existing links",
+                noLinks = "No links yet",
+                linkCreated = "Link created.",
+                linkCopied = "Link copied.",
+                copyLink = "Copy link",
+                revoke = "Revoke",
+                revoked = "Revoked",
+                acceptLink = "Accept link",
+                tokenField = "Token or link",
+                resolve = "Check",
+                accept = "Accept",
+                linkAccepted = "Link accepted.",
+                linkResolved = "Link is available.",
+                expires = "Expires",
+                active = "Active",
+                noExpiry = "No expiry",
+                offlineSharing = "Sharing needs a network connection."
+            )
+        } else {
+            Copy(
+                signInTitle = "\u0412\u0445\u043e\u0434",
+                email = "Email",
+                password = "\u041f\u0430\u0440\u043e\u043b\u044c",
+                signIn = "\u0412\u043e\u0439\u0442\u0438",
+                createAccount = "\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0430\u043a\u043a\u0430\u0443\u043d\u0442",
+                displayName = "Имя",
+                plan = "План",
+                settings = "Настройки",
+                syncDiagnostics = "Диагностика синхронизации",
+                folder = "Папка",
+                goal = "Цель",
+                task = "Задача",
+                create = "Создать",
+                newFolder = "Новая папка",
+                newGoal = "Новая цель",
+                newTask = "Новая задача",
+                edit = "Изменить",
+                delete = "Удалить",
+                cancel = "Отмена",
+                save = "Сохранить",
+                search = "Поиск",
+                searchHint = "Задача, цель или папка",
+                clearSearch = "Очистить",
+                nothingHere = "Пока пусто",
+                emptyBody = "Создайте папку, затем добавьте цель и задачи.",
+                selectTask = "Выберите задачу",
+                taskDetail = "Задача",
+                notes = "Заметки",
+                status = "Статус",
+                priority = "Приоритет",
+                planned = "План",
+                due = "Срок",
+                tags = "Теги",
+                recurrence = "Повтор",
+                noRecurrence = "Без повтора",
+                daily = "Ежедневно",
+                weekly = "Еженедельно",
+                monthly = "Ежемесячно",
+                remindersBeforeDue = "до срока",
+                remindersBeforePlanned = "до плана",
+                addTag = "Добавить тег",
+                newTag = "Новый тег",
+                colorField = "Цвет, например #2F6B57",
+                metadata = "Расписание",
+                path = "Путь",
+                details = "Детали",
+                created = "Создано",
+                updated = "Обновлено",
+                synced = "Синхронизировано",
+                offline = "Офлайн",
+                pending = "ожидают",
+                savedOffline = "Сохранено офлайн",
+                couldNotSync = "Не удалось синхронизировать",
+                account = "Аккаунт",
+                language = "Язык",
+                reminders = "Напоминания",
+                priorityDecay = "Снижение приоритета",
+                priorityDecayHelp = "Снижает приоритет после быстрого переноса.",
+                greenTasks = "Зеленые задачи",
+                redTasks = "Красные задачи",
+                threshold = "Порог",
+                decayAmount = "Снижение",
+                remindersOn = "Включено",
+                remindersOff = "Выключено",
+                enableNotifications = "Включить уведомления",
+                registerDevice = "Включить напоминания",
+                unregisterDevice = "Отключить напоминания",
+                firebaseUnavailable = "Напоминания не настроены в этой сборке.",
+                signedOut = "Сессия завершена",
+                signInAgain = "Войдите снова, чтобы продолжить.",
+                requestFailed = "Запрос не выполнен.",
+                loading = "Загрузка...",
+                noGoalYet = "Целей пока нет",
+                noTaskYet = "Задач пока нет",
+                nameRequired = "Укажите название.",
+                titleRequired = "Укажите заголовок.",
+                folderFirst = "Сначала выберите или создайте папку.",
+                goalFirst = "Сначала выберите или создайте цель.",
+                noDate = "Нет",
+                pickDate = "Выбрать дату",
+                clearDate = "Очистить",
+                invalidDate = "Используйте day, week или month и число больше 0.",
+                today = "Сегодня",
+                tomorrow = "Завтра",
+                reschedule = "Перенести",
+                later30m = "30 минут",
+                later1h = "1 час",
+                later3h = "3 часа",
+                later24h = "24 часа",
+                decayApplied = "Приоритет снижен",
+                decayNotApplied = "Приоритет без изменений",
+                statusTodo = "К выполнению",
+                statusInProgress = "В работе",
+                statusDone = "Готово",
+                statusCancelled = "Отменено",
+                openingTask = "Открываем задачу",
+                syncNow = "Синхронизировать",
+                signOut = "Выйти",
+                titleField = "Заголовок",
+                nameField = "Название",
+                notesField = "Заметки",
+                dueField = "Срок, например 2026-05-01 09:00",
+                plannedField = "План, например 2026-05-01 09:00",
+                priorityField = "Приоритет 1-10",
+                priorityRequired = "Приоритет должен быть от 1 до 10.",
+                priorityShort = "P",
+                sharing = "Общий доступ",
+                share = "Поделиться",
+                shareByEmail = "Email",
+                shareByUserId = "ID пользователя",
+                shareLink = "Ссылка",
+                invite = "Пригласить",
+                inviteSent = "Приглашение отправлено.",
+                userId = "ID пользователя",
+                userIdField = "ID пользователя",
+                createLink = "Создать ссылку",
+                existingLinks = "Ссылки",
+                noLinks = "Ссылок пока нет",
+                linkCreated = "Ссылка создана.",
+                linkCopied = "Ссылка скопирована.",
+                copyLink = "Копировать ссылку",
+                revoke = "Отозвать",
+                revoked = "Отозвана",
+                acceptLink = "Принять ссылку",
+                tokenField = "Токен или ссылка",
+                resolve = "Проверить",
+                accept = "Принять",
+                linkAccepted = "Ссылка принята.",
+                linkResolved = "Ссылка доступна.",
+                expires = "Истекает",
+                active = "Активна",
+                noExpiry = "Без срока",
+                offlineSharing = "Для общего доступа нужна сеть."
+            )
+        }
+    }
+
+    companion object {
+        private const val EXTRA_ACCEPTANCE_SEED = "rocketflow_acceptance_seed"
+        private const val EXTRA_ACCEPTANCE_EMPTY = "rocketflow_acceptance_empty"
+        private const val EXTRA_ACCEPTANCE_LANGUAGE = "rocketflow_acceptance_language"
     }
 }
