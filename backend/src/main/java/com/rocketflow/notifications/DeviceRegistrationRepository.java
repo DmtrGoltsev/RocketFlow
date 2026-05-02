@@ -11,6 +11,8 @@ public interface DeviceRegistrationRepository extends JpaRepository<DeviceRegist
 
     Optional<DeviceRegistration> findByPushToken(String pushToken);
 
+    Optional<DeviceRegistration> findByInstallationId(String installationId);
+
     Optional<DeviceRegistration> findByIdAndUserId(UUID id, UUID userId);
 
     List<DeviceRegistration> findByUserIdInAndActiveTrueOrderByUserIdAscCreatedAtAsc(Collection<UUID> userIds);

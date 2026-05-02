@@ -30,6 +30,18 @@ rocketflow:
   web:
     cors:
       allowed-origins: ${ROCKETFLOW_ALLOWED_ORIGINS:}
+      allowed-origin-patterns: ${ROCKETFLOW_ALLOWED_ORIGIN_PATTERNS:}
+  notifications:
+    scheduler:
+      enabled: ${ROCKETFLOW_NOTIFICATIONS_SCHEDULER_ENABLED:false}
+      fixed-delay: ${ROCKETFLOW_NOTIFICATIONS_SCHEDULER_FIXED_DELAY:PT1M}
+      initial-delay: ${ROCKETFLOW_NOTIFICATIONS_SCHEDULER_INITIAL_DELAY:PT15S}
+      advisory-lock-key: ${ROCKETFLOW_NOTIFICATIONS_SCHEDULER_ADVISORY_LOCK_KEY:7304001}
+    fcm:
+      enabled: ${ROCKETFLOW_NOTIFICATIONS_FCM_ENABLED:false}
+      project-id: ${ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID:}
+      credentials-json: ${ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON:}
+      credentials-path: ${ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_PATH:}
 
 server:
   error:

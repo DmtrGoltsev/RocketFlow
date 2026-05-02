@@ -29,6 +29,12 @@ public class SharingController {
         this.currentUserService = currentUserService;
     }
 
+    @PostMapping("/folders/{folderId}/share")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ShareInvitationDto shareFolder(@PathVariable String folderId, @Valid @RequestBody ShareRequest request) {
+        return sharingService.createFolderInvitation(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(folderId), request);
+    }
+
     @PostMapping("/goals/{goalId}/share")
     @ResponseStatus(HttpStatus.CREATED)
     public ShareInvitationDto shareGoal(@PathVariable String goalId, @Valid @RequestBody ShareRequest request) {
@@ -39,6 +45,60 @@ public class SharingController {
     @ResponseStatus(HttpStatus.CREATED)
     public ShareInvitationDto shareTask(@PathVariable String taskId, @Valid @RequestBody ShareRequest request) {
         return sharingService.createTaskInvitation(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(taskId), request);
+    }
+
+    @PostMapping("/folders/{folderId}/share-links")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ShareLinkCreateResponse createFolderShareLink(
+            @PathVariable String folderId,
+            @Valid @RequestBody(required = false) ShareLinkRequest request
+    ) {
+        return sharingService.createFolderShareLink(
+                currentUserService.requireAuthenticatedUser().userId(),
+                UUID.fromString(folderId),
+                request
+        );
+    }
+
+    @GetMapping("/folders/{folderId}/share-links")
+    public ShareLinkListResponse listFolderShareLinks(@PathVariable String folderId) {
+        return sharingService.listFolderShareLinks(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(folderId));
+    }
+
+    @PostMapping("/goals/{goalId}/share-links")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ShareLinkCreateResponse createGoalShareLink(
+            @PathVariable String goalId,
+            @Valid @RequestBody(required = false) ShareLinkRequest request
+    ) {
+        return sharingService.createGoalShareLink(
+                currentUserService.requireAuthenticatedUser().userId(),
+                UUID.fromString(goalId),
+                request
+        );
+    }
+
+    @GetMapping("/goals/{goalId}/share-links")
+    public ShareLinkListResponse listGoalShareLinks(@PathVariable String goalId) {
+        return sharingService.listGoalShareLinks(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(goalId));
+    }
+
+    @PostMapping("/tasks/{taskId}/share-links")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ShareLinkCreateResponse createTaskShareLink(
+            @PathVariable String taskId,
+            @Valid @RequestBody(required = false) ShareLinkRequest request
+    ) {
+        return sharingService.createTaskShareLink(
+                currentUserService.requireAuthenticatedUser().userId(),
+                UUID.fromString(taskId),
+                request
+        );
+    }
+
+    @GetMapping("/tasks/{taskId}/share-links")
+    public ShareLinkListResponse listTaskShareLinks(@PathVariable String taskId) {
+        return sharingService.listTaskShareLinks(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(taskId));
     }
 
     @GetMapping("/shares/invitations")
@@ -59,6 +119,21 @@ public class SharingController {
     @PostMapping("/shares/invitations/{invitationId}/revoke")
     public ShareInvitationActionResponse revokeInvitation(@PathVariable String invitationId) {
         return sharingService.revokeInvitation(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(invitationId));
+    }
+
+    @GetMapping("/shares/links/{token}")
+    public ShareLinkResolveResponse resolveShareLink(@PathVariable String token) {
+        return sharingService.resolveShareLink(currentUserService.requireAuthenticatedUser().userId(), token);
+    }
+
+    @PostMapping("/shares/links/{token}/accept")
+    public ShareLinkAcceptResponse acceptShareLink(@PathVariable String token) {
+        return sharingService.acceptShareLink(currentUserService.requireAuthenticatedUser().userId(), token);
+    }
+
+    @PostMapping("/shares/links/{linkId}/revoke")
+    public ShareLinkActionResponse revokeShareLink(@PathVariable String linkId) {
+        return sharingService.revokeShareLink(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(linkId));
     }
 
     @GetMapping("/shares/resources")

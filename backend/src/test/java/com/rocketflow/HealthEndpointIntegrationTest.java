@@ -1,8 +1,15 @@
 package com.rocketflow;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
 
 import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.auth.AuthSessionRepository;
@@ -14,13 +21,13 @@ import com.rocketflow.notifications.DeviceRegistrationRepository;
 import com.rocketflow.notifications.NotificationDeliveryRepository;
 import com.rocketflow.notifications.ReminderNotificationRuleRepository;
 import com.rocketflow.recurrence.TaskRecurrenceRuleRepository;
+import com.rocketflow.reminders.TaskReminderRuleRepository;
+import com.rocketflow.settings.UserSettingsRepository;
 import com.rocketflow.sharing.FolderShareRepository;
 import com.rocketflow.sharing.GoalShareRepository;
 import com.rocketflow.sharing.ShareInvitationRepository;
 import com.rocketflow.sharing.ShareLinkRepository;
 import com.rocketflow.sharing.TaskShareRepository;
-import com.rocketflow.reminders.TaskReminderRuleRepository;
-import com.rocketflow.settings.UserSettingsRepository;
 import com.rocketflow.tasks.TaskRepository;
 import com.rocketflow.tasks.TaskTagLinkRepository;
 import com.rocketflow.tasks.TaskTagRepository;
@@ -31,7 +38,11 @@ import com.rocketflow.tasks.TaskTagRepository;
                 + "org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,"
                 + "org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration"
 })
-class RocketFlowApplicationTests {
+@AutoConfigureMockMvc
+class HealthEndpointIntegrationTest {
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @MockitoBean
     private UserRepository userRepository;
@@ -94,6 +105,9 @@ class RocketFlowApplicationTests {
     private TaskTagLinkRepository taskTagLinkRepository;
 
     @Test
-    void contextLoads() {
+    void apiHealthIsPublicAndReportsUp() throws Exception {
+        mockMvc.perform(get("/api/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
     }
 }

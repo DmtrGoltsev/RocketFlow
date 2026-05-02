@@ -23,8 +23,10 @@ import com.rocketflow.notifications.ReminderNotificationRuleRepository;
 import com.rocketflow.recurrence.TaskRecurrenceRuleRepository;
 import com.rocketflow.reminders.TaskReminderRuleRepository;
 import com.rocketflow.settings.UserSettingsRepository;
+import com.rocketflow.sharing.FolderShareRepository;
 import com.rocketflow.sharing.GoalShareRepository;
 import com.rocketflow.sharing.ShareInvitationRepository;
+import com.rocketflow.sharing.ShareLinkRepository;
 import com.rocketflow.sharing.TaskShareRepository;
 import com.rocketflow.tasks.TaskRepository;
 import com.rocketflow.tasks.TaskTagLinkRepository;
@@ -32,6 +34,7 @@ import com.rocketflow.tasks.TaskTagRepository;
 
 @SpringBootTest(properties = {
         "rocketflow.web.cors.allowed-origins[0]=http://localhost:5173",
+        "rocketflow.web.cors.allowed-origin-patterns[0]=http://127.0.0.1:[*]",
         "spring.autoconfigure.exclude="
                 + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,"
@@ -63,6 +66,12 @@ class CorsConfigurationIntegrationTest {
 
     @MockitoBean
     private ShareInvitationRepository shareInvitationRepository;
+
+    @MockitoBean
+    private ShareLinkRepository shareLinkRepository;
+
+    @MockitoBean
+    private FolderShareRepository folderShareRepository;
 
     @MockitoBean
     private GoalShareRepository goalShareRepository;
@@ -105,6 +114,17 @@ class CorsConfigurationIntegrationTest {
                         .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"))
+                .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("POST")));
+    }
+
+    @Test
+    void preflightRequestAllowsConfiguredDevOriginPatternForApiRoutes() throws Exception {
+        mockMvc.perform(options("/api/auth/register")
+                        .header("Origin", "http://127.0.0.1:5191")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "Content-Type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://127.0.0.1:5191"))
                 .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("POST")));
     }
 }

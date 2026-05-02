@@ -9,14 +9,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "share_invitations")
-public class ShareInvitation {
+@Table(name = "share_links")
+public class ShareLink {
 
     @Id
     private UUID id;
 
-    @Column(name = "inviter_user_id", nullable = false)
-    private UUID inviterUserId;
+    @Column(name = "owner_user_id", nullable = false)
+    private UUID ownerUserId;
 
     @Column(name = "target_type", nullable = false, length = 16)
     private String targetType;
@@ -24,11 +24,8 @@ public class ShareInvitation {
     @Column(name = "target_id", nullable = false)
     private UUID targetId;
 
-    @Column(name = "target_email", nullable = false, length = 320)
-    private String targetEmail;
-
-    @Column(name = "target_user_id")
-    private UUID targetUserId;
+    @Column(name = "token_hash", nullable = false, length = 64)
+    private String tokenHash;
 
     @Column(nullable = false, length = 16)
     private String status;
@@ -42,11 +39,8 @@ public class ShareInvitation {
     @Column(name = "expires_at")
     private Instant expiresAt;
 
-    @Column(name = "resolved_at")
-    private Instant resolvedAt;
-
-    @Column(name = "resolved_by_user_id")
-    private UUID resolvedByUserId;
+    @Column(name = "revoked_at")
+    private Instant revokedAt;
 
     public UUID getId() {
         return id;
@@ -56,12 +50,12 @@ public class ShareInvitation {
         this.id = id;
     }
 
-    public UUID getInviterUserId() {
-        return inviterUserId;
+    public UUID getOwnerUserId() {
+        return ownerUserId;
     }
 
-    public void setInviterUserId(UUID inviterUserId) {
-        this.inviterUserId = inviterUserId;
+    public void setOwnerUserId(UUID ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getTargetType() {
@@ -80,20 +74,12 @@ public class ShareInvitation {
         this.targetId = targetId;
     }
 
-    public String getTargetEmail() {
-        return targetEmail;
+    public String getTokenHash() {
+        return tokenHash;
     }
 
-    public void setTargetEmail(String targetEmail) {
-        this.targetEmail = targetEmail;
-    }
-
-    public UUID getTargetUserId() {
-        return targetUserId;
-    }
-
-    public void setTargetUserId(UUID targetUserId) {
-        this.targetUserId = targetUserId;
+    public void setTokenHash(String tokenHash) {
+        this.tokenHash = tokenHash;
     }
 
     public String getStatus() {
@@ -128,19 +114,11 @@ public class ShareInvitation {
         this.expiresAt = expiresAt;
     }
 
-    public Instant getResolvedAt() {
-        return resolvedAt;
+    public Instant getRevokedAt() {
+        return revokedAt;
     }
 
-    public void setResolvedAt(Instant resolvedAt) {
-        this.resolvedAt = resolvedAt;
-    }
-
-    public UUID getResolvedByUserId() {
-        return resolvedByUserId;
-    }
-
-    public void setResolvedByUserId(UUID resolvedByUserId) {
-        this.resolvedByUserId = resolvedByUserId;
+    public void setRevokedAt(Instant revokedAt) {
+        this.revokedAt = revokedAt;
     }
 }

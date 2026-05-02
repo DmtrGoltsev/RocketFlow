@@ -9,6 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class WebCorsProperties {
 
     private List<String> allowedOrigins = new ArrayList<>();
+    private List<String> allowedOriginPatterns = new ArrayList<>();
     private List<String> allowedMethods = new ArrayList<>(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     private List<String> allowedHeaders = new ArrayList<>(List.of("Authorization", "Content-Type"));
     private List<String> exposedHeaders = new ArrayList<>(List.of("X-Trace-Id"));
@@ -19,6 +20,14 @@ public class WebCorsProperties {
 
     public void setAllowedOrigins(List<String> allowedOrigins) {
         this.allowedOrigins = allowedOrigins;
+    }
+
+    public List<String> getAllowedOriginPatterns() {
+        return allowedOriginPatterns;
+    }
+
+    public void setAllowedOriginPatterns(List<String> allowedOriginPatterns) {
+        this.allowedOriginPatterns = allowedOriginPatterns;
     }
 
     public List<String> getAllowedMethods() {

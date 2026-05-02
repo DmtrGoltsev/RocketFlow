@@ -17,14 +17,23 @@ public interface ShareInvitationRepository extends JpaRepository<ShareInvitation
             String targetEmail
     );
 
+    boolean existsByTargetTypeAndTargetIdAndStatusAndTargetUserId(
+            String targetType,
+            UUID targetId,
+            String status,
+            UUID targetUserId
+    );
+
     List<ShareInvitation> findByStatusAndExpiresAtBefore(String status, Instant expiresAt);
+
+    List<ShareInvitation> findByStatusAndTargetUserIdIsNullAndTargetEmailIgnoreCase(String status, String targetEmail);
 
     @Query("""
             select invitation
             from ShareInvitation invitation
             where invitation.inviterUserId = :userId
-               or lower(invitation.targetEmail) = lower(:email)
+               or invitation.targetUserId = :userId
             order by invitation.createdAt desc
             """)
-    List<ShareInvitation> findVisibleToUser(@Param("userId") UUID userId, @Param("email") String email);
+    List<ShareInvitation> findVisibleToUser(@Param("userId") UUID userId);
 }

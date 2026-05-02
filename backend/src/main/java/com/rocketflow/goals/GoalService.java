@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.rocketflow.common.ApiException;
 import com.rocketflow.folders.FolderService;
 import com.rocketflow.sharing.SharingAccessService;
+import com.rocketflow.sharing.SharingAccessService.FolderAccess;
 import com.rocketflow.sharing.SharingAccessService.GoalAccess;
 
 @Service
@@ -30,13 +31,16 @@ public class GoalService {
     }
 
     @Transactional(readOnly = true)
-    public GoalListResponse list(UUID ownerUserId, UUID folderId) {
-        folderService.requireFolder(folderId, ownerUserId);
-        List<Goal> goals = goalRepository.findByFolderIdAndOwnerUserIdOrderByCreatedAtAsc(folderId, ownerUserId);
+    public GoalListResponse list(UUID actorUserId, UUID folderId) {
+        FolderAccess folderAccess = folderService.requireFolderAccess(folderId, actorUserId);
+        List<Goal> goals = goalRepository.findByFolderIdAndOwnerUserIdOrderByCreatedAtAsc(
+                folderId,
+                folderAccess.folder().getOwnerUserId()
+        );
         Set<UUID> sharedGoalIds = sharingAccessService.findSharedGoalIds(goals.stream().map(Goal::getId).toList());
         return new GoalListResponse(goals
                 .stream()
-                .map(goal -> toDto(goal, sharedGoalIds.contains(goal.getId())))
+                .map(goal -> toDto(goal, folderAccess.shared() || sharedGoalIds.contains(goal.getId())))
                 .toList());
     }
 
@@ -64,7 +68,7 @@ public class GoalService {
 
     @Transactional
     public GoalDto update(UUID actorUserId, UUID goalId, UpdateGoalRequest request) {
-        GoalAccess access = sharingAccessService.requireGoalAccess(goalId, actorUserId);
+        GoalAccess access = sharingAccessService.requireGoalOwner(goalId, actorUserId);
         Goal goal = access.goal();
         ensureVersion(goal.getVersion(), request.version(), "Goal");
         goal.setName(request.name().trim());
@@ -76,7 +80,7 @@ public class GoalService {
 
     @Transactional
     public void softDelete(UUID actorUserId, UUID goalId) {
-        Goal goal = sharingAccessService.requireGoalAccess(goalId, actorUserId).goal();
+        Goal goal = sharingAccessService.requireGoalOwner(goalId, actorUserId).goal();
         goal.setArchived(true);
         goal.setUpdatedAt(Instant.now());
         goalRepository.save(goal);

@@ -15,6 +15,7 @@ public final class DevicesApi {
     public record RegisterDeviceRequest(
             @NotBlank @Pattern(regexp = "android") String platform,
             @NotBlank @Size(max = 1024) String pushToken,
+            @Size(max = 120) String installationId,
             @Size(max = 120) String deviceName
     ) {
     }

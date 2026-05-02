@@ -24,10 +24,21 @@ public class DevicesService {
     public DeviceRegistrationResponse register(UUID userId, RegisterDeviceRequest request) {
         Instant now = Instant.now();
         String normalizedToken = request.pushToken().trim();
-        DeviceRegistration registration = deviceRegistrationRepository.findByPushToken(normalizedToken)
-                .orElseGet(DeviceRegistration::new);
+        String normalizedInstallationId = normalizeInstallationId(request.installationId());
+        DeviceRegistration installationMatch = normalizedInstallationId == null
+                ? null
+                : deviceRegistrationRepository.findByInstallationId(normalizedInstallationId).orElse(null);
+        DeviceRegistration tokenMatch = deviceRegistrationRepository.findByPushToken(normalizedToken).orElse(null);
+        DeviceRegistration registration = tokenMatch != null ? tokenMatch : installationMatch;
 
-        if (registration.getId() == null) {
+        if (installationMatch != null
+                && tokenMatch != null
+                && !installationMatch.getId().equals(tokenMatch.getId())) {
+            retireSupersededInstallation(installationMatch, now);
+        }
+
+        if (registration == null) {
+            registration = new DeviceRegistration();
             registration.setId(UUID.randomUUID());
             registration.setCreatedAt(now);
         }
@@ -35,6 +46,9 @@ public class DevicesService {
         registration.setUserId(userId);
         registration.setPlatform(request.platform());
         registration.setPushToken(normalizedToken);
+        if (normalizedInstallationId != null) {
+            registration.setInstallationId(normalizedInstallationId);
+        }
         registration.setDeviceName(normalizeDeviceName(request.deviceName()));
         registration.setActive(true);
         registration.setUpdatedAt(now);
@@ -69,5 +83,20 @@ public class DevicesService {
         }
         String trimmed = deviceName.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String normalizeInstallationId(String installationId) {
+        if (installationId == null) {
+            return null;
+        }
+        String trimmed = installationId.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void retireSupersededInstallation(DeviceRegistration registration, Instant now) {
+        registration.setActive(false);
+        registration.setInstallationId(null);
+        registration.setUpdatedAt(now);
+        deviceRegistrationRepository.saveAndFlush(registration);
     }
 }

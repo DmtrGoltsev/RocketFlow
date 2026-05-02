@@ -17,6 +17,8 @@ public interface TaskShareRepository extends JpaRepository<TaskShare, UUID> {
 
     Optional<TaskShare> findByInvitationId(UUID invitationId);
 
+    Optional<TaskShare> findByLinkIdAndCollaboratorUserIdAndStatus(UUID linkId, UUID collaboratorUserId, String status);
+
     List<TaskShare> findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(UUID collaboratorUserId, String status);
 
     @Query("""

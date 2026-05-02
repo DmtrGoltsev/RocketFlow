@@ -23,6 +23,14 @@ public class WebCorsConfiguration {
             configuration.setAllowedOrigins(allowedOrigins);
         }
 
+        List<String> allowedOriginPatterns = properties.getAllowedOriginPatterns().stream()
+                .filter(origin -> origin != null && !origin.isBlank())
+                .collect(Collectors.toList());
+
+        if (!allowedOriginPatterns.isEmpty()) {
+            configuration.setAllowedOriginPatterns(allowedOriginPatterns);
+        }
+
         configuration.setAllowedMethods(properties.getAllowedMethods());
         configuration.setAllowedHeaders(properties.getAllowedHeaders());
         configuration.setExposedHeaders(properties.getExposedHeaders());

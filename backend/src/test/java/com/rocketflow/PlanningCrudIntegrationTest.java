@@ -213,6 +213,89 @@ class PlanningCrudIntegrationTest {
                 .andExpect(jsonPath("$.items[0].archived").value(true));
     }
 
+    @Test
+    void taskPatchWithoutTagIdsPreservesExistingTags() throws Exception {
+        String tokens = registerAndLogin();
+        String accessToken = read(tokens, "/tokens/accessToken");
+
+        String tagResponse = mockMvc.perform(post("/api/tags")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "android-sync",
+                                  "color": "#4f6b9a"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String tagId = read(tagResponse, "/id");
+
+        String folderId = read(mockMvc.perform(post("/api/folders")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Mobile",
+                                  "description": "Created during sync"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        String goalId = read(mockMvc.perform(post("/api/folders/" + folderId + "/goals")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Offline goal",
+                                  "description": "Android-created goal"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        String taskResponse = mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Tagged mobile task",
+                                  "description": "Has a tag created by another client",
+                                  "type": "green",
+                                  "priority": 6,
+                                  "status": "todo",
+                                  "plannedTime": "2026-05-01T09:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "tagIds": ["%s"]
+                                }
+                                """.formatted(tagId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.tags[0].id").value(tagId))
+                .andReturn().getResponse().getContentAsString();
+        String taskId = read(taskResponse, "/id");
+        String taskVersion = read(taskResponse, "/version");
+
+        mockMvc.perform(patch("/api/tasks/" + taskId)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Tagged mobile task updated on web",
+                                  "description": "Web client did not send tagIds",
+                                  "type": "green",
+                                  "priority": 7,
+                                  "status": "in_progress",
+                                  "plannedTime": "2026-05-01T10:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "archived": false,
+                                  "version": %s
+                                }
+                                """.formatted(taskVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tags[0].id").value(tagId));
+    }
+
     private String registerAndLogin() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)

@@ -21,6 +21,9 @@ public class DeviceRegistration {
     @Column(name = "push_token", nullable = false, length = 1024)
     private String pushToken;
 
+    @Column(name = "installation_id", length = 120)
+    private String installationId;
+
     @Column(name = "device_name", length = 120)
     private String deviceName;
 
@@ -62,6 +65,14 @@ public class DeviceRegistration {
 
     public String getDeviceName() {
         return deviceName;
+    }
+
+    public String getInstallationId() {
+        return installationId;
+    }
+
+    public void setInstallationId(String installationId) {
+        this.installationId = installationId;
     }
 
     public void setDeviceName(String deviceName) {

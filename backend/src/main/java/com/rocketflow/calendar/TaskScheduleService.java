@@ -47,7 +47,7 @@ public class TaskScheduleService {
 
     @Transactional
     public MoveTaskResponse moveTask(UUID actorUserId, UUID taskId, MoveTaskRequest request) {
-        Task task = sharingAccessService.requireTaskAccess(taskId, actorUserId).task();
+        Task task = sharingAccessService.requireTaskOwner(taskId, actorUserId).task();
         Instant previousPlannedTime = task.getPlannedTime();
         Instant newPlannedTime = request.plannedTime();
         PriorityDecayResult decayResult = priorityDecayService.evaluate(task, previousPlannedTime, newPlannedTime);
@@ -64,7 +64,7 @@ public class TaskScheduleService {
 
     @Transactional
     public QuickRescheduleResponse quickReschedule(UUID actorUserId, UUID taskId, QuickRescheduleRequest request) {
-        Task task = sharingAccessService.requireTaskAccess(taskId, actorUserId).task();
+        Task task = sharingAccessService.requireTaskOwner(taskId, actorUserId).task();
         Instant previousPlannedTime = task.getPlannedTime();
         if (previousPlannedTime == null) {
             throw new ApiException(

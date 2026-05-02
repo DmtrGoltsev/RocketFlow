@@ -9,14 +9,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "task_shares")
-public class TaskShare {
+@Table(name = "folder_shares")
+public class FolderShare {
 
     @Id
     private UUID id;
 
-    @Column(name = "task_id", nullable = false)
-    private UUID taskId;
+    @Column(name = "folder_id", nullable = false)
+    private UUID folderId;
 
     @Column(name = "owner_user_id", nullable = false)
     private UUID ownerUserId;
@@ -50,12 +50,12 @@ public class TaskShare {
         this.id = id;
     }
 
-    public UUID getTaskId() {
-        return taskId;
+    public UUID getFolderId() {
+        return folderId;
     }
 
-    public void setTaskId(UUID taskId) {
-        this.taskId = taskId;
+    public void setFolderId(UUID folderId) {
+        this.folderId = folderId;
     }
 
     public UUID getOwnerUserId() {

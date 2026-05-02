@@ -19,6 +19,7 @@ public final class FoldersApi {
             String description,
             int displayOrder,
             boolean archived,
+            boolean shared,
             long version,
             Instant createdAt,
             Instant updatedAt

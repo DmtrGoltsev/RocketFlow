@@ -71,7 +71,7 @@ public class TaskService {
 
     @Transactional
     public TaskDto create(UUID actorUserId, UUID goalId, CreateTaskRequest request) {
-        GoalAccess goalAccess = sharingAccessService.requireGoalAccess(goalId, actorUserId);
+        GoalAccess goalAccess = sharingAccessService.requireGoalOwner(goalId, actorUserId);
         Instant now = Instant.now();
         Task task = new Task();
         task.setId(UUID.randomUUID());
@@ -111,7 +111,7 @@ public class TaskService {
 
     @Transactional
     public TaskDto update(UUID actorUserId, UUID taskId, UpdateTaskRequest request) {
-        TaskAccess access = sharingAccessService.requireTaskAccess(taskId, actorUserId);
+        TaskAccess access = sharingAccessService.requireTaskOwner(taskId, actorUserId);
         Task task = access.task();
         ensureVersion(task.getVersion(), request.version(), "Task");
         task.setTitle(request.title().trim());
@@ -125,7 +125,9 @@ public class TaskService {
         task.setArchived(request.archived());
         task.setUpdatedAt(Instant.now());
         Task saved = taskRepository.save(task);
-        replaceTags(saved.getId(), saved.getOwnerUserId(), request.tagIds());
+        if (request.tagIds() != null) {
+            replaceTags(saved.getId(), saved.getOwnerUserId(), request.tagIds());
+        }
         return toDto(
                 saved,
                 resolveTags(saved.getId()),
@@ -136,19 +138,19 @@ public class TaskService {
 
     @Transactional
     public TaskRecurrenceResponse upsertRecurrence(UUID actorUserId, UUID taskId, UpsertRecurrenceRequest request) {
-        TaskAccess access = sharingAccessService.requireTaskAccess(taskId, actorUserId);
+        TaskAccess access = sharingAccessService.requireTaskOwner(taskId, actorUserId);
         return new TaskRecurrenceResponse(access.task().getId(), recurrenceService.upsert(access.task(), request));
     }
 
     @Transactional
     public TaskRemindersResponse replaceReminders(UUID actorUserId, UUID taskId, ReplaceRemindersRequest request) {
-        TaskAccess access = sharingAccessService.requireTaskAccess(taskId, actorUserId);
+        TaskAccess access = sharingAccessService.requireTaskOwner(taskId, actorUserId);
         return new TaskRemindersResponse(access.task().getId(), reminderService.replace(access.task(), request));
     }
 
     @Transactional
     public void softDelete(UUID actorUserId, UUID taskId) {
-        Task task = sharingAccessService.requireTaskAccess(taskId, actorUserId).task();
+        Task task = sharingAccessService.requireTaskOwner(taskId, actorUserId).task();
         task.setArchived(true);
         task.setUpdatedAt(Instant.now());
         taskRepository.save(task);

@@ -17,6 +17,8 @@ public interface GoalShareRepository extends JpaRepository<GoalShare, UUID> {
 
     Optional<GoalShare> findByInvitationId(UUID invitationId);
 
+    Optional<GoalShare> findByLinkIdAndCollaboratorUserIdAndStatus(UUID linkId, UUID collaboratorUserId, String status);
+
     List<GoalShare> findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(UUID collaboratorUserId, String status);
 
     @Query("""

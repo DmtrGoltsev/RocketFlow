@@ -27,6 +27,9 @@ public class GoalShare {
     @Column(name = "invitation_id")
     private UUID invitationId;
 
+    @Column(name = "link_id")
+    private UUID linkId;
+
     @Column(nullable = false, length = 16)
     private String status;
 
@@ -77,6 +80,14 @@ public class GoalShare {
 
     public void setInvitationId(UUID invitationId) {
         this.invitationId = invitationId;
+    }
+
+    public UUID getLinkId() {
+        return linkId;
+    }
+
+    public void setLinkId(UUID linkId) {
+        this.linkId = linkId;
     }
 
     public String getStatus() {

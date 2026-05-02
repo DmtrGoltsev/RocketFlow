@@ -10,21 +10,25 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.common.ApiException;
+import com.rocketflow.sharing.SharingAccessService;
+import com.rocketflow.sharing.SharingAccessService.FolderAccess;
 
 @Service
 public class FolderService {
 
     private final FolderRepository folderRepository;
+    private final SharingAccessService sharingAccessService;
 
-    public FolderService(FolderRepository folderRepository) {
+    public FolderService(FolderRepository folderRepository, SharingAccessService sharingAccessService) {
         this.folderRepository = folderRepository;
+        this.sharingAccessService = sharingAccessService;
     }
 
     @Transactional(readOnly = true)
     public FolderListResponse list(UUID ownerUserId) {
         return new FolderListResponse(folderRepository.findByOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(ownerUserId)
                 .stream()
-                .map(this::toDto)
+                .map(folder -> toDto(folder, sharingAccessService.hasActiveFolderShares(folder.getId())))
                 .toList());
     }
 
@@ -40,7 +44,7 @@ public class FolderService {
         folder.setArchived(false);
         folder.setCreatedAt(now);
         folder.setUpdatedAt(now);
-        return toDto(folderRepository.save(folder));
+        return toDto(folderRepository.save(folder), false);
     }
 
     @Transactional
@@ -52,7 +56,7 @@ public class FolderService {
         folder.setDisplayOrder(request.displayOrder());
         folder.setArchived(request.archived());
         folder.setUpdatedAt(Instant.now());
-        return toDto(folderRepository.save(folder));
+        return toDto(folderRepository.save(folder), sharingAccessService.hasActiveFolderShares(folder.getId()));
     }
 
     @Transactional
@@ -69,13 +73,19 @@ public class FolderService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "not_found", "Folder was not found."));
     }
 
-    FolderDto toDto(Folder folder) {
+    @Transactional(readOnly = true)
+    public FolderAccess requireFolderAccess(UUID folderId, UUID actorUserId) {
+        return sharingAccessService.requireFolderAccess(folderId, actorUserId);
+    }
+
+    FolderDto toDto(Folder folder, boolean shared) {
         return new FolderDto(
                 folder.getId(),
                 folder.getName(),
                 folder.getDescription(),
                 folder.getDisplayOrder(),
                 folder.isArchived(),
+                shared,
                 folder.getVersion(),
                 folder.getCreatedAt(),
                 folder.getUpdatedAt()

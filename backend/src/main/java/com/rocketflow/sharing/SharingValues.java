@@ -6,6 +6,7 @@ public final class SharingValues {
 
     public static final String TARGET_GOAL = "goal";
     public static final String TARGET_TASK = "task";
+    public static final String TARGET_FOLDER = "folder";
 
     public static final String INVITATION_PENDING = "pending";
     public static final String INVITATION_ACCEPTED = "accepted";
@@ -15,6 +16,9 @@ public final class SharingValues {
 
     public static final String SHARE_ACTIVE = "active";
     public static final String SHARE_REVOKED = "revoked";
+
+    public static final String LINK_ACTIVE = "active";
+    public static final String LINK_REVOKED = "revoked";
 
     public static final Duration INVITATION_TTL = Duration.ofDays(7);
 

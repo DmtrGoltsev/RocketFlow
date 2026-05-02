@@ -2,6 +2,9 @@ package com.rocketflow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.clearInvocations;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -74,6 +77,7 @@ class NotificationDeliveryIntegrationTest {
     @BeforeEach
     void cleanDatabase() throws Exception {
         testFcmSender.reset();
+        clearInvocations(testFcmSender);
         try (var connection = POSTGRES.getPostgresDatabase().getConnection();
              var statement = connection.createStatement()) {
             statement.executeUpdate("""
@@ -165,6 +169,62 @@ class NotificationDeliveryIntegrationTest {
         DeviceRegistration registration = deviceRegistrationRepository.findById(UUID.fromString(deviceId)).orElseThrow();
         assertEquals("Other phone", registration.getDeviceName());
         assertFalse(registration.isActive());
+    }
+
+    @Test
+    void deviceRegistrationUpsertsSameLogicalDeviceWhenTokenRotates() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+
+        String firstRegistration = registerDevice(owner.accessToken(), "token-a", "Pixel 8", "install-1");
+        String deviceId = read(firstRegistration, "/id");
+
+        mockMvc.perform(post("/api/devices")
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "platform": "android",
+                                  "pushToken": "token-b",
+                                  "installationId": "install-1",
+                                  "deviceName": "Pixel 8 Pro"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(deviceId))
+                .andExpect(jsonPath("$.deviceName").value("Pixel 8 Pro"));
+
+        DeviceRegistration registration = deviceRegistrationRepository.findById(UUID.fromString(deviceId)).orElseThrow();
+        assertEquals(owner.userId(), registration.getUserId().toString());
+        assertEquals("token-b", registration.getPushToken());
+        assertEquals("install-1", registration.getInstallationId());
+        assertTrue(registration.isActive());
+    }
+
+    @Test
+    void deviceRegistrationPrefersCurrentTokenAndRetiresSupersededInstallationRow() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+        Session otherUser = registerAndLogin("other@example.com", "Other");
+
+        String installationRegistration = registerDevice(owner.accessToken(), "token-a", "Owner Pixel", "install-1");
+        String staleTokenRegistration = registerDevice(otherUser.accessToken(), "token-b", "Other Pixel");
+        String installationDeviceId = read(installationRegistration, "/id");
+        String staleTokenDeviceId = read(staleTokenRegistration, "/id");
+
+        String migratedRegistration = registerDevice(owner.accessToken(), "token-b", "Owner Pixel 9", "install-1");
+        assertEquals(staleTokenDeviceId, read(migratedRegistration, "/id"));
+
+        DeviceRegistration canonicalRegistration =
+                deviceRegistrationRepository.findById(UUID.fromString(staleTokenDeviceId)).orElseThrow();
+        assertEquals(owner.userId(), canonicalRegistration.getUserId().toString());
+        assertEquals("token-b", canonicalRegistration.getPushToken());
+        assertEquals("install-1", canonicalRegistration.getInstallationId());
+        assertEquals("Owner Pixel 9", canonicalRegistration.getDeviceName());
+        assertTrue(canonicalRegistration.isActive());
+
+        DeviceRegistration supersededRegistration =
+                deviceRegistrationRepository.findById(UUID.fromString(installationDeviceId)).orElseThrow();
+        assertFalse(supersededRegistration.isActive());
+        assertNull(supersededRegistration.getInstallationId());
     }
 
     @Test
@@ -296,6 +356,13 @@ class NotificationDeliveryIntegrationTest {
     }
 
     private String registerDevice(String accessToken, String pushToken, String deviceName) throws Exception {
+        return registerDevice(accessToken, pushToken, deviceName, null);
+    }
+
+    private String registerDevice(String accessToken, String pushToken, String deviceName, String installationId) throws Exception {
+        String installationIdField = installationId == null
+                ? "\"installationId\": null,"
+                : "\"installationId\": \"%s\",".formatted(installationId);
         return mockMvc.perform(post("/api/devices")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -303,9 +370,10 @@ class NotificationDeliveryIntegrationTest {
                                 {
                                   "platform": "android",
                                   "pushToken": "%s",
+                                  %s
                                   "deviceName": "%s"
                                 }
-                                """.formatted(pushToken, deviceName)))
+                                """.formatted(pushToken, installationIdField, deviceName)))
                 .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse()
@@ -339,7 +407,10 @@ class NotificationDeliveryIntegrationTest {
                 .getResponse()
                 .getContentAsString();
 
-        return new Session(read(loginResponse, "/tokens/accessToken"));
+        return new Session(
+                read(loginResponse, "/tokens/accessToken"),
+                read(loginResponse, "/user/id")
+        );
     }
 
     private String createFolder(String accessToken) throws Exception {
@@ -399,7 +470,7 @@ class NotificationDeliveryIntegrationTest {
         }
     }
 
-    private record Session(String accessToken) {
+    private record Session(String accessToken, String userId) {
     }
 
     private record SentMessage(String pushToken, NotificationPayload payload) {
@@ -411,7 +482,7 @@ class NotificationDeliveryIntegrationTest {
         @Bean
         @Primary
         TestFcmSender testFcmSender() {
-            return new TestFcmSender();
+            return org.mockito.Mockito.spy(new TestFcmSender());
         }
     }
 

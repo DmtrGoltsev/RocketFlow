@@ -245,7 +245,7 @@ class CalendarReschedulePriorityIntegrationTest {
     }
 
     @Test
-    void collaboratorQuickRescheduleUsesOwnerPolicyAndRecordsActor() throws Exception {
+    void collaboratorQuickRescheduleIsOwnerOnly() throws Exception {
         Session owner = registerAndLogin("policy-owner@example.com", "Policy Owner");
         Session collaborator = registerAndLogin("policy-collaborator@example.com", "Policy Collaborator");
         updateGreenPolicy(collaborator.accessToken(), false, "month", 1);
@@ -268,24 +268,16 @@ class CalendarReschedulePriorityIntegrationTest {
         mockMvc.perform(post("/api/tasks/" + taskId + "/reschedule")
                         .header("Authorization", "Bearer " + collaborator.accessToken())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "preset": "24h"
-                                }
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.priorityDecayApplied").value(true))
-                .andExpect(jsonPath("$.task.priority").value(6))
-                .andExpect(jsonPath("$.rescheduleEvent.previousPlannedTime").value("2026-05-01T09:00:00Z"))
-                .andExpect(jsonPath("$.rescheduleEvent.newPlannedTime").value("2026-05-02T09:00:00Z"));
+                .content("""
+                        {
+                          "preset": "24h"
+                        }
+                        """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
 
         List<TaskRescheduleEvent> events = taskRescheduleEventRepository.findByTaskIdOrderByCreatedAtAsc(UUID.fromString(taskId));
-        assertEquals(1, events.size());
-        TaskRescheduleEvent event = events.getFirst();
-        assertEquals(collaborator.userId(), event.getRescheduledByUserId());
-        assertEquals(7, event.getPriorityBefore());
-        assertEquals(6, event.getPriorityAfter());
-        assertTrue(event.isPriorityDecayApplied());
+        assertEquals(0, events.size());
     }
 
     private Session registerAndLogin(String email, String displayName) throws Exception {
