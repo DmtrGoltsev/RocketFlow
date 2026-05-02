@@ -119,7 +119,7 @@ Minimum backend environment variables:
 - `ROCKETFLOW_NOTIFICATIONS_SCHEDULER_ENABLED`
 - `ROCKETFLOW_NOTIFICATIONS_FCM_ENABLED`
 - `ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID`
-- `ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON` or secure file mount reference
+- `ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON` or `ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_PATH`
 - `ROCKETFLOW_ALLOWED_ORIGINS`
 - `ROCKETFLOW_LOG_LEVEL`
 
@@ -193,6 +193,8 @@ Responsibilities:
 
 - build backend
 - run `mvn test`
+- build the backend container image
+- run a temporary `postgres:16`-backed `/actuator/health` smoke against the built image
 - fail on migration or integration regressions
 
 ### `web-verify`
@@ -238,6 +240,7 @@ Required deployment behaviors:
 - run Flyway migrations on startup or in a pre-start step
 - expose `/actuator/health`
 - fail fast on invalid configuration
+- prefer a registry-backed image publish path instead of host-local ad hoc jar deployment once staging starts
 
 ### Web
 
@@ -297,14 +300,26 @@ Already true in the repository:
 - backend tests run against embedded PostgreSQL
 - local defaults are split from the main application config
 - backend health endpoint support exists through Spring Boot Actuator
+- repo-backed backend container baseline now exists via `backend/Dockerfile` and `backend/.dockerignore`
+- local `rocketflow-backend:latest` build and temporary `postgres:16` container-backed `/actuator/health` smoke are proven
+- GitHub Actions `backend-verify` now also builds the backend image and runs a temporary `postgres:16` container-backed `/actuator/health` smoke
+- GHCR is now the selected backend image registry target, and `.github/workflows/backend-image-publish.yml` prepares the manual publish path
 
-Still to implement later:
+Still to implement in the next delivery layers:
 
-- actual CI configuration files
-- web pipeline
-- Android pipeline
-- staging deployment descriptors
-- FCM credential management in deployment infrastructure
+- stronger web static/type/i18n checks
+- stronger Android lint/test coverage
+- first successful remote GHCR publish plus deploy wiring and operator-visible staging deployment facts on top of the existing tested container baseline
+- environment-separated runtime and FCM credential wiring in deployment infrastructure
+- end-to-end notification rollout assets and smoke automation
+
+Android Firebase config note for local or staging device validation:
+
+- the app can bootstrap Firebase either from default packaged resources or from explicit build-time values:
+  - `ROCKETFLOW_ANDROID_FIREBASE_APPLICATION_ID`
+  - `ROCKETFLOW_ANDROID_FIREBASE_API_KEY`
+  - `ROCKETFLOW_ANDROID_FIREBASE_PROJECT_ID`
+  - `ROCKETFLOW_ANDROID_FIREBASE_GCM_SENDER_ID`
 
 ## 14. Handoff Note
 

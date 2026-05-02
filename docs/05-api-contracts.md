@@ -213,6 +213,7 @@ Response `204 No Content`
   "description": "Main work area",
   "displayOrder": 1,
   "archived": false,
+  "shared": false,
   "version": 0,
   "createdAt": "2026-04-26T18:30:00Z",
   "updatedAt": "2026-04-26T18:30:00Z"
@@ -284,6 +285,7 @@ Response `204 No Content`
   "targetType": "goal",
   "targetId": "uuid",
   "targetEmail": "collaborator@example.com",
+  "targetUserId": "uuid",
   "status": "pending",
   "createdAt": "2026-04-26T18:30:00Z",
   "expiresAt": "2026-05-03T18:30:00Z"
@@ -769,6 +771,10 @@ Request:
 }
 ```
 
+Contract note:
+- `tagIds` may be omitted when a client does not author tags; omitted `tagIds` preserves existing task tags
+- send `"tagIds": []` to intentionally clear all tags, or a UUID list to replace the tag set
+
 Response `200 OK`:
 ```json
 {
@@ -1106,16 +1112,49 @@ Validation rules:
 
 ## 15. Sharing API
 
-### Share Goal
+Share invitation request bodies target an existing RocketFlow account by exactly one identifier:
 
-`POST /api/goals/{goalId}/share`
-
-Request:
+By email:
 ```json
 {
   "email": "collaborator@example.com"
 }
 ```
+
+By user ID:
+```json
+{
+  "userId": "uuid"
+}
+```
+
+Validation rules:
+- caller must own the folder, goal, or task being shared
+- target user must exist
+- self-share is rejected
+- duplicate pending invitations and duplicate active shares for the same target are rejected
+
+### Share Folder
+
+`POST /api/folders/{folderId}/share`
+
+Response `201 Created`:
+```json
+{
+  "id": "uuid",
+  "targetType": "folder",
+  "targetId": "uuid",
+  "targetEmail": "collaborator@example.com",
+  "targetUserId": "uuid",
+  "status": "pending",
+  "createdAt": "2026-04-26T19:15:00Z",
+  "expiresAt": "2026-05-03T19:15:00Z"
+}
+```
+
+### Share Goal
+
+`POST /api/goals/{goalId}/share`
 
 Response `201 Created`:
 ```json
@@ -1124,6 +1163,7 @@ Response `201 Created`:
   "targetType": "goal",
   "targetId": "uuid",
   "targetEmail": "collaborator@example.com",
+  "targetUserId": "uuid",
   "status": "pending",
   "createdAt": "2026-04-26T19:15:00Z",
   "expiresAt": "2026-05-03T19:15:00Z"
@@ -1134,13 +1174,6 @@ Response `201 Created`:
 
 `POST /api/tasks/{taskId}/share`
 
-Request:
-```json
-{
-  "email": "collaborator@example.com"
-}
-```
-
 Response `201 Created`:
 ```json
 {
@@ -1148,9 +1181,102 @@ Response `201 Created`:
   "targetType": "task",
   "targetId": "uuid",
   "targetEmail": "collaborator@example.com",
+  "targetUserId": "uuid",
   "status": "pending",
   "createdAt": "2026-04-26T19:15:00Z",
   "expiresAt": "2026-05-03T19:15:00Z"
+}
+```
+
+### Create Share Link
+
+`POST /api/folders/{folderId}/share-links`
+`POST /api/goals/{goalId}/share-links`
+`POST /api/tasks/{taskId}/share-links`
+
+Request body is optional. `expiresAt` must be in the future when provided:
+```json
+{
+  "expiresAt": "2030-01-01T00:00:00Z"
+}
+```
+
+Response `201 Created`:
+```json
+{
+  "id": "uuid",
+  "targetType": "folder",
+  "targetId": "uuid",
+  "token": "url-safe-random-token",
+  "status": "active",
+  "createdAt": "2026-04-26T19:15:00Z",
+  "expiresAt": "2030-01-01T00:00:00Z"
+}
+```
+
+The raw `token` is returned only on creation. Store it client-side if the user needs to copy/share the same link later.
+
+### List Share Links
+
+`GET /api/folders/{folderId}/share-links`
+`GET /api/goals/{goalId}/share-links`
+`GET /api/tasks/{taskId}/share-links`
+
+Response `200 OK`:
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "targetType": "folder",
+      "targetId": "uuid",
+      "status": "active",
+      "createdAt": "2026-04-26T19:15:00Z",
+      "expiresAt": "2030-01-01T00:00:00Z",
+      "revokedAt": null
+    }
+  ]
+}
+```
+
+### Resolve Share Link
+
+`GET /api/shares/links/{token}`
+
+Requires authentication. Returns metadata only, not protected folder/goal/task contents:
+```json
+{
+  "id": "uuid",
+  "targetType": "folder",
+  "targetId": "uuid",
+  "status": "active",
+  "expiresAt": "2030-01-01T00:00:00Z"
+}
+```
+
+### Accept Share Link
+
+`POST /api/shares/links/{token}/accept`
+
+Requires authentication. Creates read-only collaborator access for the authenticated user.
+```json
+{
+  "shareId": "uuid",
+  "targetType": "folder",
+  "targetId": "uuid",
+  "status": "active"
+}
+```
+
+### Revoke Share Link
+
+`POST /api/shares/links/{linkId}/revoke`
+
+Owner-only. Revoking a link prevents future resolve/accept by token; accepted shares remain active.
+```json
+{
+  "id": "uuid",
+  "status": "revoked"
 }
 ```
 
@@ -1167,6 +1293,7 @@ Response `200 OK`:
       "targetType": "goal",
       "targetId": "uuid",
       "targetEmail": "collaborator@example.com",
+      "targetUserId": "uuid",
       "status": "pending",
       "createdAt": "2026-04-26T19:15:00Z",
       "expiresAt": "2026-05-03T19:15:00Z"
@@ -1218,6 +1345,19 @@ Response `200 OK`:
 Response `200 OK`:
 ```json
 {
+  "folders": [
+    {
+      "id": "uuid",
+      "name": "Work",
+      "description": "Main work area",
+      "displayOrder": 1,
+      "archived": false,
+      "shared": true,
+      "version": 1,
+      "createdAt": "2026-04-26T18:30:00Z",
+      "updatedAt": "2026-04-26T18:30:00Z"
+    }
+  ],
   "goals": [
     {
       "id": "uuid",
@@ -1256,9 +1396,13 @@ Response `200 OK`:
 ```
 
 Contract note:
-- shared goals keep their persisted `folderId`
-- clients must not interpret this endpoint as folder-sharing scope expansion
-- grouping shared resources in presentation is allowed, but `virtual-shared` is not a required API contract
+- accepted folder shares are expanded into `folders`, contained `goals`, and contained `tasks`
+- shared goals keep their persisted `folderId`; for folder shares this `folderId` appears in `folders`
+- shared tasks use the same `TaskDto` shape as task list/detail responses, including `tags`, `recurrence`, and `reminders`
+- direct task shares do not include the parent goal or folder unless separately shared
+- folder, goal, and task collaborators are read-only; write endpoints remain owner-only
+- new invitations require the invitee account to already exist; legacy pending invitations without `targetUserId` remain acceptable by the account whose email matches `targetEmail`
+- share links are authenticated: resolving or accepting a token requires a valid session, and unauthenticated callers do not receive protected resource data
 
 ## 16. Device Registration API
 
@@ -1271,6 +1415,7 @@ Request:
 {
   "platform": "android",
   "pushToken": "fcm-device-token",
+  "installationId": "0b0f2d7f-1111-2222-3333-444455556666",
   "deviceName": "Pixel 8"
 }
 ```
@@ -1285,6 +1430,11 @@ Response `201 Created`:
   "createdAt": "2026-04-26T19:20:00Z"
 }
 ```
+
+Contract notes:
+- `installationId` should be a stable client-generated identifier for one app installation
+- when `installationId` is provided, the backend should upsert the logical device even if the push token rotated
+- older clients may omit `installationId`, in which case fallback behavior remains token-based
 
 ### Delete Device
 
@@ -1326,25 +1476,36 @@ Response:
 
 ### Sharing
 
-- email is required
+- exactly one of `email` or `userId` is required for invitations
 - target object must exist
-- duplicate active invitation or duplicate effective access must be rejected
+- duplicate pending invitation or duplicate active access must be rejected
 - self-invite must be rejected
 
 ## 18. Permission Rules in API Terms
 
-The following users may read or modify a goal:
+The following users may read a goal:
 - the owner
+- an accepted collaborator on the parent folder
 - an accepted collaborator on that goal
 
-The following users may read or modify a task:
+The following users may modify a goal:
 - the owner
+
+The following users may read a task:
+- the owner
+- an accepted collaborator on the parent folder
 - an accepted collaborator on the parent goal
 - an accepted collaborator on that task
 
+The following users may modify a task:
+- the owner
+
 Folder access:
-- owner only in MVP
-- collaborators discover shared goals and tasks through `/api/shares/resources`, not through folder ownership
+- owners can create, update, delete, invite, and manage links
+- accepted folder collaborators can read the folder via `/api/shares/resources`
+- accepted folder collaborators can read contained goals via `GET /api/folders/{folderId}/goals`
+- accepted folder collaborators can read contained tasks through the normal goal/task read endpoints
+- folder collaborators are read-only; contained goal/task create, update, delete, schedule, recurrence, and reminder writes remain owner-only
 
 ## 19. Localization and Client Contract Notes
 

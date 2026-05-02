@@ -52,7 +52,7 @@ Its purpose is:
 
 ### Backend staging checklist
 
-- [ ] A repeatable backend build artifact exists and is the same artifact family intended for production.
+- [x] A repeatable backend container artifact family exists in the repo via `backend/Dockerfile`, and local image build proof is closed.
 - [ ] Staging uses its own PostgreSQL database and credentials.
 - [ ] Backend runtime configuration is injected from environment-specific values, not tracked files.
 - [ ] The backend deployment path is documented and repeatable.
@@ -75,9 +75,45 @@ Its purpose is:
 
 ### Current staging blockers at the present repository stage
 
-- Web deployment cannot become fully active until the web skeleton, build command, and runtime configuration pattern exist.
-- Android notification validation cannot begin until device registration and notification delivery are implemented.
-- FCM-enabled staging validation remains blocked until separate staging Firebase assets exist.
+Historical blockers below are now outdated and kept only for traceability:
+
+- the earlier web skeleton/build-command blocker is no longer the active repo gate; the remaining gap is the external staging deployment and runtime configuration shape
+- device registration, backend notification delivery, and the Android local proof path are now closed on the repo-owned path
+- local/internal non-production Firebase artifacts already exist, but they do not replace staging deployment facts or environment-separated staging secrets
+
+Updated status:
+
+- backend container baseline is now present and locally proven via `backend/Dockerfile` plus a temporary `postgres:16` container-backed `/actuator/health` smoke
+- backend image publish destination is now fixed to GHCR through the planned image name family `ghcr.io/<github-owner>/rocketflow-backend`
+- `.github/workflows/backend-image-publish.yml` now prepares a manual GHCR publish path that reruns backend verification before pushing tags
+- active staging blocker is now the still-external first remote publish/deploy/runtime configuration shape, including actual package visibility, staging deployment facts, the staging API URL, operator-visible deployment facts, and environment-separated secrets wiring
+- the next notification gate is staging notification certification, not another repo-local implementation proof
+
+## 3.1 Selected backend image publish path
+
+Chosen registry target:
+
+- GitHub Container Registry (`GHCR`)
+- image family: `ghcr.io/<github-owner>/rocketflow-backend`
+
+Current repo-backed publish entrypoint:
+
+- `.github/workflows/backend-image-publish.yml`
+
+Current publish behavior:
+
+- manual `workflow_dispatch` only, to avoid accidental package churn on every branch push
+- always publishes a `sha-<12 chars>` tag for the exact commit
+- optionally publishes an operator-provided extra tag such as `staging-20260428` or `v0.1.0`
+- optionally publishes `latest` only when explicitly requested in the manual workflow input
+- reruns backend `mvn test`, builds the image, and runs the temporary `postgres:16`-backed `/actuator/health` smoke before pushing
+
+GitHub-side prerequisites before the first real publish:
+
+- Actions on the repository must be allowed to write packages through `GITHUB_TOKEN`
+- if the organization restricts package publishing, the repository or org policy must explicitly allow `packages: write`
+- if staging infrastructure will pull a private GHCR package, deployment credentials need `read:packages`
+- package visibility must be chosen deliberately; do not assume `public` by default
 
 ## 4. Secret Inventory And Separation Rules
 
@@ -98,7 +134,7 @@ The MVP secret boundary is strict:
 | Auth signing secret or key material | Backend runtime | Separate staging value set | Separate production value set | Never let staging-issued tokens validate in production or the reverse. |
 | `ROCKETFLOW_ALLOWED_ORIGINS` | Backend runtime | Staging web origin only | Production web origin only | Environment-specific and security-sensitive. |
 | `ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID` | Backend notification runtime | Staging Firebase project only | Production Firebase project only | Keep projects and credentials separate. |
-| `ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON` or secure file reference | Backend notification runtime | Non-production service account only | Production service account only | Do not enable until notification rollout gates are met. |
+| `ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON` or `ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_PATH` | Backend notification runtime | Non-production service account only | Production service account only | Do not enable until notification rollout gates are met. |
 | Android debug or internal Firebase config | Android internal builds | Allowed for staging/internal testing only | Not used for production release builds | Must not be confused with production mobile assets. |
 | Android release signing credentials | Release management only | Not required for staging backend/web validation | Restricted production release asset | Keep out of repo and off general developer machines unless explicitly controlled. |
 | Deployment platform credentials | Operators or CI/deployment runner | Separate staging access scope | Separate production access scope | Grant least privilege and avoid shared admin credentials. |
@@ -110,6 +146,7 @@ The MVP secret boundary is strict:
 - Secret names may stay structurally similar across environments, but stored values must be different.
 - Secret updates must be documented in operational notes before rollout, especially for auth and FCM material.
 - Local developer values remain outside tracked files and must never be promoted as implicit staging defaults.
+- Android Firebase config used for internal builds should also remain outside tracked files unless it is an explicitly non-secret placeholder configuration.
 
 ## 5. Notification Rollout Preconditions For Future FCM Enablement
 
@@ -148,6 +185,12 @@ That creates a non-negotiable deployment boundary:
 - deploy exactly one backend instance in staging
 - deploy exactly one backend instance in production
 - do not scale horizontally while scheduler claiming does not exist
+
+Current mitigation already present in code:
+
+- reminder polling now takes a PostgreSQL advisory transaction lock before each run
+- this reduces overlap risk during rollouts or accidental double-start scenarios
+- it does not replace deliberate single-instance deployment discipline
 
 ### Why this boundary exists
 

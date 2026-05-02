@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This note records the Android build-verification path after the notification-entry foundation handoff and freezes the exact state reached on `2026-04-27`.
+This note records the Android build-verification path after the notification-entry handoff and freezes the exact state reached on `2026-04-27`.
 
-It supersedes the earlier “SDK is still missing” assumption that existed before the local environment was fully configured.
+It supersedes the earlier "SDK is still missing" assumption that existed before the local environment was fully configured.
 
 ## Verification Date
 
@@ -17,8 +17,10 @@ Current Android baseline already includes:
 - auth and session restore
 - owned/shared browse flow
 - read-only task detail
-- device registration foundation
-- notification-open and deep-link entry foundation
+- device registration
+- notification-open and deep-link entry
+- Firebase token acquisition and refresh persistence
+- FCM receive handler and local notification rendering
 
 The required gate from the handoff packet was:
 
@@ -101,10 +103,10 @@ What this verification does prove:
 
 What this verification does not prove:
 
-- real FCM/runtime token flow
-- runtime notification receive path
+- real Firebase project wiring
+- real FCM delivery on staging or a physical device
 - notification permission/channel UX on device
-- staging delivery verification
+- end-to-end reminder smoke
 
 ## Exact Next Step After This Verification
 
@@ -112,9 +114,11 @@ The next correct step is no longer SDK setup.
 
 It is now:
 
-1. implement and verify the real notification runtime path
-2. keep Android build passing while notification/runtime work lands
-3. then run staging-oriented notification validation once credentials and provider setup exist
+1. wire real Firebase assets and backend credentials
+   - either through default Firebase app resources
+   - or through explicit Android build-time Firebase fields
+2. run `reminder -> push -> tap -> task open` smoke validation
+3. keep Android build passing while runtime notification verification lands
 
 ## Follow-Up Note
 

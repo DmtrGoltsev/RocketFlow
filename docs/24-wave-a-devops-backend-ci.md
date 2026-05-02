@@ -17,6 +17,11 @@ The scope here is intentionally narrow:
 
 It does not introduce new infrastructure or expand MVP scope.
 
+Note for the current repository state:
+
+- backend image publish is now handled separately by `.github/workflows/backend-image-publish.yml`
+- `backend-verify` remains the verification gate and does not push artifacts remotely
+
 ## Implemented CI Gate
 
 Repository CI now includes `.github/workflows/backend-verify.yml`.
@@ -32,8 +37,11 @@ What it does:
 - sets up Temurin Java `21`
 - uses Maven dependency caching through `actions/setup-java`
 - runs `mvn test` from `backend/`
+- builds the backend Docker image from `backend/Dockerfile`
+- boots the image against a temporary `postgres:16` container and waits for `/actuator/health = UP`
 - treats the full backend test suite as the required gate
 - uploads Maven Surefire reports if the job fails
+- uploads backend/postgres container logs if the Docker smoke fails
 
 Why this is the main gate right now:
 
@@ -49,6 +57,8 @@ For the current repository stage, `backend-verify` means:
 - all Spring Boot tests must pass
 - the Flyway migration chain must apply successfully in tests
 - PostgreSQL-backed verification remains mandatory through the existing embedded PostgreSQL test path
+- the backend image must build successfully from the tracked Dockerfile
+- the built image must reach `/actuator/health = UP` against a temporary `postgres:16` runtime with notifications disabled
 
 Current test coverage already includes:
 
@@ -112,6 +122,7 @@ Current CI assumptions:
 - migration verification happens inside the Maven test suite via embedded PostgreSQL
 - no backend secrets are required for the current CI test run
 - `/actuator/health` remains the expected health endpoint for later deployment smoke checks
+- Docker is available on the runner for backend image build and temporary container smoke
 - the operational guardrail stays unchanged: deploy one backend instance only until scheduler claiming exists
 
 ## Deferred Notes
