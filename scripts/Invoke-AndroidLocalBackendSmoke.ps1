@@ -16,6 +16,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Invoke-AndroidLocalBackendSmo
 
 .EXAMPLE
 powershell -ExecutionPolicy Bypass -File .\scripts\Invoke-AndroidLocalBackendSmoke.ps1 -BuildDebugApk -InstallDebugApk -DeviceLogin -ClearAppData
+
+.EXAMPLE
+powershell -ExecutionPolicy Bypass -File .\scripts\Invoke-AndroidLocalBackendSmoke.ps1 -Email styleguch@gmail.com -ResetAccount -BuildDebugApk -InstallDebugApk -DeviceLogin -ClearAppData -UseSimpleTestIme
 #>
 
 param(
@@ -33,6 +36,8 @@ param(
     [switch]$InstallDebugApk,
     [switch]$DeviceLogin,
     [switch]$ClearAppData,
+    [switch]$UseSimpleTestIme,
+    [switch]$ResetAccount,
     [string]$DeviceId = "",
     [switch]$StopAfter,
     [int]$BackendHealthTimeoutSeconds = 150
@@ -335,6 +340,22 @@ function Ensure-SmokeAccount {
     Write-Step "API login passed."
 }
 
+function Reset-SmokeAccount {
+    param(
+        [string]$PgBin,
+        [int]$Port,
+        [string]$Database,
+        [string]$Email
+    )
+
+    Write-Step "Deleting existing smoke account if present: $Email"
+    Invoke-PsqlCommand `
+        -PgBin $PgBin `
+        -Port $Port `
+        -Database $Database `
+        -Command "delete from users where lower(email) = lower($(ConvertTo-SqlLiteral $Email));"
+}
+
 function Resolve-Adb {
     $fromPath = Get-Command adb.exe -ErrorAction SilentlyContinue
     if ($null -ne $fromPath) {
@@ -494,6 +515,45 @@ function Install-DebugApkIfRequested {
     }
 }
 
+function Ensure-SimpleTestIme {
+    param(
+        [string]$Adb,
+        [string]$Device,
+        [string]$RunDir
+    )
+
+    $component = "rkr.simplekeyboard.inputmethod/.latin.LatinIME"
+    $apkUrl = "https://github.com/rkkr/simple-keyboard/releases/download/144/app-release.apk"
+    $apkSha256 = "A1CA4D6D4685BBF7A0F57A0668C0BA9FEFFE7FB2519F97B8E561238E6BF67BA0"
+    $apkPath = Join-Path $RunDir "simple-keyboard.apk"
+
+    $needDownload = $true
+    if (Test-Path -LiteralPath $apkPath) {
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $apkPath).Hash
+        $needDownload = $hash -ne $apkSha256
+    }
+
+    if ($needDownload) {
+        Write-Step "Downloading deterministic test keyboard APK."
+        Invoke-WebRequest -UseBasicParsing -Uri $apkUrl -OutFile $apkPath
+        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $apkPath).Hash
+        if ($hash -ne $apkSha256) {
+            throw "Simple Keyboard APK hash mismatch. Expected $apkSha256, got $hash."
+        }
+    }
+
+    Write-Step "Installing and selecting deterministic test keyboard on $Device"
+    Invoke-Adb -Adb $Adb -Device $Device -Arguments @("install", "-r", $apkPath)
+    Invoke-Adb -Adb $Adb -Device $Device -Arguments @("shell", "ime", "enable", $component)
+    Invoke-Adb -Adb $Adb -Device $Device -Arguments @("shell", "ime", "set", $component)
+    Invoke-Adb -Adb $Adb -Device $Device -Arguments @("shell", "settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
+
+    $current = (& $Adb -s $Device shell settings get secure default_input_method 2>&1 | Out-String).Trim()
+    if ($current -ne $component) {
+        throw "Could not select test keyboard. Expected $component, got $current."
+    }
+}
+
 function Invoke-DeviceLoginSmoke {
     param(
         [string]$RepoRoot,
@@ -503,6 +563,7 @@ function Invoke-DeviceLoginSmoke {
         [bool]$BuildApk,
         [bool]$InstallApk,
         [bool]$ClearData,
+        [bool]$UseSimpleIme,
         [string]$DeviceId
     )
 
@@ -512,6 +573,9 @@ function Invoke-DeviceLoginSmoke {
     New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 
     Install-DebugApkIfRequested -RepoRoot $RepoRoot -Adb $adb -Device $device -BackendPort $BackendPort -Build $BuildApk -Install $InstallApk
+    if ($UseSimpleIme) {
+        Ensure-SimpleTestIme -Adb $adb -Device $device -RunDir $runDir
+    }
     Write-Step "Enabling on-screen keyboard on $device"
     Invoke-Adb -Adb $adb -Device $device -Arguments @("shell", "settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
 
@@ -623,6 +687,10 @@ try {
         -Password $PostgresPassword `
         -HealthTimeoutSeconds $BackendHealthTimeoutSeconds
 
+    if ($ResetAccount) {
+        Reset-SmokeAccount -PgBin $pgBin -Port $PostgresPort -Database $PostgresDatabase -Email $Email
+    }
+
     Ensure-SmokeAccount -BackendPort $BackendPort -Email $Email -Password $Password -DisplayName $DisplayName
 
     if ($DeviceLogin) {
@@ -634,6 +702,7 @@ try {
             -BuildApk ([bool]$BuildDebugApk) `
             -InstallApk ([bool]$InstallDebugApk) `
             -ClearData ([bool]$ClearAppData) `
+            -UseSimpleIme ([bool]$UseSimpleTestIme) `
             -DeviceId $DeviceId
     }
 

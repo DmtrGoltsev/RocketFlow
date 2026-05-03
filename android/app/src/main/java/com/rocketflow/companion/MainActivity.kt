@@ -324,6 +324,7 @@ class MainActivity : Activity() {
     private var emailDraft = ""
     private var passwordDraft = ""
     private var passwordVisible = false
+    private var keyboardShowSerial = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -3238,13 +3239,10 @@ class MainActivity : Activity() {
 
     private fun focusDialogInput(dialog: AlertDialog, input: EditText) {
         dialog.window?.setSoftInputMode(
-            WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         )
-        input.postDelayed({
-            input.requestFocus()
-            showKeyboard(input)
-        }, 250)
+        input.ensureKeyboardVisible()
     }
 
     private fun EditText.keepDraftUpdated(update: (String) -> Unit) {
@@ -3326,16 +3324,37 @@ class MainActivity : Activity() {
         showSoftInputOnFocus = true
         setOnFocusChangeListener { view, hasFocus ->
             if (hasFocus) {
-                view.post { showKeyboard(view) }
+                view.ensureKeyboardVisible()
             }
         }
         setOnClickListener {
-            post { showKeyboard(this) }
+            ensureKeyboardVisible()
         }
     }
 
+    private fun View.ensureKeyboardVisible() {
+        if (!isFocused) {
+            requestFocus()
+        }
+        val serial = ++keyboardShowSerial
+        postKeyboardShowIfFocused(serial, 90)
+        postKeyboardShowIfFocused(serial, 240)
+        postKeyboardShowIfFocused(serial, 520)
+    }
+
+    private fun View.postKeyboardShowIfFocused(serial: Int, delayMs: Long) {
+        postDelayed(
+            {
+                if (keyboardShowSerial == serial && isFocused && windowToken != null) {
+                    showKeyboard(this)
+                }
+            },
+            delayMs
+        )
+    }
+
     private fun showKeyboard(view: View) {
-        view.requestFocus()
+        if (!view.isFocused || view.windowToken == null) return
         getSystemService(InputMethodManager::class.java)
             ?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
     }
