@@ -430,10 +430,21 @@ function Save-UiDump {
         [string]$DestinationPath
     )
 
-    Invoke-Adb -Adb $Adb -Device $Device -Arguments @("shell", "uiautomator", "dump", "/sdcard/rf-smoke-window.xml") | Out-Null
-    Invoke-Adb -Adb $Adb -Device $Device -Arguments @("pull", "/sdcard/rf-smoke-window.xml", $DestinationPath) | Out-Null
-    Invoke-Adb -Adb $Adb -Device $Device -Arguments @("shell", "rm", "/sdcard/rf-smoke-window.xml") | Out-Null
-    return [xml](Get-Content -LiteralPath $DestinationPath -Raw)
+    $lastError = $null
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            Invoke-Adb -Adb $Adb -Device $Device -Arguments @("shell", "uiautomator", "dump", "/sdcard/rf-smoke-window.xml") | Out-Null
+            Start-Sleep -Milliseconds 250
+            Invoke-Adb -Adb $Adb -Device $Device -Arguments @("pull", "/sdcard/rf-smoke-window.xml", $DestinationPath) | Out-Null
+            Invoke-Adb -Adb $Adb -Device $Device -Arguments @("shell", "rm", "/sdcard/rf-smoke-window.xml") | Out-Null
+            return [xml](Get-Content -LiteralPath $DestinationPath -Raw)
+        } catch {
+            $lastError = $_
+            Start-Sleep -Milliseconds (300 * $attempt)
+        }
+    }
+
+    throw $lastError
 }
 
 function Get-NodeCenter {
@@ -466,7 +477,7 @@ function Send-AdbText {
         [string]$Text
     )
 
-    $adbText = $Text.Replace(" ", "%s")
+    $adbText = $Text.Replace("\", "\\").Replace(" ", "%s").Replace("@", "\@")
     Invoke-Adb -Adb $Adb -Device $Device -Arguments @("shell", "input", "text", $adbText)
 }
 

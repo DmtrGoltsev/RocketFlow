@@ -5,8 +5,10 @@ import static com.rocketflow.tasks.TasksApi.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -111,9 +113,25 @@ public class TaskService {
 
     @Transactional
     public TaskDto update(UUID actorUserId, UUID taskId, UpdateTaskRequest request) {
-        TaskAccess access = sharingAccessService.requireTaskOwner(taskId, actorUserId);
+        TaskAccess access = sharingAccessService.requireTaskAccess(taskId, actorUserId);
         Task task = access.task();
         ensureVersion(task.getVersion(), request.version(), "Task");
+        if (!access.owner()) {
+            ensureSharedStatusOnlyUpdate(task, request);
+            if (!Objects.equals(task.getStatus(), request.status())) {
+                task.setStatus(request.status());
+                task.setCompletedAt(resolveCompletedAt(request.status(), task.getCompletedAt()));
+                task.setUpdatedAt(Instant.now());
+                task = taskRepository.save(task);
+            }
+            return toDto(
+                    task,
+                    resolveTags(task.getId()),
+                    access.shared(),
+                    recurrenceService.findDto(task.getId()),
+                    reminderService.findDtos(task.getId()));
+        }
+
         task.setTitle(request.title().trim());
         task.setDescription(request.description());
         task.setType(request.type());
@@ -243,9 +261,38 @@ public class TaskService {
         return null;
     }
 
+    private void ensureSharedStatusOnlyUpdate(Task task, UpdateTaskRequest request) {
+        if (!Objects.equals(task.getTitle(), request.title().trim())
+                || !Objects.equals(task.getDescription(), request.description())
+                || !Objects.equals(task.getType(), request.type())
+                || task.getPriority() != request.priority()
+                || !Objects.equals(task.getPlannedTime(), request.plannedTime())
+                || !Objects.equals(task.getDueTime(), request.dueTime())
+                || task.isArchived() != request.archived()
+                || !requestedTagsMatchExisting(task.getId(), request.tagIds())) {
+            throw notFound("Task");
+        }
+    }
+
+    private boolean requestedTagsMatchExisting(UUID taskId, List<UUID> requestedTagIds) {
+        if (requestedTagIds == null) {
+            return true;
+        }
+        List<UUID> existingTagIds = taskTagLinkRepository.findByTaskId(taskId)
+                .stream()
+                .map(TaskTagLink::getTagId)
+                .toList();
+        return requestedTagIds.size() == existingTagIds.size()
+                && new LinkedHashSet<>(requestedTagIds).equals(new LinkedHashSet<>(existingTagIds));
+    }
+
     private void ensureVersion(long actual, long expected, String entityName) {
         if (actual != expected) {
             throw new ApiException(HttpStatus.CONFLICT, "conflict", entityName + " was updated by another request.");
         }
+    }
+
+    private ApiException notFound(String entityName) {
+        return new ApiException(HttpStatus.NOT_FOUND, "not_found", entityName + " was not found.");
     }
 }

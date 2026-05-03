@@ -204,7 +204,7 @@ class PlanningRepository(
                             .put("name", folder.name)
                             .put("description", folder.description)
                     )
-                    localStore.applySyncedFolder(userId, folder.id, result.value.toFolder())
+                    localStore.applySyncedFolder(userId, folder.id, result.value.toFolder(shared = false))
                     result.session
                 }
 
@@ -219,7 +219,7 @@ class PlanningRepository(
                             .put("archived", folder.archived)
                             .put("version", folder.version)
                     )
-                    localStore.applySyncedFolder(userId, folder.id, result.value.toFolder())
+                    localStore.applySyncedFolder(userId, folder.id, result.value.toFolder(shared = false))
                     result.session
                 }
 
@@ -410,7 +410,7 @@ class PlanningRepository(
 
         val foldersResult = syncGet(activeSession, "/folders")
         activeSession = foldersResult.session
-        val folders = foldersResult.value.getJSONArray("items").toFolders()
+        val folders = foldersResult.value.getJSONArray("items").toFolders(shared = false)
         localStore.upsertRemoteFolders(userId, folders)
 
         val tagsResult = syncGet(activeSession, "/tags")
@@ -436,13 +436,11 @@ class PlanningRepository(
 
         val sharedResult = syncGet(activeSession, "/shares/resources")
         activeSession = sharedResult.session
-        localStore.upsertRemoteGoals(
+        localStore.replaceRemoteSharedResources(
             userId,
-            sharedResult.value.getJSONArray("goals").toGoals(shared = true)
-        )
-        localStore.upsertRemoteTasks(
-            userId,
-            sharedResult.value.getJSONArray("tasks").toTasks(shared = true)
+            folders = sharedResult.value.optJSONArray("folders").orEmptyArray().toFolders(shared = true),
+            goals = sharedResult.value.optJSONArray("goals").orEmptyArray().toGoals(shared = true),
+            tasks = sharedResult.value.optJSONArray("tasks").orEmptyArray().toTasks(shared = true)
         )
 
         return activeSession
@@ -496,29 +494,30 @@ class PlanningRepository(
             .put("version", version)
     }
 
-    private fun JSONArray.toFolders(): List<PlanningFolder> {
-        return List(length()) { index -> getJSONObject(index).toFolder() }
+    private fun JSONArray.toFolders(shared: Boolean): List<PlanningFolder> {
+        return List(length()) { index -> getJSONObject(index).toFolder(shared = shared) }
     }
 
     private fun JSONArray.toGoals(shared: Boolean): List<PlanningGoal> {
-        return List(length()) { index -> getJSONObject(index).toGoal(shared = shared || getJSONObject(index).optBoolean("shared", false)) }
+        return List(length()) { index -> getJSONObject(index).toGoal(shared = shared) }
     }
 
     private fun JSONArray.toTasks(shared: Boolean): List<PlanningTask> {
-        return List(length()) { index -> getJSONObject(index).toTask(shared = shared || getJSONObject(index).optBoolean("shared", false)) }
+        return List(length()) { index -> getJSONObject(index).toTask(shared = shared) }
     }
 
     private fun JSONArray.toTaskTags(): List<TaskTag> {
         return List(length()) { index -> getJSONObject(index).toTaskTag() }
     }
 
-    private fun JSONObject.toFolder(): PlanningFolder {
+    private fun JSONObject.toFolder(shared: Boolean): PlanningFolder {
         return PlanningFolder(
             id = getString("id"),
             name = text("name"),
             description = text("description"),
             displayOrder = optInt("displayOrder", 0),
             archived = optBoolean("archived", false),
+            shared = shared,
             version = optLong("version", 0),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
             updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },
@@ -607,6 +606,10 @@ class PlanningRepository(
 
     private fun JSONObject.optJsonArrayString(key: String): String? {
         return if (has(key) && !isNull(key)) optJSONArray(key)?.toString() else null
+    }
+
+    private fun JSONArray?.orEmptyArray(): JSONArray {
+        return this ?: JSONArray()
     }
 
     private fun String.normalizedFor(task: PlanningTask): String {

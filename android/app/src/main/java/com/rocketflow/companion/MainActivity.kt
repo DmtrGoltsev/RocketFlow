@@ -26,6 +26,7 @@ import android.text.method.TransformationMethod
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.EditorInfo
@@ -298,6 +299,7 @@ class MainActivity : Activity() {
     private var folders: List<PlanningFolder> = emptyList()
     private var goals: List<PlanningGoal> = emptyList()
     private var tasks: List<PlanningTask> = emptyList()
+    private var sharedFolders: List<PlanningFolder> = emptyList()
     private var sharedGoals: List<PlanningGoal> = emptyList()
     private var sharedTasks: List<PlanningTask> = emptyList()
     private var taskTags: List<TaskTag> = emptyList()
@@ -432,7 +434,12 @@ class MainActivity : Activity() {
 
     private fun showRegisterDialog() {
         val c = copy()
-        val email = dialogInput(c.email, emailInput?.text?.toString().orEmpty())
+        val email = dialogInput(
+            c.email,
+            emailInput?.text?.toString().orEmpty(),
+            inputTypeOverride = stableTextInputType(),
+            imeOptionsOverride = EditorInfo.IME_ACTION_NEXT
+        )
         val password = dialogInput(c.password, "", isPassword = true)
         val passwordRow = passwordInputRow(password, initialVisible = false)
         val name = dialogInput(c.displayName, "")
@@ -491,6 +498,7 @@ class MainActivity : Activity() {
         folders = snapshot.folders
         goals = snapshot.goals
         tasks = snapshot.tasks
+        sharedFolders = snapshot.sharedFolders
         sharedGoals = snapshot.sharedGoals
         sharedTasks = snapshot.sharedTasks
         taskTags = snapshot.taskTags
@@ -499,7 +507,7 @@ class MainActivity : Activity() {
         planningLastSyncError = snapshot.lastSyncError
 
         selectedFolderId = selectedFolderId
-            ?.takeIf { id -> folders.any { it.id == id } }
+            ?.takeIf { id -> folders.any { it.id == id } || sharedFolders.any { it.id == id } }
             ?: folders.firstOrNull()?.id
 
         selectedGoalId = selectedGoalId
@@ -513,6 +521,7 @@ class MainActivity : Activity() {
         folders = emptyList()
         goals = emptyList()
         tasks = emptyList()
+        sharedFolders = emptyList()
         sharedGoals = emptyList()
         sharedTasks = emptyList()
         taskTags = emptyList()
@@ -626,21 +635,19 @@ class MainActivity : Activity() {
         emailInput = EditText(this).apply {
             hint = c.email
             setText(emailDraft)
-            setSelection(text?.length ?: 0)
-            inputType = InputType.TYPE_CLASS_TEXT or
-                InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-            imeOptions = EditorInfo.IME_ACTION_NEXT
-            setSingleLine(true)
             styleInput()
+            applyInputOptions(
+                inputType = stableTextInputType(),
+                imeOptions = EditorInfo.IME_ACTION_NEXT
+            )
+            setSelection(text?.length ?: 0)
             keepDraftUpdated { emailDraft = it }
             openKeyboardOnUserFocus()
         }
         val passwordField = EditText(this).apply {
             hint = c.password
             setText(passwordDraft)
-            setSelection(text?.length ?: 0)
             imeOptions = EditorInfo.IME_ACTION_DONE
-            setSingleLine(true)
             styleInput()
             applyPasswordVisibility(passwordVisible)
             keepDraftUpdated { passwordDraft = it }
@@ -664,7 +671,7 @@ class MainActivity : Activity() {
                 input.applyPasswordVisibility(passwordVisible, cursor)
                 text = passwordVisibilityToggleText(passwordVisible)
                 contentDescription = passwordVisibilityToggleDescription(passwordVisible)
-                input.requestFocus()
+                input.ensureKeyboardVisible()
             }
         }
         val passwordRow = LinearLayout(this).apply {
@@ -735,18 +742,29 @@ class MainActivity : Activity() {
             setPadding(0, dp(6), 0, dp(96))
         }
 
-        if (filteredFolders().isEmpty()) {
+        val ownFolders = filteredFolders()
+        val sharedFolderList = filteredSharedFolders()
+        val looseSharedGoals = filteredSharedGoals()
+            .filter { goal -> sharedFolderList.none { it.id == goal.folderId } }
+        val looseSharedTasks = filteredSharedTasks()
+            .filter { task -> looseSharedGoals.none { it.id == task.goalId } && sharedGoals.none { it.id == task.goalId } }
+        val hasVisibleRows = ownFolders.isNotEmpty() ||
+            sharedFolderList.isNotEmpty() ||
+            looseSharedGoals.isNotEmpty() ||
+            looseSharedTasks.isNotEmpty()
+
+        if (!hasVisibleRows) {
             list.addView(emptyPlannerView())
         } else {
-            filteredFolders().forEach { folder -> renderFolder(list, folder) }
-            if (sharedGoals.isNotEmpty() || sharedTasks.isNotEmpty()) {
+            ownFolders.forEach { folder -> renderFolder(list, folder) }
+            if (sharedFolderList.isNotEmpty() || looseSharedGoals.isNotEmpty() || looseSharedTasks.isNotEmpty()) {
                 list.addView(sectionLabel(if (currentLanguage == "en") "Shared" else "\u041e\u0431\u0449\u0438\u0435"))
-                sharedGoals.forEach { goal -> renderGoal(list, goal, shared = true) }
-                sharedTasks.filter { task -> sharedGoals.none { it.id == task.goalId } }
-                    .forEach { task ->
-                        list.addView(taskRow(task, indentLevel = 1))
-                        list.addView(rowDivider(indentLevel = 1))
-                    }
+                sharedFolderList.forEach { folder -> renderFolder(list, folder) }
+                looseSharedGoals.forEach { goal -> renderGoal(list, goal, shared = true) }
+                looseSharedTasks.forEach { task ->
+                    list.addView(taskRow(task, indentLevel = 1))
+                    list.addView(rowDivider(indentLevel = 1))
+                }
             }
         }
 
@@ -784,12 +802,12 @@ class MainActivity : Activity() {
         parent.addView(rowDivider(indentLevel = 0))
         if (folder.id in collapsedFolderIds) return
 
-        val folderGoals = goalsForFolder(folder.id)
+        val folderGoals = goalsForFolder(folder.id, includeShared = folder.shared)
         if (folderGoals.isEmpty()) {
             parent.addView(hintRow(copy().noGoalYet, indentLevel = 1))
             parent.addView(rowDivider(indentLevel = 1))
         } else {
-            folderGoals.forEach { goal -> renderGoal(parent, goal, shared = false) }
+            folderGoals.forEach { goal -> renderGoal(parent, goal, shared = folder.shared || goal.shared) }
         }
     }
 
@@ -865,13 +883,13 @@ class MainActivity : Activity() {
                 content.addView(propertyRow(c.taskType, taskTypeLabel(task.type), clickable = !task.shared) {
                     showTaskTypeDialog(task)
                 })
-                content.addView(propertyRow(c.priority, "${c.priorityShort}${task.priority}", clickable = true) {
+                content.addView(propertyRow(c.priority, "${c.priorityShort}${task.priority}", clickable = !task.shared) {
                     showPriorityDialog(task)
                 })
-                content.addView(propertyRow(c.planned, formatDateTime(task.plannedTime), clickable = true) {
+                content.addView(propertyRow(c.planned, formatDateTime(task.plannedTime), clickable = !task.shared) {
                     showPlannedDialog(task)
                 })
-                content.addView(propertyRow(c.due, formatDateTime(task.dueTime), clickable = true) {
+                content.addView(propertyRow(c.due, formatDateTime(task.dueTime), clickable = !task.shared) {
                     showDueDialog(task)
                 })
                 content.addView(propertyRow(c.tags, describeTaskTags(task), clickable = !task.shared) {
@@ -883,7 +901,7 @@ class MainActivity : Activity() {
                 content.addView(propertyRow(c.reminders, describeReminders(task.remindersJson), clickable = !task.shared) {
                     showRemindersDialog(task)
                 })
-                content.addView(propertyRow(c.reschedule, c.later3h, clickable = true) {
+                content.addView(propertyRow(c.reschedule, c.later3h, clickable = !task.shared) {
                     showRescheduleDialog(task)
                 })
                 content.addView(propertyRow(c.created, formatDateTime(task.createdAt), clickable = false))
@@ -1027,9 +1045,11 @@ class MainActivity : Activity() {
             setPadding(0, dp(8), 0, dp(4))
         }
         val thresholdInput = dialogInput(c.threshold, policy.thresholdPreset)
-        val amountInput = dialogInput(c.decayAmount, policy.decayAmount.toString()).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-        }
+        val amountInput = dialogInput(
+            c.decayAmount,
+            policy.decayAmount.toString(),
+            inputTypeOverride = InputType.TYPE_CLASS_NUMBER
+        )
         AlertDialog.Builder(this)
             .setTitle(if (policy.taskType == "red") c.redTasks else c.greenTasks)
             .setView(dialogForm(enabledInput, thresholdInput, amountInput))
@@ -1161,9 +1181,9 @@ class MainActivity : Activity() {
                     selectedTaskDetail?.let { task ->
                         if (!task.shared) {
                             addView(iconButton(R.drawable.ic_share, c.share) { showShareDialog(task.toShareTarget()) })
+                            addView(iconButton(R.drawable.ic_edit, c.edit) { showTaskDialog(task) })
+                            addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                         }
-                        addView(iconButton(R.drawable.ic_edit, c.edit) { showTaskDialog(task) })
-                        addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                     }
                 }
                 Screen.Settings -> Unit
@@ -1174,8 +1194,9 @@ class MainActivity : Activity() {
 
     private fun folderRow(folder: PlanningFolder): View {
         val c = copy()
-        val totalTasks = goalsForFolder(folder.id).sumOf { tasksForGoal(it.id).size }
-        val doneTasks = goalsForFolder(folder.id).sumOf { goal -> tasksForGoal(goal.id).count { isDone(it) } }
+        val folderGoals = goalsForFolder(folder.id, includeShared = folder.shared)
+        val totalTasks = folderGoals.sumOf { tasksForGoal(it.id, includeShared = folder.shared || it.shared).size }
+        val doneTasks = folderGoals.sumOf { goal -> tasksForGoal(goal.id, includeShared = folder.shared || goal.shared).count { isDone(it) } }
         return hierarchyContainer(indentLevel = 0, heightDp = 56, selected = false).apply {
             addView(
                 iconButton(
@@ -1197,7 +1218,9 @@ class MainActivity : Activity() {
                 }
             })
             addView(counterText(if (totalTasks == 0) "0" else "$doneTasks/$totalTasks"))
-            addView(iconButton(R.drawable.ic_more_horiz, c.details) { showFolderActions(folder) })
+            if (!folder.shared) {
+                addView(iconButton(R.drawable.ic_more_horiz, c.details) { showFolderActions(folder) })
+            }
         }
     }
 
@@ -1703,15 +1726,10 @@ class MainActivity : Activity() {
         val c = copy()
         val input = dialogInput(
             hint = if (byEmail) c.email else c.userIdField,
-            value = ""
-        ).apply {
-            inputType = if (byEmail) {
-                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-            } else {
-                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            }
-            imeOptions = EditorInfo.IME_ACTION_DONE
-        }
+            value = "",
+            inputTypeOverride = stableTextInputType(),
+            imeOptionsOverride = EditorInfo.IME_ACTION_DONE
+        )
 
         AlertDialog.Builder(this)
             .setTitle(if (byEmail) c.shareByEmail else c.shareByUserId)
@@ -1908,7 +1926,11 @@ class MainActivity : Activity() {
 
     private fun showAcceptShareLinkDialog() {
         val c = copy()
-        val input = dialogInput(c.tokenField, "")
+        val input = dialogInput(
+            c.tokenField,
+            "",
+            inputTypeOverride = stableTextInputType()
+        )
         AlertDialog.Builder(this)
             .setTitle(c.acceptLink)
             .setView(dialogForm(input))
@@ -2026,9 +2048,11 @@ class MainActivity : Activity() {
         val titleInput = dialogInput(c.titleField, task?.title.orEmpty())
         val notesInput = dialogInput(c.notesField, task?.description.orEmpty(), multiline = true)
         val typeGroup = taskTypeGroup(task?.type ?: "green")
-        val priorityInput = dialogInput(c.priorityField, (task?.priority ?: 5).toString()).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-        }
+        val priorityInput = dialogInput(
+            c.priorityField,
+            (task?.priority ?: 5).toString(),
+            inputTypeOverride = InputType.TYPE_CLASS_NUMBER
+        )
         val plannedField = dateTimeField(c.plannedField, task?.plannedTime)
         val dueField = dateTimeField(c.dueField, task?.dueTime)
         val dialog = AlertDialog.Builder(this)
@@ -2170,7 +2194,11 @@ class MainActivity : Activity() {
     private fun showCreateTagDialog(onCreated: (String) -> Unit) {
         val c = copy()
         val nameInput = dialogInput(c.newTag, "")
-        val colorInput = dialogInput(c.colorField, "#2F6B57")
+        val colorInput = dialogInput(
+            c.colorField,
+            "#2F6B57",
+            inputTypeOverride = stableTextInputType()
+        )
         val beforeIds = taskTags.map { it.id }.toSet()
         AlertDialog.Builder(this)
             .setTitle(c.newTag)
@@ -2594,7 +2622,12 @@ class MainActivity : Activity() {
 
     private fun showSearchDialog() {
         val c = copy()
-        val input = dialogInput(c.searchHint, searchQuery)
+        val input = dialogInput(
+            c.searchHint,
+            searchQuery,
+            inputTypeOverride = stableTextInputType(),
+            imeOptionsOverride = EditorInfo.IME_ACTION_SEARCH
+        )
         AlertDialog.Builder(this)
             .setTitle(c.search)
             .setView(dialogForm(input))
@@ -2930,19 +2963,25 @@ class MainActivity : Activity() {
             addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
             addView(counterText("${copy().priorityShort}${task.priority}"))
             dueChip(task)?.let {
-                addView(it.apply { setOnClickListener { showDueDialog(task) } })
+                addView(it.apply {
+                    if (!task.shared) {
+                        setOnClickListener { showDueDialog(task) }
+                    }
+                })
             }
             addView(
                 View(context).apply {
                     layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
                 }
             )
-            addView(iconButton(R.drawable.ic_edit, copy().edit) { showTaskDialog(task) }.apply {
-                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
-            })
-            addView(iconButton(R.drawable.ic_chevron_right, copy().reschedule) { showRescheduleDialog(task) }.apply {
-                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
-            })
+            if (!task.shared) {
+                addView(iconButton(R.drawable.ic_edit, copy().edit) { showTaskDialog(task) }.apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+                })
+                addView(iconButton(R.drawable.ic_chevron_right, copy().reschedule) { showRescheduleDialog(task) }.apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+                })
+            }
         }
     }
 
@@ -3073,33 +3112,38 @@ class MainActivity : Activity() {
         hint: String,
         value: String,
         multiline: Boolean = false,
-        isPassword: Boolean = false
+        isPassword: Boolean = false,
+        inputTypeOverride: Int? = null,
+        imeOptionsOverride: Int? = null
     ): EditText {
         return EditText(this).apply {
             this.hint = hint
             setText(value)
             styleInput()
-            inputType = when {
+            val resolvedInputType = inputTypeOverride ?: when {
                 isPassword -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                multiline -> InputType.TYPE_CLASS_TEXT or
-                    InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                    InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-                else -> InputType.TYPE_CLASS_TEXT or
-                    InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                else -> stableTextInputType()
             }
-            imeOptions = if (multiline) EditorInfo.IME_ACTION_NONE else EditorInfo.IME_ACTION_DONE
+            val resolvedImeOptions = imeOptionsOverride
+                ?: if (multiline) {
+                    EditorInfo.IME_ACTION_NONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                } else {
+                    EditorInfo.IME_ACTION_DONE
+                }
+            applyInputOptions(
+                inputType = resolvedInputType,
+                imeOptions = resolvedImeOptions,
+                singleLine = !multiline
+            )
             if (multiline) {
                 gravity = Gravity.TOP or Gravity.START
                 minLines = 3
                 maxLines = 6
-                setSingleLine(false)
                 setPadding(dp(12), dp(10), dp(12), dp(10))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = dp(10) }
-            } else {
-                setSingleLine(true)
             }
             if (isPassword) {
                 applyPasswordVisibility(visible = false)
@@ -3237,6 +3281,32 @@ class MainActivity : Activity() {
         ).apply { topMargin = dp(10) }
     }
 
+    private fun stableTextInputType(): Int {
+        return InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+    }
+
+    private fun EditText.applyInputOptions(inputType: Int, imeOptions: Int, singleLine: Boolean = true) {
+        if (singleLine) {
+            setSingleLine(true)
+            maxLines = 1
+            setHorizontallyScrolling(true)
+        } else {
+            setSingleLine(false)
+            isSingleLine = false
+            setHorizontallyScrolling(false)
+        }
+        setRawInputType(inputType)
+        this.imeOptions = imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+        imeHintLocales = if (currentLanguage == "en") {
+            LocaleList(Locale.US, Locale("ru", "RU"))
+        } else {
+            LocaleList(Locale("ru", "RU"), Locale.US)
+        }
+        showSoftInputOnFocus = true
+    }
+
     private fun focusDialogInput(dialog: AlertDialog, input: EditText) {
         dialog.window?.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
@@ -3261,11 +3331,15 @@ class MainActivity : Activity() {
 
     private fun EditText.applyPasswordVisibility(visible: Boolean, cursorPosition: Int? = null) {
         val cursor = cursorPosition?.takeIf { it >= 0 } ?: (text?.length ?: 0)
-        inputType = InputType.TYPE_CLASS_TEXT or if (visible) {
-            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-        } else {
-            InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
+        val preservedImeOptions = imeOptions.takeIf { it != EditorInfo.IME_NULL } ?: EditorInfo.IME_ACTION_DONE
+        applyInputOptions(
+            inputType = InputType.TYPE_CLASS_TEXT or if (visible) {
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            } else {
+                InputType.TYPE_TEXT_VARIATION_PASSWORD
+            },
+            imeOptions = preservedImeOptions
+        )
         transformationMethod = if (visible) {
             HideReturnsTransformationMethod.getInstance()
         } else {
@@ -3334,7 +3408,7 @@ class MainActivity : Activity() {
 
     private fun View.ensureKeyboardVisible() {
         if (!isFocused) {
-            requestFocus()
+            requestFocusFromTouch()
         }
         val serial = ++keyboardShowSerial
         postKeyboardShowIfFocused(serial, 90)
@@ -3355,8 +3429,11 @@ class MainActivity : Activity() {
 
     private fun showKeyboard(view: View) {
         if (!view.isFocused || view.windowToken == null) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            view.windowInsetsController?.show(WindowInsets.Type.ime())
+        }
         getSystemService(InputMethodManager::class.java)
-            ?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+            ?.showSoftInput(view, InputMethodManager.SHOW_FORCED)
     }
 
     private fun filteredFolders(): List<PlanningFolder> {
@@ -3371,8 +3448,36 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun goalsForFolder(folderId: String): List<PlanningGoal> {
-        return goals.filter { it.folderId == folderId }
+    private fun filteredSharedFolders(): List<PlanningFolder> {
+        val query = searchQuery.trim().lowercase(Locale.ROOT)
+        if (query.isBlank()) return sharedFolders
+        return sharedFolders.filter { folder ->
+            folder.name.lowercase(Locale.ROOT).contains(query) ||
+                goalsForFolder(folder.id, includeShared = true).any { goal ->
+                    goal.name.lowercase(Locale.ROOT).contains(query) ||
+                        tasksForGoal(goal.id, includeShared = true).any { it.title.lowercase(Locale.ROOT).contains(query) }
+                }
+        }
+    }
+
+    private fun filteredSharedGoals(): List<PlanningGoal> {
+        val query = searchQuery.trim().lowercase(Locale.ROOT)
+        if (query.isBlank()) return sharedGoals
+        return sharedGoals.filter { goal ->
+            goal.name.lowercase(Locale.ROOT).contains(query) ||
+                tasksForGoal(goal.id, includeShared = true).any { it.title.lowercase(Locale.ROOT).contains(query) }
+        }
+    }
+
+    private fun filteredSharedTasks(): List<PlanningTask> {
+        val query = searchQuery.trim().lowercase(Locale.ROOT)
+        if (query.isBlank()) return sharedTasks
+        return sharedTasks.filter { it.title.lowercase(Locale.ROOT).contains(query) }
+    }
+
+    private fun goalsForFolder(folderId: String, includeShared: Boolean = false): List<PlanningGoal> {
+        val own = goals.filter { it.folderId == folderId }
+        return if (includeShared) own + sharedGoals.filter { it.folderId == folderId } else own
     }
 
     private fun tasksForGoal(goalId: String, includeShared: Boolean = false): List<PlanningTask> {
@@ -3534,7 +3639,7 @@ class MainActivity : Activity() {
 
     private fun taskPath(task: PlanningTask): String {
         val goal = goals.firstOrNull { it.id == task.goalId } ?: sharedGoals.firstOrNull { it.id == task.goalId }
-        val folder = goal?.let { g -> folders.firstOrNull { it.id == g.folderId } }
+        val folder = goal?.let { g -> folders.firstOrNull { it.id == g.folderId } ?: sharedFolders.firstOrNull { it.id == g.folderId } }
         return listOfNotNull(folder?.name, goal?.name).joinToString(" / ").ifBlank { copy().plan }
     }
 

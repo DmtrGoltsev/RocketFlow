@@ -464,6 +464,189 @@ class SharingIntegrationTest {
     }
 
     @Test
+    void shareScopesFilterUnsharedObjectsAndSharedTaskStatusUpdatePersists() throws Exception {
+        Session owner = registerAndLogin("scope-owner@example.com", "Scope Owner");
+        Session folderCollaborator = registerAndLogin("folder-scope@example.com", "Folder Scope");
+        Session goalCollaborator = registerAndLogin("goal-scope@example.com", "Goal Scope");
+        Session taskCollaborator = registerAndLogin("task-scope@example.com", "Task Scope");
+
+        String sharedFolderId = createFolder(owner.accessToken());
+        String privateFolderId = createFolder(owner.accessToken());
+        String sharedFolderGoalId = read(createGoal(owner.accessToken(), sharedFolderId, "Shared folder goal", "Visible by folder share"), "/id");
+        String sharedFolderTaskId = read(createTask(owner.accessToken(), sharedFolderGoalId, "Folder-visible task", 7), "/id");
+        String privateGoalId = read(createGoal(owner.accessToken(), privateFolderId, "Private goal", "Not shared"), "/id");
+        String privateTaskId = read(createTask(owner.accessToken(), privateGoalId, "Private task", 4), "/id");
+
+        shareAndAccept(
+                owner.accessToken(),
+                folderCollaborator.accessToken(),
+                "/api/folders/" + sharedFolderId + "/share",
+                "folder-scope@example.com"
+        );
+
+        mockMvc.perform(get("/api/shares/resources")
+                        .header("Authorization", "Bearer " + folderCollaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.folders.length()").value(1))
+                .andExpect(jsonPath("$.folders[0].id").value(sharedFolderId))
+                .andExpect(jsonPath("$.goals.length()").value(1))
+                .andExpect(jsonPath("$.goals[0].id").value(sharedFolderGoalId))
+                .andExpect(jsonPath("$.tasks.length()").value(1))
+                .andExpect(jsonPath("$.tasks[0].id").value(sharedFolderTaskId));
+
+        mockMvc.perform(get("/api/folders/" + privateFolderId + "/goals")
+                        .header("Authorization", "Bearer " + folderCollaborator.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/goals/" + privateGoalId)
+                        .header("Authorization", "Bearer " + folderCollaborator.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/tasks/" + privateTaskId)
+                        .header("Authorization", "Bearer " + folderCollaborator.accessToken()))
+                .andExpect(status().isNotFound());
+
+        String goalScopeFolderId = createFolder(owner.accessToken());
+        String sharedGoalId = read(createGoal(owner.accessToken(), goalScopeFolderId, "Shared goal", "Visible by goal share"), "/id");
+        String siblingGoalId = read(createGoal(owner.accessToken(), goalScopeFolderId, "Sibling goal", "Not shared by goal share"), "/id");
+        String sharedGoalTaskId = read(createTask(owner.accessToken(), sharedGoalId, "Goal-visible task", 6), "/id");
+        String siblingGoalTaskId = read(createTask(owner.accessToken(), siblingGoalId, "Sibling goal task", 5), "/id");
+
+        shareAndAccept(
+                owner.accessToken(),
+                goalCollaborator.accessToken(),
+                "/api/goals/" + sharedGoalId + "/share",
+                "goal-scope@example.com"
+        );
+
+        mockMvc.perform(get("/api/shares/resources")
+                        .header("Authorization", "Bearer " + goalCollaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.folders.length()").value(0))
+                .andExpect(jsonPath("$.goals.length()").value(1))
+                .andExpect(jsonPath("$.goals[0].id").value(sharedGoalId))
+                .andExpect(jsonPath("$.tasks.length()").value(1))
+                .andExpect(jsonPath("$.tasks[0].id").value(sharedGoalTaskId));
+
+        mockMvc.perform(get("/api/folders/" + goalScopeFolderId + "/goals")
+                        .header("Authorization", "Bearer " + goalCollaborator.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/goals/" + siblingGoalId)
+                        .header("Authorization", "Bearer " + goalCollaborator.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/tasks/" + siblingGoalTaskId)
+                        .header("Authorization", "Bearer " + goalCollaborator.accessToken()))
+                .andExpect(status().isNotFound());
+
+        String taskScopeFolderId = createFolder(owner.accessToken());
+        String taskScopeGoalId = read(createGoal(owner.accessToken(), taskScopeFolderId, "Task share goal", "Only one task is shared"), "/id");
+        String sharedTaskId = read(createTask(owner.accessToken(), taskScopeGoalId, "Shared completion", 6), "/id");
+        String siblingTaskId = read(createTask(owner.accessToken(), taskScopeGoalId, "Unshared sibling task", 3), "/id");
+
+        shareAndAccept(
+                owner.accessToken(),
+                taskCollaborator.accessToken(),
+                "/api/tasks/" + sharedTaskId + "/share",
+                "task-scope@example.com"
+        );
+
+        mockMvc.perform(get("/api/shares/resources")
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.folders.length()").value(0))
+                .andExpect(jsonPath("$.goals.length()").value(0))
+                .andExpect(jsonPath("$.tasks.length()").value(1))
+                .andExpect(jsonPath("$.tasks[0].id").value(sharedTaskId))
+                .andExpect(jsonPath("$.tasks[0].status").value("todo"));
+
+        mockMvc.perform(get("/api/folders/" + taskScopeFolderId + "/goals")
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/goals/" + taskScopeGoalId)
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/tasks/" + siblingTaskId)
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
+                .andExpect(status().isNotFound());
+
+        String collaboratorTaskResponse = mockMvc.perform(get("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(sharedTaskId))
+                .andExpect(jsonPath("$.shared").value(true))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String collaboratorTaskVersion = read(collaboratorTaskResponse, "/version");
+
+        mockMvc.perform(patch("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Shared completion",
+                                  "description": "Task description",
+                                  "type": "green",
+                                  "priority": 6,
+                                  "status": "done",
+                                  "plannedTime": "2026-05-01T09:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "archived": false,
+                                  "version": %s
+                                }
+                                """.formatted(collaboratorTaskVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(sharedTaskId))
+                .andExpect(jsonPath("$.status").value("done"))
+                .andExpect(jsonPath("$.shared").value(true));
+
+        mockMvc.perform(get("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("done"))
+                .andExpect(jsonPath("$.title").value("Shared completion"));
+
+        String refreshedCollaboratorTaskResponse = mockMvc.perform(get("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("done"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String refreshedCollaboratorTaskVersion = read(refreshedCollaboratorTaskResponse, "/version");
+
+        mockMvc.perform(get("/api/shares/resources")
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tasks.length()").value(1))
+                .andExpect(jsonPath("$.tasks[0].id").value(sharedTaskId))
+                .andExpect(jsonPath("$.tasks[0].status").value("done"));
+
+        mockMvc.perform(patch("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Shared completion renamed",
+                                  "description": "Task description",
+                                  "type": "green",
+                                  "priority": 6,
+                                  "status": "in_progress",
+                                  "plannedTime": "2026-05-01T09:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "archived": false,
+                                  "version": %s
+                                }
+                                """.formatted(refreshedCollaboratorTaskVersion)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+
+        mockMvc.perform(get("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("done"))
+                .andExpect(jsonPath("$.title").value("Shared completion"));
+    }
+
+    @Test
     void folderShareByUserIdAndShareLinksExposeReadOnlyResources() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
         Session folderCollaborator = registerAndLogin("folder-collaborator@example.com", "Folder Collaborator");
@@ -843,6 +1026,26 @@ class SharingIntegrationTest {
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
+    }
+
+    private void shareAndAccept(String ownerAccessToken, String collaboratorAccessToken, String shareEndpoint, String email) throws Exception {
+        String invitationId = read(mockMvc.perform(post(shareEndpoint)
+                        .header("Authorization", "Bearer " + ownerAccessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "%s"
+                                }
+                                """.formatted(email)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(), "/id");
+
+        mockMvc.perform(post("/api/shares/invitations/" + invitationId + "/accept")
+                        .header("Authorization", "Bearer " + collaboratorAccessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("accepted"));
     }
 
     private String read(String json, String path) throws Exception {

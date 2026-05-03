@@ -26,6 +26,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 description TEXT NOT NULL,
                 display_order INTEGER NOT NULL,
                 archived INTEGER NOT NULL,
+                shared INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -99,9 +100,19 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 3) {
                 createTaskTagsTable(db)
             }
+            if (oldVersion < 4) {
+                addColumnIfMissing(db, TABLE_FOLDERS, "shared", "INTEGER NOT NULL DEFAULT 0")
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
+        }
+    }
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        if (!db.isReadOnly) {
+            addColumnIfMissing(db, TABLE_FOLDERS, "shared", "INTEGER NOT NULL DEFAULT 0")
         }
     }
 
@@ -111,9 +122,10 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         val allGoals = queryGoals(db, userId, includeDeleted = false)
         val allTasks = queryTasks(db, userId, includeDeleted = false)
         return PlanningSnapshot(
-            folders = folders.filterNot { it.archived },
+            folders = folders.filter { !it.shared && !it.archived },
             goals = allGoals.filter { !it.shared && !it.archived },
             tasks = allTasks.filter { !it.shared && !it.archived },
+            sharedFolders = folders.filter { it.shared && !it.archived },
             sharedGoals = allGoals.filter { it.shared && !it.archived },
             sharedTasks = allTasks.filter { it.shared && !it.archived },
             taskTags = queryTaskTags(db, userId, includeDeleted = false),
@@ -161,6 +173,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     description = draft.description,
                     displayOrder = nextFolderOrder(userId),
                     archived = false,
+                    shared = false,
                     version = 0,
                     createdAt = now,
                     updatedAt = now,
@@ -175,6 +188,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun updateFolder(userId: String, folder: PlanningFolder, draft: FolderDraft) {
+        if (folder.shared) {
+            return
+        }
         val action = if (folder.syncState == SyncState.PendingCreate) ACTION_CREATE else ACTION_UPDATE
         writableDatabase.update(
             TABLE_FOLDERS,
@@ -191,6 +207,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun deleteFolder(userId: String, folder: PlanningFolder) {
+        if (folder.shared) {
+            return
+        }
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -311,6 +330,20 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     fun updateTask(userId: String, task: PlanningTask, draft: TaskDraft) {
         if (task.shared) {
+            if (!sharedTaskUpdateChangesOnlyStatus(task, draft) || task.status == draft.status) {
+                return
+            }
+            writableDatabase.update(
+                TABLE_TASKS,
+                ContentValues().apply {
+                    put("status", draft.status)
+                    put("updated_at", nowIso())
+                    put("pending_action", ACTION_UPDATE)
+                    putNull("last_error")
+                },
+                "user_id = ? AND id = ?",
+                arrayOf(userId, task.id)
+            )
             return
         }
         val action = if (task.syncState == SyncState.PendingCreate) ACTION_CREATE else ACTION_UPDATE
@@ -372,7 +405,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun pendingFolders(userId: String): List<PlanningFolder> {
-        return queryFolders(readableDatabase, userId, includeDeleted = true).filter { it.syncState.isPending() }
+        return queryFolders(readableDatabase, userId, includeDeleted = true).filter { it.syncState.isPending() && !it.shared }
     }
 
     fun pendingGoals(userId: String): List<PlanningGoal> {
@@ -380,7 +413,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun pendingTasks(userId: String): List<PlanningTask> {
-        return queryTasks(readableDatabase, userId, includeDeleted = true).filter { it.syncState.isPending() && !it.shared }
+        return queryTasks(readableDatabase, userId, includeDeleted = true).filter {
+            it.syncState.isPending() && (!it.shared || it.syncState == SyncState.PendingUpdate)
+        }
     }
 
     fun pendingTaskTags(userId: String): List<TaskTag> {
@@ -464,6 +499,55 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                         TABLE_TASKS,
                         null,
                         taskValues(userId, task.copy(syncState = SyncState.Synced, lastError = null), null, false),
+                        SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun replaceRemoteSharedResources(
+        userId: String,
+        folders: List<PlanningFolder>,
+        goals: List<PlanningGoal>,
+        tasks: List<PlanningTask>
+    ) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            removeMissingSharedRows(db, TABLE_TASKS, userId, tasks.map { it.id })
+            removeMissingSharedRows(db, TABLE_GOALS, userId, goals.map { it.id })
+            removeMissingSharedRows(db, TABLE_FOLDERS, userId, folders.map { it.id })
+
+            folders.forEach { folder ->
+                if (!hasLocalPending(db, TABLE_FOLDERS, userId, folder.id)) {
+                    db.insertWithOnConflict(
+                        TABLE_FOLDERS,
+                        null,
+                        folderValues(userId, folder.copy(shared = true, syncState = SyncState.Synced, lastError = null), null, false),
+                        SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
+            }
+            goals.forEach { goal ->
+                if (!hasLocalPending(db, TABLE_GOALS, userId, goal.id)) {
+                    db.insertWithOnConflict(
+                        TABLE_GOALS,
+                        null,
+                        goalValues(userId, goal.copy(shared = true, syncState = SyncState.Synced, lastError = null), null, false),
+                        SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
+            }
+            tasks.forEach { task ->
+                if (!hasLocalPending(db, TABLE_TASKS, userId, task.id)) {
+                    db.insertWithOnConflict(
+                        TABLE_TASKS,
+                        null,
+                        taskValues(userId, task.copy(shared = true, syncState = SyncState.Synced, lastError = null), null, false),
                         SQLiteDatabase.CONFLICT_REPLACE
                     )
                 }
@@ -727,6 +811,18 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    private fun sharedTaskUpdateChangesOnlyStatus(task: PlanningTask, draft: TaskDraft): Boolean {
+        return draft.title == task.title &&
+            draft.description == task.description &&
+            draft.type == task.type &&
+            draft.priority == task.priority &&
+            draft.plannedTime == task.plannedTime &&
+            draft.dueTime == task.dueTime &&
+            (draft.tagIds ?: task.tagIds) == task.tagIds &&
+            (draft.recurrenceJson ?: task.recurrenceJson) == task.recurrenceJson &&
+            (draft.remindersJson ?: task.remindersJson) == task.remindersJson
+    }
+
     private fun nextFolderOrder(userId: String): Int {
         return readableDatabase.rawQuery(
             "SELECT COALESCE(MAX(display_order), -1) + 1 FROM $TABLE_FOLDERS WHERE user_id = ?",
@@ -775,6 +871,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("description", folder.description)
             put("display_order", folder.displayOrder)
             put("archived", folder.archived.toInt())
+            put("shared", folder.shared.toInt())
             put("version", folder.version)
             put("created_at", folder.createdAt)
             put("updated_at", folder.updatedAt)
@@ -866,6 +963,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             description = string("description"),
             displayOrder = int("display_order"),
             archived = boolean("archived"),
+            shared = optionalBoolean("shared"),
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
@@ -950,6 +1048,24 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         return int(column) == 1
     }
 
+    private fun Cursor.optionalBoolean(column: String): Boolean {
+        val index = getColumnIndex(column)
+        return index >= 0 && getInt(index) == 1
+    }
+
+    private fun removeMissingSharedRows(db: SQLiteDatabase, table: String, userId: String, keepIds: List<String>) {
+        if (keepIds.isEmpty()) {
+            db.delete(table, "user_id = ? AND shared = 1", arrayOf(userId))
+            return
+        }
+        val placeholders = keepIds.joinToString(",") { "?" }
+        db.delete(
+            table,
+            "user_id = ? AND shared = 1 AND id NOT IN ($placeholders)",
+            arrayOf(userId, *keepIds.toTypedArray())
+        )
+    }
+
     private fun syncState(action: String?): SyncState {
         return when (action) {
             ACTION_CREATE -> SyncState.PendingCreate
@@ -1010,7 +1126,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 3
+        private const val DATABASE_VERSION = 4
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"
