@@ -2,6 +2,7 @@ package com.rocketflow.companion.planning
 
 import com.rocketflow.companion.auth.AuthRepository
 import com.rocketflow.companion.auth.AuthSession
+import com.rocketflow.companion.auth.SessionBoundResult
 import com.rocketflow.companion.network.ApiException
 import org.json.JSONArray
 import org.json.JSONObject
@@ -407,25 +408,25 @@ class PlanningRepository(
         var activeSession = session
         val userId = session.user.id
 
-        val foldersResult = authRepository.authorizedGet(activeSession, "/folders")
+        val foldersResult = syncGet(activeSession, "/folders")
         activeSession = foldersResult.session
         val folders = foldersResult.value.getJSONArray("items").toFolders()
         localStore.upsertRemoteFolders(userId, folders)
 
-        val tagsResult = authRepository.authorizedGet(activeSession, "/tags")
+        val tagsResult = syncGet(activeSession, "/tags")
         activeSession = tagsResult.session
         localStore.upsertRemoteTaskTags(userId, tagsResult.value.getJSONArray("items").toTaskTags())
 
         val allGoals = mutableListOf<PlanningGoal>()
         val allTasks = mutableListOf<PlanningTask>()
         folders.filterNot { it.archived }.forEach { folder ->
-            val goalsResult = authRepository.authorizedGet(activeSession, "/folders/${folder.id}/goals")
+            val goalsResult = syncGet(activeSession, "/folders/${folder.id}/goals")
             activeSession = goalsResult.session
             val goals = goalsResult.value.getJSONArray("items").toGoals(shared = false)
             allGoals += goals
 
             goals.filterNot { it.archived }.forEach { goal ->
-                val tasksResult = authRepository.authorizedGet(activeSession, "/goals/${goal.id}/tasks")
+                val tasksResult = syncGet(activeSession, "/goals/${goal.id}/tasks")
                 activeSession = tasksResult.session
                 allTasks += tasksResult.value.getJSONArray("items").toTasks(shared = false)
             }
@@ -433,7 +434,7 @@ class PlanningRepository(
         localStore.upsertRemoteGoals(userId, allGoals)
         localStore.upsertRemoteTasks(userId, allTasks)
 
-        val sharedResult = authRepository.authorizedGet(activeSession, "/shares/resources")
+        val sharedResult = syncGet(activeSession, "/shares/resources")
         activeSession = sharedResult.session
         localStore.upsertRemoteGoals(
             userId,
@@ -445,6 +446,28 @@ class PlanningRepository(
         )
 
         return activeSession
+    }
+
+    private suspend fun syncGet(session: AuthSession, path: String): SessionBoundResult<JSONObject> {
+        return try {
+            authRepository.authorizedGet(session, path)
+        } catch (error: ApiException) {
+            throw error.withSyncContext("GET", path)
+        }
+    }
+
+    private fun ApiException.withSyncContext(method: String, path: String): ApiException {
+        val parts = mutableListOf("$method $path", "HTTP $status")
+        if (code.isNotBlank()) parts += code
+        if (message.isNotBlank()) parts += message
+        traceId?.takeIf { it.isNotBlank() }?.let { parts += "trace $it" }
+        return ApiException(
+            status = status,
+            code = code,
+            message = parts.joinToString(" - "),
+            fieldErrors = fieldErrors,
+            traceId = traceId
+        )
     }
 
     private fun PlanningTask.toCreateBody(): JSONObject {

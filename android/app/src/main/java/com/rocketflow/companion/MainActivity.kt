@@ -8,6 +8,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
@@ -15,11 +16,18 @@ import android.net.Network
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.text.TextUtils
+import android.text.method.HideReturnsTransformationMethod
+import android.text.method.TransformationMethod
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -27,6 +35,8 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -145,16 +155,32 @@ class MainActivity : Activity() {
         val metadata: String = "����������",
         val path: String,
         val details: String,
+        val collapse: String = "Collapse",
         val created: String,
         val updated: String,
         val synced: String,
+        val syncStatus: String = "Sync",
+        val syncOk: String = "Up to date",
+        val syncHelp: String = "Shows whether planner changes are uploaded, pending, or offline.",
+        val lastSyncError: String = "Last sync error",
         val offline: String,
         val pending: String,
         val savedOffline: String,
         val couldNotSync: String,
         val account: String,
         val language: String,
+        val sharingHelp: String = "Accept an invitation link to add shared folders, goals, or tasks.",
         val reminders: String,
+        val remindersHelp: String = "Android permission allows notifications; this phone connects task reminder delivery.",
+        val androidPermission: String = "Android permission",
+        val accountReminders: String = "Account reminders",
+        val deviceRegistration: String = "This phone",
+        val taskType: String = "Task type",
+        val greenTask: String = "Green",
+        val redTask: String = "Red",
+        val taskNeedsGoal: String = "A task must belong to a goal. Select an existing goal or create one first.",
+        val deleteFolderWarning: String = "This folder contains %1\$d goals and %2\$d tasks. They will be deleted with the folder.",
+        val deleteGoalWarning: String = "This goal contains %1\$d tasks. They will be deleted with the goal.",
         val priorityDecay: String = "�������� ����������",
         val priorityDecayHelp: String = "�������� ��������� ����� �������� ��������.",
         val greenTasks: String = "������� ������",
@@ -167,6 +193,7 @@ class MainActivity : Activity() {
         val registerDevice: String,
         val unregisterDevice: String,
         val firebaseUnavailable: String,
+        val remindersEnableFailed: String = "Could not enable reminders. Check sync and try again.",
         val signedOut: String,
         val signInAgain: String,
         val requestFailed: String,
@@ -295,6 +322,7 @@ class MainActivity : Activity() {
     private var passwordInput: EditText? = null
     private var emailDraft = ""
     private var passwordDraft = ""
+    private var passwordVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -404,10 +432,11 @@ class MainActivity : Activity() {
         val c = copy()
         val email = dialogInput(c.email, emailInput?.text?.toString().orEmpty())
         val password = dialogInput(c.password, "", isPassword = true)
+        val passwordRow = passwordInputRow(password, initialVisible = false)
         val name = dialogInput(c.displayName, "")
-        val form = dialogForm(email, password, name)
+        val form = dialogForm(email, passwordRow, name)
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle(c.createAccount)
             .setView(form)
             .setNegativeButton(c.cancel, null)
@@ -423,6 +452,7 @@ class MainActivity : Activity() {
                 register(registerEmail, registerPassword, displayName)
             }
             .show()
+        focusDialogInput(dialog, email)
     }
 
     private fun register(email: String, password: String, displayName: String) {
@@ -472,7 +502,6 @@ class MainActivity : Activity() {
 
         selectedGoalId = selectedGoalId
             ?.takeIf { id -> goals.any { it.id == id } || sharedGoals.any { it.id == id } }
-            ?: selectedFolderId?.let { folderId -> goals.firstOrNull { it.folderId == folderId }?.id }
 
         selectedTaskId = selectedTaskId?.takeIf { id -> allTasks().any { it.id == id } }
         selectedTaskDetail = selectedTaskId?.let(::findTask)
@@ -595,19 +624,68 @@ class MainActivity : Activity() {
         emailInput = EditText(this).apply {
             hint = c.email
             setText(emailDraft)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            setSelection(text?.length ?: 0)
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            imeOptions = EditorInfo.IME_ACTION_NEXT
             setSingleLine(true)
             styleInput()
+            keepDraftUpdated { emailDraft = it }
+            openKeyboardOnUserFocus()
         }
-        passwordInput = EditText(this).apply {
+        val passwordField = EditText(this).apply {
             hint = c.password
             setText(passwordDraft)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSelection(text?.length ?: 0)
+            imeOptions = EditorInfo.IME_ACTION_DONE
             setSingleLine(true)
             styleInput()
+            applyPasswordVisibility(passwordVisible)
+            keepDraftUpdated { passwordDraft = it }
+            openKeyboardOnUserFocus()
         }
+        passwordInput = passwordField
+        val passwordToggle = Button(this).apply {
+            text = passwordVisibilityToggleText(passwordVisible)
+            contentDescription = passwordVisibilityToggleDescription(passwordVisible)
+            setAllCaps(false)
+            textSize = 13f
+            includeFontPadding = false
+            minHeight = dp(48)
+            setTextColor(color(Ui.TEXT))
+            background = roundedDrawable(Ui.SURFACE, strokeColorHex = Ui.HAIRLINE, radiusDp = 8)
+            setOnClickListener {
+                val input = passwordInput ?: return@setOnClickListener
+                passwordDraft = input.text?.toString().orEmpty()
+                val cursor = input.selectionStart
+                passwordVisible = !passwordVisible
+                input.applyPasswordVisibility(passwordVisible, cursor)
+                text = passwordVisibilityToggleText(passwordVisible)
+                contentDescription = passwordVisibilityToggleDescription(passwordVisible)
+                input.requestFocus()
+            }
+        }
+        val passwordRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48)
+            ).apply { topMargin = dp(10) }
+        }
+        passwordField.layoutParams = LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            1f
+        )
+        passwordToggle.layoutParams = LinearLayout.LayoutParams(
+            dp(104),
+            LinearLayout.LayoutParams.MATCH_PARENT
+        ).apply { leftMargin = dp(8) }
+        passwordRow.addView(passwordField)
+        passwordRow.addView(passwordToggle)
         root.addView(emailInput)
-        root.addView(passwordInput)
+        root.addView(passwordRow)
 
         root.addView(
             textButton(c.signIn, primary = true) { submitLogin() }.apply {
@@ -660,7 +738,7 @@ class MainActivity : Activity() {
         } else {
             filteredFolders().forEach { folder -> renderFolder(list, folder) }
             if (sharedGoals.isNotEmpty() || sharedTasks.isNotEmpty()) {
-                list.addView(sectionLabel(if (currentLanguage == "en") "Shared" else "�����"))
+                list.addView(sectionLabel(if (currentLanguage == "en") "Shared" else "\u041e\u0431\u0449\u0438\u0435"))
                 sharedGoals.forEach { goal -> renderGoal(list, goal, shared = true) }
                 sharedTasks.filter { task -> sharedGoals.none { it.id == task.goalId } }
                     .forEach { task ->
@@ -782,6 +860,9 @@ class MainActivity : Activity() {
                 content.addView(propertyRow(c.status, localizedStatus(task.status), clickable = true) {
                     showStatusDialog(task)
                 })
+                content.addView(propertyRow(c.taskType, taskTypeLabel(task.type), clickable = !task.shared) {
+                    showTaskTypeDialog(task)
+                })
                 content.addView(propertyRow(c.priority, "${c.priorityShort}${task.priority}", clickable = true) {
                     showPriorityDialog(task)
                 })
@@ -841,57 +922,65 @@ class MainActivity : Activity() {
         }
         content.addView(sectionLabel(c.language))
         content.addView(languageSegment(compact = false))
-        content.addView(settingsRow(c.account, session.user.email))
-        content.addView(settingsRow(c.synced, planningStatusText()))
+
+        content.addView(sectionLabel(c.account))
+        content.addView(settingsRow(c.email, session.user.email))
+
+        content.addView(sectionLabel(c.syncStatus))
+        content.addView(settingsHelp(c.syncHelp))
+        content.addView(settingsRow(c.syncStatus, planningStatusText()))
+
         content.addView(sectionLabel(c.sharing))
+        content.addView(settingsHelp(c.sharingHelp))
         content.addView(settingsRow(c.acceptLink, c.shareLink) { showAcceptShareLinkDialog() })
+
         content.addView(sectionLabel(c.priorityDecay))
-        content.addView(
-            TextView(this).apply {
-                text = c.priorityDecayHelp
-                textSize = 13f
-                setTextColor(color(Ui.MUTED))
-                setLineSpacing(dp(2).toFloat(), 1f)
-                setPadding(0, dp(4), 0, dp(6))
-            }
-        )
+        content.addView(settingsHelp(c.priorityDecayHelp))
         val settings = currentSettings
         if (settings == null) {
             content.addView(settingsRow(c.priorityDecay, if (settingsLoading) c.loading else c.couldNotSync))
         } else {
-            content.addView(settingsRow(c.greenTasks, decayPolicySummary(settings.greenPriorityDecayPolicy)) {
+            content.addView(settingsRow(c.greenTasks, readableDecayPolicySummary(settings.greenPriorityDecayPolicy)) {
                 showDecayPolicyDialog(settings.greenPriorityDecayPolicy)
             })
-            content.addView(settingsRow(c.redTasks, decayPolicySummary(settings.redPriorityDecayPolicy)) {
+            content.addView(settingsRow(c.redTasks, readableDecayPolicySummary(settings.redPriorityDecayPolicy)) {
                 showDecayPolicyDialog(settings.redPriorityDecayPolicy)
             })
         }
         content.addView(
-            settingsRow(c.syncDiagnostics, if (diagnosticsExpanded) c.cancel else c.details) {
+            settingsRow(c.syncDiagnostics, if (diagnosticsExpanded) c.collapse else c.details) {
                 diagnosticsExpanded = !diagnosticsExpanded
                 render()
             }
         )
         if (diagnosticsExpanded) {
-            content.addView(settingsRow(c.couldNotSync, planningLastSyncError?.let { humanText(it) } ?: c.synced))
-            content.addView(settingsRow(c.reminders, notificationPermissionLabel()))
+            content.addView(settingsRow(c.lastSyncError, planningLastSyncError?.let { syncErrorText(it) } ?: c.syncOk))
+            content.addView(settingsRow(c.androidPermission, notificationPermissionLabel()))
             if (!notificationsRepository.isFirebaseConfigured()) {
-                content.addView(settingsRow(c.reminders, c.firebaseUnavailable))
+                content.addView(settingsRow(c.deviceRegistration, c.firebaseUnavailable))
             }
         }
+
         content.addView(sectionLabel(c.reminders))
+        content.addView(settingsHelp(c.remindersHelp))
+        settings?.let {
+            content.addView(settingsRow(c.accountReminders, if (it.notificationsEnabled) c.remindersOn else c.remindersOff))
+        }
+        content.addView(settingsRow(c.androidPermission, notificationPermissionLabel()))
         if (!notificationRuntime.hasNotificationPermission()) {
             content.addView(textButton(c.enableNotifications, primary = true) {
                 notificationRuntime.requestNotificationPermission(this)
             })
         }
-        content.addView(settingsRow(c.reminders, notificationRegistrationLabel()))
+        content.addView(settingsRow(c.deviceRegistration, notificationRegistrationLabel()))
         val registration = currentDeviceRegistration
-        content.addView(
-            textButton(if (registration == null) c.registerDevice else c.unregisterDevice, primary = registration == null) {
-                if (registration == null) registerDevice() else unregisterDevice()
-            }
-        )
+        if (notificationsRepository.isFirebaseConfigured()) {
+            content.addView(
+                textButton(if (registration == null) c.registerDevice else c.unregisterDevice, primary = registration == null) {
+                    if (registration == null) registerDevice() else unregisterDevice()
+                }
+            )
+        }
         content.addView(textButton(c.syncNow, quiet = true) { reloadPlanner(showBusy = true) })
         content.addView(textButton(c.signOut, danger = true) { logout() })
 
@@ -999,6 +1088,25 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun readableDecayPolicySummary(policy: PriorityDecayPolicy): String {
+        val enabled = if (policy.enabled) copy().remindersOn else copy().remindersOff
+        val threshold = readableThresholdLabel(policy.thresholdPreset)
+        return if (currentLanguage == "en") {
+            "$enabled; threshold: $threshold; -${policy.decayAmount}"
+        } else {
+            "$enabled; \u043f\u043e\u0440\u043e\u0433: $threshold; -${policy.decayAmount}"
+        }
+    }
+
+    private fun readableThresholdLabel(preset: String): String {
+        return when (preset) {
+            "day" -> if (currentLanguage == "en") "day" else "\u0434\u0435\u043d\u044c"
+            "week" -> if (currentLanguage == "en") "week" else "\u043d\u0435\u0434\u0435\u043b\u044f"
+            "month" -> if (currentLanguage == "en") "month" else "\u043c\u0435\u0441\u044f\u0446"
+            else -> preset
+        }
+    }
+
     private fun appBar(title: String, showBack: Boolean, mode: Screen): LinearLayout {
         val c = copy()
         return LinearLayout(this).apply {
@@ -1009,7 +1117,7 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56))
 
             if (showBack) {
-                addView(iconButton(R.drawable.ic_arrow_back, if (currentLanguage == "en") "Back" else "�����") {
+                addView(iconButton(R.drawable.ic_arrow_back, if (currentLanguage == "en") "Back" else "\u041d\u0430\u0437\u0430\u0434") {
                     currentScreen = Screen.Planner
                     render()
                 })
@@ -1041,7 +1149,6 @@ class MainActivity : Activity() {
 
             when (mode) {
                 Screen.Planner -> {
-                    addView(syncIconButton())
                     addView(iconButton(R.drawable.ic_search, c.search) { showSearchDialog() })
                     addView(iconButton(R.drawable.ic_settings, c.settings) {
                         currentScreen = Screen.Settings
@@ -1078,10 +1185,10 @@ class MainActivity : Activity() {
                 }
             )
             addView(iconView(R.drawable.ic_folder))
-            addView(rowText(folder.name, "", weight = 1f, titleSize = 16f, titleStyle = Typeface.BOLD).apply {
+            addView(rowText(folder.name, folder.description, weight = 1f, titleSize = 16f, titleStyle = Typeface.BOLD).apply {
                 setOnClickListener {
                     selectedFolderId = folder.id
-                    selectedGoalId = goalsForFolder(folder.id).firstOrNull()?.id
+                    selectedGoalId = null
                     selectedTaskId = null
                     selectedTaskDetail = null
                     render()
@@ -1107,7 +1214,7 @@ class MainActivity : Activity() {
                 }
             )
             addView(iconView(R.drawable.ic_target))
-            addView(rowText(goal.name, "", weight = 1f, titleSize = 15f, titleStyle = Typeface.BOLD).apply {
+            addView(rowText(goal.name, goal.description, weight = 1f, titleSize = 15f, titleStyle = Typeface.BOLD).apply {
                 setOnClickListener {
                     selectedGoalId = goal.id
                     selectedFolderId = goal.folderId.takeIf { it.isNotBlank() } ?: selectedFolderId
@@ -1139,7 +1246,7 @@ class MainActivity : Activity() {
                 setOnClickListener { openTaskDetail(task.id) }
             })
             dueChip(task)?.let { addView(it) }
-            addView(markerDot(priorityColor(task.priority), priorityA11y(task.priority), sizeDp = 7))
+            addView(counterText("${c.priorityShort}${task.priority}"))
             if (!task.shared) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
             }
@@ -1236,15 +1343,14 @@ class MainActivity : Activity() {
     private fun dueChip(task: PlanningTask): TextView? {
         val due = task.dueTime ?: task.plannedTime ?: return null
         val label = formatDateTime(due)
-        val chipColor = dueChipColor(due)
         return TextView(this).apply {
             text = label
             contentDescription = "${copy().due}: $label"
             textSize = 12f
-            setTextColor(color(chipColor))
+            setTextColor(color(Ui.MUTED))
             gravity = Gravity.CENTER
             includeFontPadding = false
-            background = roundedDrawable("#00FFFFFF", strokeColorHex = chipColor, radiusDp = 8)
+            background = roundedDrawable("#00FFFFFF", strokeColorHex = Ui.HAIRLINE, radiusDp = 8)
             setPadding(dp(8), 0, dp(8), 0)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -1335,23 +1441,89 @@ class MainActivity : Activity() {
         })
         dialogContent.addView(createOption(R.drawable.ic_target, c.goal) {
             dialog.dismiss()
-            if (selectedFolderId == null) {
-                message = c.folderFirst
-                render()
-            } else {
-                showGoalDialog(null)
-            }
+            showGoalFolderDialog()
         })
         dialogContent.addView(createOption(R.drawable.ic_radio_button_unchecked, c.task) {
             dialog.dismiss()
-            if (selectedGoalId == null) {
-                message = c.goalFirst
-                render()
-            } else {
-                showTaskDialog(null)
-            }
+            showTaskTargetDialog()
         })
         dialog.show()
+    }
+
+    private fun showGoalFolderDialog() {
+        val c = copy()
+        if (folders.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle(c.newGoal)
+                .setMessage(c.folderFirst)
+                .setNegativeButton(c.cancel, null)
+                .setPositiveButton(c.newFolder) { _, _ -> window.decorView.post { showFolderDialog(null) } }
+                .show()
+            return
+        }
+
+        lateinit var dialog: AlertDialog
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            addView(sheetHeader(c.newGoal))
+            addView(dialogContextLine(c.folder, c.folderFirst))
+        }
+        folders.forEach { folder ->
+            content.addView(selectionOption(R.drawable.ic_folder, folder.name, folder.description) {
+                dialog.dismiss()
+                selectedFolderId = folder.id
+                window.decorView.postDelayed({ showGoalDialog(null, folder.id) }, 120)
+            })
+        }
+        dialog = AlertDialog.Builder(this)
+            .setView(content)
+            .create()
+        dialog.show()
+    }
+
+    private fun showTaskTargetDialog() {
+        val c = copy()
+        val availableGoals = goals.filter { goal -> folders.any { it.id == goal.folderId } }
+        if (availableGoals.isEmpty()) {
+            showTaskNeedsGoalDialog()
+            return
+        }
+
+        lateinit var dialog: AlertDialog
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            addView(sheetHeader(c.newTask))
+            addView(dialogContextLine(c.goal, c.taskNeedsGoal))
+        }
+        availableGoals.forEach { goal ->
+            val folderName = folders.firstOrNull { it.id == goal.folderId }?.name ?: c.folder
+            content.addView(selectionOption(R.drawable.ic_target, goal.name, folderName) {
+                dialog.dismiss()
+                selectedFolderId = goal.folderId
+                selectedGoalId = goal.id
+                window.decorView.postDelayed({ showTaskDialog(null, goal.id) }, 120)
+            })
+        }
+        content.addView(selectionOption(R.drawable.ic_target, c.newGoal, c.folder) {
+            dialog.dismiss()
+            window.decorView.postDelayed({ showGoalFolderDialog() }, 120)
+        })
+        dialog = AlertDialog.Builder(this)
+            .setView(content)
+            .create()
+        dialog.show()
+    }
+
+    private fun showTaskNeedsGoalDialog() {
+        val c = copy()
+        AlertDialog.Builder(this)
+            .setTitle(c.newTask)
+            .setMessage(c.taskNeedsGoal)
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.newGoal) { _, _ -> window.decorView.post { showGoalFolderDialog() } }
+            .show()
     }
 
     private fun sheetHeader(title: String): LinearLayout {
@@ -1390,15 +1562,56 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun selectionOption(icon: Int, title: String, subtitle: String, onClick: () -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            minimumHeight = dp(56)
+            addView(iconView(icon, sizeDp = 24, tint = Ui.ACCENT))
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    addView(
+                        TextView(context).apply {
+                            text = title
+                            textSize = 16f
+                            setTextColor(color(Ui.TEXT))
+                            setTypeface(typeface, Typeface.BOLD)
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                        }
+                    )
+                    if (subtitle.isNotBlank()) {
+                        addView(
+                            TextView(context).apply {
+                                text = subtitle
+                                textSize = 13f
+                                setTextColor(color(Ui.MUTED))
+                                maxLines = 2
+                                ellipsize = TextUtils.TruncateAt.END
+                            }
+                        )
+                    }
+                }
+            )
+            background = roundedDrawable("#00FFFFFF", radiusDp = 8)
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+    }
+
     private fun showFolderActions(folder: PlanningFolder) {
         val c = copy()
         AlertDialog.Builder(this)
             .setTitle(folder.name)
-            .setItems(arrayOf(c.share, c.edit, c.delete)) { _, which ->
+            .setItems(arrayOf(c.details, c.share, c.edit, c.delete)) { _, which ->
                 when (which) {
-                    0 -> showShareDialog(folder.toShareTarget())
-                    1 -> showFolderDialog(folder)
-                    else -> confirmDelete(folder.name) { deleteFolder(folder) }
+                    0 -> showFolderDetails(folder)
+                    1 -> showShareDialog(folder.toShareTarget())
+                    2 -> showFolderDialog(folder)
+                    else -> confirmDelete(folder.name, deleteFolderMessage(folder)) { deleteFolder(folder) }
                 }
             }
             .show()
@@ -1408,13 +1621,50 @@ class MainActivity : Activity() {
         val c = copy()
         AlertDialog.Builder(this)
             .setTitle(goal.name)
-            .setItems(arrayOf(c.share, c.edit, c.delete)) { _, which ->
+            .setItems(arrayOf(c.details, c.share, c.edit, c.delete)) { _, which ->
                 when (which) {
-                    0 -> showShareDialog(goal.toShareTarget())
-                    1 -> showGoalDialog(goal)
-                    else -> confirmDelete(goal.name) { deleteGoal(goal) }
+                    0 -> showGoalDetails(goal)
+                    1 -> showShareDialog(goal.toShareTarget())
+                    2 -> showGoalDialog(goal)
+                    else -> confirmDelete(goal.name, deleteGoalMessage(goal)) { deleteGoal(goal) }
                 }
             }
+            .show()
+    }
+
+    private fun showFolderDetails(folder: PlanningFolder) {
+        val c = copy()
+        val folderGoals = goalsForFolder(folder.id)
+        val taskCount = folderGoals.sumOf { tasksForGoal(it.id).size }
+        AlertDialog.Builder(this)
+            .setTitle(folder.name)
+            .setView(
+                dialogForm(
+                    detailDialogText(c.notes, folder.description.ifBlank { c.noDate }),
+                    detailDialogText(c.goal, folderGoals.size.toString()),
+                    detailDialogText(c.task, taskCount.toString())
+                )
+            )
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.edit) { _, _ -> showFolderDialog(folder) }
+            .show()
+    }
+
+    private fun showGoalDetails(goal: PlanningGoal) {
+        val c = copy()
+        val folder = folders.firstOrNull { it.id == goal.folderId }
+        val taskCount = tasksForGoal(goal.id).size
+        AlertDialog.Builder(this)
+            .setTitle(goal.name)
+            .setView(
+                dialogForm(
+                    detailDialogText(c.folder, folder?.name ?: c.folder),
+                    detailDialogText(c.notes, goal.description.ifBlank { c.noDate }),
+                    detailDialogText(c.task, taskCount.toString())
+                )
+            )
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.edit) { _, _ -> showGoalDialog(goal) }
             .show()
     }
 
@@ -1453,11 +1703,10 @@ class MainActivity : Activity() {
             hint = if (byEmail) c.email else c.userIdField,
             value = ""
         ).apply {
-            inputType = if (byEmail) {
-                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-            } else {
-                InputType.TYPE_CLASS_TEXT
-            }
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            imeOptions = EditorInfo.IME_ACTION_DONE
         }
 
         AlertDialog.Builder(this)
@@ -1718,7 +1967,7 @@ class MainActivity : Activity() {
         val c = copy()
         val nameInput = dialogInput(c.nameField, folder?.name.orEmpty())
         val notesInput = dialogInput(c.notesField, folder?.description.orEmpty(), multiline = true)
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle(if (folder == null) c.newFolder else c.edit)
             .setView(dialogForm(nameInput, notesInput))
             .setNegativeButton(c.cancel, null)
@@ -1732,20 +1981,22 @@ class MainActivity : Activity() {
                 saveFolder(folder, draft)
             }
             .show()
+        focusDialogInput(dialog, nameInput)
     }
 
-    private fun showGoalDialog(goal: PlanningGoal?) {
-        val folderId = selectedFolderId ?: run {
+    private fun showGoalDialog(goal: PlanningGoal?, folderIdOverride: String? = null) {
+        val folderId = goal?.folderId ?: folderIdOverride ?: selectedFolderId ?: run {
             message = copy().folderFirst
             render()
             return
         }
+        val folder = folders.firstOrNull { it.id == folderId }
         val c = copy()
         val nameInput = dialogInput(c.nameField, goal?.name.orEmpty())
         val notesInput = dialogInput(c.notesField, goal?.description.orEmpty(), multiline = true)
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle(if (goal == null) c.newGoal else c.edit)
-            .setView(dialogForm(nameInput, notesInput))
+            .setView(dialogForm(dialogContextLine(c.folder, folder?.name ?: c.folder), nameInput, notesInput))
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.save) { _, _ ->
                 val draft = GoalDraft(nameInput.text.toString().trim(), notesInput.text.toString().trim())
@@ -1757,32 +2008,46 @@ class MainActivity : Activity() {
                 saveGoal(folderId, goal, draft)
             }
             .show()
+        focusDialogInput(dialog, nameInput)
     }
 
-    private fun showTaskDialog(task: PlanningTask?) {
-        val goalId = selectedGoalId ?: run {
+    private fun showTaskDialog(task: PlanningTask?, goalIdOverride: String? = null) {
+        val goalId = task?.goalId ?: goalIdOverride ?: selectedGoalId ?: run {
             message = copy().goalFirst
             render()
             return
         }
+        val goal = goals.firstOrNull { it.id == goalId } ?: sharedGoals.firstOrNull { it.id == goalId }
         val c = copy()
         val titleInput = dialogInput(c.titleField, task?.title.orEmpty())
         val notesInput = dialogInput(c.notesField, task?.description.orEmpty(), multiline = true)
+        val typeGroup = taskTypeGroup(task?.type ?: "green")
         val priorityInput = dialogInput(c.priorityField, (task?.priority ?: 5).toString()).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
         }
         val plannedField = dateTimeField(c.plannedField, task?.plannedTime)
         val dueField = dateTimeField(c.dueField, task?.dueTime)
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle(if (task == null) c.newTask else c.edit)
-            .setView(dialogForm(titleInput, notesInput, priorityInput, plannedField.view, dueField.view))
+            .setView(
+                dialogForm(
+                    dialogContextLine(c.goal, goal?.name ?: c.goal),
+                    titleInput,
+                    notesInput,
+                    dialogLabel(c.taskType),
+                    typeGroup,
+                    priorityInput,
+                    plannedField.view,
+                    dueField.view
+                )
+            )
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.save) { _, _ ->
                 val priority = priorityInput.text.toString().trim().toIntOrNull()
                 val draft = TaskDraft(
                     title = titleInput.text.toString().trim(),
                     description = notesInput.text.toString().trim(),
-                    type = task?.type ?: "green",
+                    type = typeGroup.selectedTaskType(),
                     priority = priority ?: 5,
                     status = task?.status ?: "todo",
                     plannedTime = plannedField.isoValue(),
@@ -1801,6 +2066,7 @@ class MainActivity : Activity() {
                 saveTask(goalId, task, draft)
             }
             .show()
+        focusDialogInput(dialog, titleInput)
     }
 
     private fun showStatusDialog(task: PlanningTask) {
@@ -1811,6 +2077,19 @@ class MainActivity : Activity() {
             .setTitle(copy().status)
             .setSingleChoiceItems(labels, checked) { dialog, which ->
                 saveTask(task.goalId, task, task.toDraft(status = values[which]))
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun showTaskTypeDialog(task: PlanningTask) {
+        val labels = arrayOf(copy().greenTask, copy().redTask)
+        val values = arrayOf("green", "red")
+        val checked = values.indexOf(normalizeTaskType(task.type)).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(copy().taskType)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                saveTask(task.goalId, task, task.toDraft(type = values[which]))
                 dialog.dismiss()
             }
             .show()
@@ -2005,6 +2284,13 @@ class MainActivity : Activity() {
                     planningRepository.updateGoal(session, goal, draft)
                 }
                 applyPlanningResult(result)
+                val savedGoal = goal?.id?.let { goalId ->
+                    result.snapshot.goals.firstOrNull { it.id == goalId }
+                } ?: result.snapshot.goals.firstOrNull { it.folderId == folderId && it.name == draft.name }
+                if (savedGoal != null) {
+                    selectedFolderId = savedGoal.folderId
+                    selectedGoalId = savedGoal.id
+                }
             } catch (error: Exception) {
                 message = humanError(error)
             } finally {
@@ -2025,6 +2311,10 @@ class MainActivity : Activity() {
                     planningRepository.updateTask(session, task, draft)
                 }
                 applyPlanningResult(result)
+                val parentGoal = result.snapshot.goals.firstOrNull { it.id == goalId }
+                    ?: result.snapshot.sharedGoals.firstOrNull { it.id == goalId }
+                selectedFolderId = parentGoal?.folderId ?: selectedFolderId
+                selectedGoalId = goalId
                 selectedTaskId = result.snapshot.tasks.firstOrNull { it.title == draft.title }?.id ?: selectedTaskId
                 selectedTaskDetail = selectedTaskId?.let(::findTask)
             } catch (error: Exception) {
@@ -2113,13 +2403,32 @@ class MainActivity : Activity() {
         message = if (result.snapshot.offline) copy().savedOffline else null
     }
 
-    private fun confirmDelete(name: String, onConfirm: () -> Unit) {
+    private fun confirmDelete(name: String, message: String = name, onConfirm: () -> Unit) {
         AlertDialog.Builder(this)
             .setTitle(copy().delete)
-            .setMessage(name)
+            .setMessage(message)
             .setNegativeButton(copy().cancel, null)
             .setPositiveButton(copy().delete) { _, _ -> onConfirm() }
             .show()
+    }
+
+    private fun deleteFolderMessage(folder: PlanningFolder): String {
+        val folderGoals = goalsForFolder(folder.id)
+        val taskCount = folderGoals.sumOf { tasksForGoal(it.id).size }
+        return if (folderGoals.isEmpty() && taskCount == 0) {
+            folder.name
+        } else {
+            String.format(Locale.ROOT, copy().deleteFolderWarning, folderGoals.size, taskCount)
+        }
+    }
+
+    private fun deleteGoalMessage(goal: PlanningGoal): String {
+        val taskCount = tasksForGoal(goal.id).size
+        return if (taskCount == 0) {
+            goal.name
+        } else {
+            String.format(Locale.ROOT, copy().deleteGoalWarning, taskCount)
+        }
     }
 
     private fun openTaskDetail(taskId: String, consumePendingOnSuccess: Boolean = false) {
@@ -2305,6 +2614,11 @@ class MainActivity : Activity() {
             render()
             return
         }
+        if (!notificationsRepository.isFirebaseConfigured()) {
+            message = c.firebaseUnavailable
+            render()
+            return
+        }
 
         val token = currentPushToken?.value ?: notificationsRepository.readStoredPushToken()?.value
         if (token.isNullOrBlank()) {
@@ -2315,16 +2629,28 @@ class MainActivity : Activity() {
         setBusy(true)
         scope.launch {
             try {
-                val result = notificationsRepository.registerDevice(session, token, defaultDeviceName())
+                val activeSession = enableAccountRemindersIfNeeded(session)
+                val result = notificationsRepository.registerDevice(activeSession, token, defaultDeviceName())
                 currentSession = result.session
                 currentDeviceRegistration = result.value
                 message = c.remindersOn
             } catch (error: Exception) {
-                message = humanError(error)
+                message = notificationRegistrationError(error)
             } finally {
                 setBusy(false)
             }
         }
+    }
+
+    private suspend fun enableAccountRemindersIfNeeded(session: AuthSession): AuthSession {
+        val settings = currentSettings ?: return session
+        if (settings.notificationsEnabled) return session
+        val result = userSettingsRepository.updateSettings(
+            session,
+            settings.copy(language = currentLanguage, notificationsEnabled = true)
+        )
+        currentSettings = result.value
+        return result.session
     }
 
     private fun unregisterDevice() {
@@ -2598,7 +2924,7 @@ class MainActivity : Activity() {
                 }
             )
             addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
-            addView(markerDot(priorityColor(task.priority), priorityA11y(task.priority), sizeDp = 8))
+            addView(counterText("${copy().priorityShort}${task.priority}"))
             dueChip(task)?.let {
                 addView(it.apply { setOnClickListener { showDueDialog(task) } })
             }
@@ -2661,6 +2987,16 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun settingsHelp(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTextColor(color(Ui.MUTED))
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(0, dp(2), 0, dp(8))
+        }
+    }
+
     private data class DateTimeField(
         val view: View,
         val isoValue: () -> String?
@@ -2669,10 +3005,16 @@ class MainActivity : Activity() {
     private fun dateTimeField(label: String, initialIso: String?): DateTimeField {
         var value = parseInstant(initialIso)?.atZone(zone)?.toLocalDateTime()
         lateinit var pickerButton: Button
+        lateinit var clearButton: Button
 
         fun buttonText(): String {
             val formatted = value?.let { formatDateTime(it.atZone(zone).toInstant().toString()) } ?: copy().noDate
             return "$label: $formatted"
+        }
+
+        fun updateButtons() {
+            pickerButton.text = buttonText()
+            clearButton.visibility = if (value == null) View.GONE else View.VISIBLE
         }
 
         val container = LinearLayout(this).apply {
@@ -2680,19 +3022,21 @@ class MainActivity : Activity() {
             pickerButton = textButton(buttonText(), quiet = true) {
                 pickDateTime(value ?: LocalDateTime.now(zone).plusHours(1).withMinute(0).withSecond(0).withNano(0)) {
                     value = it
-                    pickerButton.text = buttonText()
+                    updateButtons()
                 }
             }
             addView(pickerButton)
-            addView(textButton(copy().clearDate, quiet = true) {
+            clearButton = textButton(copy().clearDate, quiet = true) {
                 value = null
-                pickerButton.text = buttonText()
+                updateButtons()
             }.apply {
+                visibility = if (value == null) View.GONE else View.VISIBLE
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     dp(38)
                 ).apply { topMargin = dp(4) }
-            })
+            }
+            addView(clearButton)
         }
 
         return DateTimeField(
@@ -2733,15 +3077,30 @@ class MainActivity : Activity() {
             styleInput()
             inputType = when {
                 isPassword -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                multiline -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                else -> InputType.TYPE_CLASS_TEXT
+                multiline -> InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                    InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                else -> InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             }
+            imeOptions = if (multiline) EditorInfo.IME_ACTION_NONE else EditorInfo.IME_ACTION_DONE
             if (multiline) {
-                minLines = 2
-                maxLines = 4
+                gravity = Gravity.TOP or Gravity.START
+                minLines = 3
+                maxLines = 6
+                setSingleLine(false)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(10) }
             } else {
                 setSingleLine(true)
             }
+            if (isPassword) {
+                applyPasswordVisibility(visible = false)
+            }
+            openKeyboardOnUserFocus()
         }
     }
 
@@ -2756,6 +3115,106 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun dialogContextLine(label: String, value: String): TextView {
+        return TextView(this).apply {
+            text = "$label: $value"
+            textSize = 13f
+            setTextColor(color(Ui.MUTED))
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(0, dp(2), 0, dp(8))
+        }
+    }
+
+    private fun detailDialogText(label: String, value: String): TextView {
+        return TextView(this).apply {
+            text = "$label: $value"
+            textSize = 15f
+            setTextColor(color(Ui.TEXT))
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(0, dp(8), 0, dp(6))
+        }
+    }
+
+    private fun dialogLabel(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(color(Ui.MUTED))
+            setPadding(0, dp(10), 0, dp(2))
+        }
+    }
+
+    private fun taskTypeGroup(selectedType: String): RadioGroup {
+        val selected = normalizeTaskType(selectedType)
+        return RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            setPadding(0, 0, 0, dp(2))
+            addView(taskTypeRadioButton("green", selected == "green"))
+            addView(taskTypeRadioButton("red", selected == "red"))
+        }
+    }
+
+    private fun taskTypeRadioButton(type: String, checked: Boolean): RadioButton {
+        return RadioButton(this).apply {
+            id = View.generateViewId()
+            tag = type
+            text = taskTypeLabel(type)
+            isChecked = checked
+            textSize = 15f
+            setTextColor(color(Ui.TEXT))
+            layoutParams = RadioGroup.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+    }
+
+    private fun RadioGroup.selectedTaskType(): String {
+        val selected = findViewById<RadioButton>(checkedRadioButtonId)?.tag as? String
+        return normalizeTaskType(selected ?: "green")
+    }
+
+    private fun passwordInputRow(passwordField: EditText, initialVisible: Boolean): LinearLayout {
+        var visible = initialVisible
+        passwordField.applyPasswordVisibility(visible)
+        passwordField.layoutParams = LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            1f
+        )
+        val toggle = Button(this).apply {
+            text = passwordVisibilityToggleText(visible)
+            contentDescription = passwordVisibilityToggleDescription(visible)
+            setAllCaps(false)
+            textSize = 13f
+            includeFontPadding = false
+            minHeight = dp(48)
+            setTextColor(color(Ui.TEXT))
+            background = roundedDrawable(Ui.SURFACE, strokeColorHex = Ui.HAIRLINE, radiusDp = 8)
+            layoutParams = LinearLayout.LayoutParams(
+                dp(104),
+                LinearLayout.LayoutParams.MATCH_PARENT
+            ).apply { leftMargin = dp(8) }
+            setOnClickListener {
+                val cursor = passwordField.selectionStart
+                visible = !visible
+                passwordField.applyPasswordVisibility(visible, cursor)
+                text = passwordVisibilityToggleText(visible)
+                contentDescription = passwordVisibilityToggleDescription(visible)
+                passwordField.requestFocus()
+                passwordField.post { showKeyboard(passwordField) }
+            }
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48)
+            ).apply { topMargin = dp(10) }
+            addView(passwordField)
+            addView(toggle)
+        }
+    }
+
     private fun EditText.styleInput() {
         textSize = 15f
         setTextColor(color(Ui.TEXT))
@@ -2767,6 +3226,110 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams.MATCH_PARENT,
             dp(48)
         ).apply { topMargin = dp(10) }
+    }
+
+    private fun focusDialogInput(dialog: AlertDialog, input: EditText) {
+        dialog.window?.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        )
+        input.postDelayed({
+            input.requestFocus()
+            showKeyboard(input)
+        }, 250)
+    }
+
+    private fun EditText.keepDraftUpdated(update: (String) -> Unit) {
+        addTextChangedListener(
+            object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+
+                override fun afterTextChanged(s: Editable?) {
+                    update(s?.toString().orEmpty())
+                }
+            }
+        )
+    }
+
+    private fun EditText.applyPasswordVisibility(visible: Boolean, cursorPosition: Int? = null) {
+        val cursor = cursorPosition?.takeIf { it >= 0 } ?: (text?.length ?: 0)
+        inputType = InputType.TYPE_CLASS_TEXT or if (visible) {
+            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        } else {
+            InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        transformationMethod = if (visible) {
+            HideReturnsTransformationMethod.getInstance()
+        } else {
+            FullyHiddenPasswordTransformationMethod
+        }
+        typeface = Typeface.DEFAULT
+        setSelection(cursor.coerceIn(0, text?.length ?: 0))
+    }
+
+    private object FullyHiddenPasswordTransformationMethod : TransformationMethod {
+        override fun getTransformation(source: CharSequence?, view: View?): CharSequence {
+            return HiddenPasswordCharSequence(source ?: "")
+        }
+
+        override fun onFocusChanged(
+            view: View?,
+            sourceText: CharSequence?,
+            focused: Boolean,
+            direction: Int,
+            previouslyFocusedRect: Rect?
+        ) = Unit
+    }
+
+    private class HiddenPasswordCharSequence(private val source: CharSequence) : CharSequence {
+        override val length: Int
+            get() = source.length
+
+        override fun get(index: Int): Char = '\u2022'
+
+        override fun subSequence(startIndex: Int, endIndex: Int): CharSequence {
+            return "\u2022".repeat((endIndex - startIndex).coerceAtLeast(0))
+        }
+
+        override fun toString(): String = "\u2022".repeat(length)
+    }
+
+    private fun passwordVisibilityToggleText(visible: Boolean): String {
+        return if (visible) {
+            if (currentLanguage == "en") "Hide" else "\u0421\u043a\u0440\u044b\u0442\u044c"
+        } else {
+            if (currentLanguage == "en") "Show" else "\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c"
+        }
+    }
+
+    private fun passwordVisibilityToggleDescription(visible: Boolean): String {
+        return if (visible) {
+            "Hide password / \u0421\u043a\u0440\u044b\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"
+        } else {
+            "Show password / \u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"
+        }
+    }
+
+    private fun EditText.openKeyboardOnUserFocus() {
+        isFocusable = true
+        isFocusableInTouchMode = true
+        showSoftInputOnFocus = true
+        setOnFocusChangeListener { view, hasFocus ->
+            if (hasFocus) {
+                view.post { showKeyboard(view) }
+            }
+        }
+        setOnClickListener {
+            post { showKeyboard(this) }
+        }
+    }
+
+    private fun showKeyboard(view: View) {
+        view.requestFocus()
+        getSystemService(InputMethodManager::class.java)
+            ?.showSoftInput(view, InputMethodManager.SHOW_FORCED)
     }
 
     private fun filteredFolders(): List<PlanningFolder> {
@@ -2897,20 +3460,22 @@ class MainActivity : Activity() {
     }
 
     private fun taskTypeColor(task: PlanningTask): String {
-        return when (task.type.lowercase(Locale.ROOT)) {
-            "red", "risk", "blocked" -> Ui.DANGER
-            "blue", "info", "planned" -> Ui.INFO
-            else -> Ui.ACCENT
-        }
+        return if (normalizeTaskType(task.type) == "red") Ui.DANGER else Ui.ACCENT
     }
 
     private fun taskTypeA11y(task: PlanningTask): String {
-        val label = when (task.type.lowercase(Locale.ROOT)) {
-            "red", "risk", "blocked" -> if (currentLanguage == "en") "Risk type" else "����"
-            "blue", "info", "planned" -> if (currentLanguage == "en") "Planned type" else "����"
-            else -> if (currentLanguage == "en") "Action type" else "��������"
+        return taskTypeLabel(task.type)
+    }
+
+    private fun taskTypeLabel(type: String): String {
+        return if (normalizeTaskType(type) == "red") copy().redTask else copy().greenTask
+    }
+
+    private fun normalizeTaskType(type: String): String {
+        return when (type.lowercase(Locale.ROOT)) {
+            "red", "risk", "blocked" -> "red"
+            else -> "green"
         }
-        return label
     }
 
     private fun priorityColor(priority: Int): String {
@@ -2972,7 +3537,7 @@ class MainActivity : Activity() {
             planningLastSyncError != null -> c.couldNotSync
             planningOffline -> c.offline
             planningPendingCount > 0 -> "${planningPendingCount} ${c.pending}"
-            else -> c.synced
+            else -> c.syncOk
         }
     }
 
@@ -2987,6 +3552,7 @@ class MainActivity : Activity() {
     private fun PlanningTask.toDraft(
         title: String = this.title,
         description: String = this.description,
+        type: String = this.type,
         status: String = this.status,
         priority: Int = this.priority,
         plannedTime: String? = this.plannedTime,
@@ -2998,7 +3564,7 @@ class MainActivity : Activity() {
         return TaskDraft(
             title = title,
             description = description,
-            type = type,
+            type = normalizeTaskType(type),
             priority = priority,
             status = status,
             plannedTime = plannedTime,
@@ -3119,6 +3685,12 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun notificationRegistrationError(error: Exception): String {
+        if (isTerminalSessionFailure(error)) return copy().signInAgain
+        if (error is ApiException && error.status == 401) return copy().signInAgain
+        return copy().remindersEnableFailed
+    }
+
     private fun humanError(error: Exception): String {
         if (isTerminalSessionFailure(error)) return copy().signInAgain
         return when (error) {
@@ -3137,6 +3709,15 @@ class MainActivity : Activity() {
             "network" in lower || "failed to connect" in lower || "timeout" in lower -> copy().couldNotSync
             "firebase" in lower -> copy().firebaseUnavailable
             else -> copy().requestFailed
+        }
+    }
+
+    private fun syncErrorText(raw: String): String {
+        if (raw.isBlank()) return copy().couldNotSync
+        val lower = raw.lowercase(Locale.ROOT)
+        return when {
+            "network" in lower || "failed to connect" in lower || "timeout" in lower -> copy().couldNotSync
+            else -> raw
         }
     }
 
@@ -3275,20 +3856,36 @@ class MainActivity : Activity() {
                 metadata = "Scheduling",
                 path = "Path",
                 details = "Details",
+                collapse = "Collapse",
                 created = "Created",
                 updated = "Updated",
                 synced = "Synced",
+                syncStatus = "Sync",
+                syncOk = "Up to date",
+                syncHelp = "Shows whether planner changes are uploaded, pending, or offline.",
+                lastSyncError = "Last sync error",
                 offline = "Offline",
                 pending = "pending",
                 savedOffline = "Saved offline",
                 couldNotSync = "Could not sync",
                 account = "Account",
                 language = "Language",
+                sharingHelp = "Accept an invitation link to add shared folders, goals, or tasks.",
                 reminders = "Reminders",
+                remindersHelp = "Android permission allows notifications; this phone connects task reminder delivery.",
+                androidPermission = "Android permission",
+                accountReminders = "Account reminders",
+                deviceRegistration = "This phone",
                 priorityDecay = "Priority decay",
-                priorityDecayHelp = "Lower priority after quick reschedule.",
+                priorityDecayHelp = "When you postpone a task, RocketFlow totals the delay. After the selected threshold, priority drops by the chosen amount.",
                 greenTasks = "Green tasks",
                 redTasks = "Red tasks",
+                taskType = "Task type",
+                greenTask = "Green",
+                redTask = "Red",
+                taskNeedsGoal = "A task must belong to a goal. Select an existing goal or create one first.",
+                deleteFolderWarning = "This folder contains %1\$d goals and %2\$d tasks. They will be deleted with the folder.",
+                deleteGoalWarning = "This goal contains %1\$d tasks. They will be deleted with the goal.",
                 threshold = "Threshold",
                 decayAmount = "Decay",
                 remindersOn = "On",
@@ -3297,6 +3894,7 @@ class MainActivity : Activity() {
                 registerDevice = "Enable reminders",
                 unregisterDevice = "Turn off reminders",
                 firebaseUnavailable = "Reminders are not configured in this build.",
+                remindersEnableFailed = "Could not enable reminders. Check sync and try again.",
                 signedOut = "Signed out",
                 signInAgain = "Sign in again to continue.",
                 requestFailed = "Request failed.",
@@ -3330,8 +3928,8 @@ class MainActivity : Activity() {
                 titleField = "Title",
                 nameField = "Name",
                 notesField = "Notes",
-                dueField = "Due, for example 2026-05-01 09:00",
-                plannedField = "Planned, for example 2026-05-01 09:00",
+                dueField = "Due",
+                plannedField = "Plan",
                 priorityField = "Priority 1-10",
                 priorityRequired = "Priority must be from 1 to 10.",
                 priorityShort = "P",
@@ -3411,20 +4009,36 @@ class MainActivity : Activity() {
                 metadata = "Расписание",
                 path = "Путь",
                 details = "Детали",
+                collapse = "Свернуть",
                 created = "Создано",
                 updated = "Обновлено",
                 synced = "Синхронизировано",
+                syncStatus = "Синхронизация",
+                syncOk = "Данные актуальны",
+                syncHelp = "Показывает, отправлены ли изменения, есть ли очередь на отправку или приложение сейчас офлайн.",
+                lastSyncError = "Последняя ошибка",
                 offline = "Офлайн",
                 pending = "ожидают",
                 savedOffline = "Сохранено офлайн",
                 couldNotSync = "Не удалось синхронизировать",
                 account = "Аккаунт",
                 language = "Язык",
+                sharingHelp = "Здесь можно принять ссылку-приглашение к папке, цели или задаче.",
                 reminders = "Напоминания",
+                remindersHelp = "Разрешение Android включает показ уведомлений, а подключение телефона привязывает напоминания к этому устройству.",
+                androidPermission = "Разрешение Android",
+                accountReminders = "Напоминания аккаунта",
+                deviceRegistration = "Этот телефон",
                 priorityDecay = "Снижение приоритета",
-                priorityDecayHelp = "Снижает приоритет после быстрого переноса.",
+                priorityDecayHelp = "Если вы переносите задачу на позже, RocketFlow суммирует задержку. Когда набирается выбранный срок, приоритет уменьшается на указанное число.",
                 greenTasks = "Зеленые задачи",
                 redTasks = "Красные задачи",
+                taskType = "\u0422\u0438\u043f \u0437\u0430\u0434\u0430\u0447\u0438",
+                greenTask = "\u0417\u0435\u043b\u0435\u043d\u0430\u044f",
+                redTask = "\u041a\u0440\u0430\u0441\u043d\u0430\u044f",
+                taskNeedsGoal = "\u0417\u0430\u0434\u0430\u0447\u0430 \u0434\u043e\u043b\u0436\u043d\u0430 \u0431\u044b\u0442\u044c \u0432\u043d\u0443\u0442\u0440\u0438 \u0446\u0435\u043b\u0438. \u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044e\u0449\u0443\u044e \u0446\u0435\u043b\u044c \u0438\u043b\u0438 \u0441\u043e\u0437\u0434\u0430\u0439\u0442\u0435 \u043d\u043e\u0432\u0443\u044e.",
+                deleteFolderWarning = "\u0412 \u043f\u0430\u043f\u043a\u0435 \u0435\u0441\u0442\u044c \u0446\u0435\u043b\u0438: %1\$d, \u0437\u0430\u0434\u0430\u0447\u0438: %2\$d. \u041e\u043d\u0438 \u0443\u0434\u0430\u043b\u044f\u0442\u0441\u044f \u0432\u043c\u0435\u0441\u0442\u0435 \u0441 \u043f\u0430\u043f\u043a\u043e\u0439.",
+                deleteGoalWarning = "\u0412 \u0446\u0435\u043b\u0438 \u0435\u0441\u0442\u044c \u0437\u0430\u0434\u0430\u0447\u0438: %1\$d. \u041e\u043d\u0438 \u0443\u0434\u0430\u043b\u044f\u0442\u0441\u044f \u0432\u043c\u0435\u0441\u0442\u0435 \u0441 \u0446\u0435\u043b\u044c\u044e.",
                 threshold = "Порог",
                 decayAmount = "Снижение",
                 remindersOn = "Включено",
@@ -3433,6 +4047,7 @@ class MainActivity : Activity() {
                 registerDevice = "Включить напоминания",
                 unregisterDevice = "Отключить напоминания",
                 firebaseUnavailable = "Напоминания не настроены в этой сборке.",
+                remindersEnableFailed = "Не удалось включить напоминания. Проверьте синхронизацию и сеть, затем попробуйте снова.",
                 signedOut = "Сессия завершена",
                 signInAgain = "Войдите снова, чтобы продолжить.",
                 requestFailed = "Запрос не выполнен.",
@@ -3466,8 +4081,8 @@ class MainActivity : Activity() {
                 titleField = "Заголовок",
                 nameField = "Название",
                 notesField = "Заметки",
-                dueField = "Срок, например 2026-05-01 09:00",
-                plannedField = "План, например 2026-05-01 09:00",
+                dueField = "Срок",
+                plannedField = "План",
                 priorityField = "Приоритет 1-10",
                 priorityRequired = "Приоритет должен быть от 1 до 10.",
                 priorityShort = "P",
