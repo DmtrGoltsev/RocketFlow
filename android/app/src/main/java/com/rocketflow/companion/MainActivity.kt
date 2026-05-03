@@ -16,6 +16,7 @@ import android.net.Network
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.LocaleList
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -1703,9 +1704,11 @@ class MainActivity : Activity() {
             hint = if (byEmail) c.email else c.userIdField,
             value = ""
         ).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or
-                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
-                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            inputType = if (byEmail) {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            } else {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            }
             imeOptions = EditorInfo.IME_ACTION_DONE
         }
 
@@ -3219,6 +3222,11 @@ class MainActivity : Activity() {
         textSize = 15f
         setTextColor(color(Ui.TEXT))
         setHintTextColor(color(Ui.MUTED))
+        imeHintLocales = if (currentLanguage == "en") {
+            LocaleList(Locale.US, Locale("ru", "RU"))
+        } else {
+            LocaleList(Locale("ru", "RU"), Locale.US)
+        }
         background = roundedDrawable(Ui.SURFACE, strokeColorHex = Ui.HAIRLINE, radiusDp = 8)
         setPadding(dp(12), 0, dp(12), 0)
         minHeight = dp(48)
@@ -3329,7 +3337,7 @@ class MainActivity : Activity() {
     private fun showKeyboard(view: View) {
         view.requestFocus()
         getSystemService(InputMethodManager::class.java)
-            ?.showSoftInput(view, InputMethodManager.SHOW_FORCED)
+            ?.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
     }
 
     private fun filteredFolders(): List<PlanningFolder> {

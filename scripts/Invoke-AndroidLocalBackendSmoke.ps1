@@ -474,8 +474,14 @@ function Install-DebugApkIfRequested {
 
     if ($Build) {
         Write-Step "Building debug APK for http://10.0.2.2:$BackendPort/api"
-        $gradle = Join-Path $RepoRoot "android\gradlew.bat"
-        Invoke-Checked $gradle @(":app:assembleDebug", "-ProcketflowApiBaseUrl=http://10.0.2.2:$BackendPort/api") "Gradle assembleDebug failed."
+        $androidRoot = Join-Path $RepoRoot "android"
+        $gradle = Join-Path $androidRoot "gradlew.bat"
+        Push-Location $androidRoot
+        try {
+            Invoke-Checked $gradle @(":app:assembleDebug", "-ProcketflowApiBaseUrl=http://10.0.2.2:$BackendPort/api") "Gradle assembleDebug failed."
+        } finally {
+            Pop-Location
+        }
     }
 
     if ($Install) {
@@ -506,6 +512,8 @@ function Invoke-DeviceLoginSmoke {
     New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 
     Install-DebugApkIfRequested -RepoRoot $RepoRoot -Adb $adb -Device $device -BackendPort $BackendPort -Build $BuildApk -Install $InstallApk
+    Write-Step "Enabling on-screen keyboard on $device"
+    Invoke-Adb -Adb $adb -Device $device -Arguments @("shell", "settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
 
     if ($ClearData) {
         Write-Step "Clearing app data on $device"
