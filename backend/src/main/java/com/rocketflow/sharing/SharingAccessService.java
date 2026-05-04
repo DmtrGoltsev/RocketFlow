@@ -100,6 +100,29 @@ public class SharingAccessService {
     }
 
     @Transactional(readOnly = true)
+    public GoalAccess requireGoalTaskCreateAccess(UUID goalId, UUID actorUserId) {
+        Goal goal = goalRepository.findById(goalId)
+                .orElseThrow(() -> notFound("Goal"));
+        if (goal.getOwnerUserId().equals(actorUserId)) {
+            return new GoalAccess(goal, true, hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(goalId));
+        }
+        boolean folderAccess = folderShareRepository.existsByFolderIdAndCollaboratorUserIdAndStatus(
+                goal.getFolderId(),
+                actorUserId,
+                SHARE_ACTIVE
+        );
+        boolean goalAccess = goalShareRepository.existsByGoalIdAndCollaboratorUserIdAndStatus(
+                goalId,
+                actorUserId,
+                SHARE_ACTIVE
+        );
+        if (folderAccess || goalAccess) {
+            return new GoalAccess(goal, false, true);
+        }
+        throw notFound("Goal");
+    }
+
+    @Transactional(readOnly = true)
     public TaskAccess requireTaskAccess(UUID taskId, UUID actorUserId) {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> notFound("Task"));

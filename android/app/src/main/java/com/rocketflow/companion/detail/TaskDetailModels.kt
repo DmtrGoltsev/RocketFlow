@@ -34,6 +34,9 @@ data class TaskDetail(
     val dueTime: String?,
     val archived: Boolean,
     val shared: Boolean,
+    val creatorUserId: String?,
+    val creatorEmail: String?,
+    val creatorName: String?,
     val tags: List<TaskTag>,
     val recurrence: TaskRecurrence?,
     val reminders: List<TaskReminder>

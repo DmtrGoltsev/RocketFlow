@@ -32,6 +32,9 @@ private fun JSONObject.toTaskDetail(): TaskDetail {
         dueTime = optString("dueTime").ifBlank { null },
         archived = optBoolean("archived", false),
         shared = optBoolean("shared", false),
+        creatorUserId = optString("creatorUserId").ifBlank { null },
+        creatorEmail = optString("creatorEmail").ifBlank { null },
+        creatorName = optString("creatorName").ifBlank { null },
         tags = optJSONArray("tags").toTags(),
         recurrence = optJSONObject("recurrence").toRecurrence(),
         reminders = optJSONArray("reminders").toReminders()

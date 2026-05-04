@@ -47,6 +47,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 description TEXT NOT NULL,
                 archived INTEGER NOT NULL,
                 shared INTEGER NOT NULL,
+                can_create_tasks INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -72,6 +73,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 due_time TEXT,
                 archived INTEGER NOT NULL,
                 shared INTEGER NOT NULL,
+                creator_user_id TEXT,
+                creator_email TEXT,
+                creator_name TEXT,
                 version INTEGER NOT NULL,
                 tag_ids_json TEXT NOT NULL DEFAULT '[]',
                 recurrence_json TEXT,
@@ -103,6 +107,12 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 4) {
                 addColumnIfMissing(db, TABLE_FOLDERS, "shared", "INTEGER NOT NULL DEFAULT 0")
             }
+            if (oldVersion < 5) {
+                addColumnIfMissing(db, TABLE_GOALS, "can_create_tasks", "INTEGER NOT NULL DEFAULT 0")
+                addColumnIfMissing(db, TABLE_TASKS, "creator_user_id", "TEXT")
+                addColumnIfMissing(db, TABLE_TASKS, "creator_email", "TEXT")
+                addColumnIfMissing(db, TABLE_TASKS, "creator_name", "TEXT")
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -113,6 +123,10 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         super.onOpen(db)
         if (!db.isReadOnly) {
             addColumnIfMissing(db, TABLE_FOLDERS, "shared", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(db, TABLE_GOALS, "can_create_tasks", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(db, TABLE_TASKS, "creator_user_id", "TEXT")
+            addColumnIfMissing(db, TABLE_TASKS, "creator_email", "TEXT")
+            addColumnIfMissing(db, TABLE_TASKS, "creator_name", "TEXT")
         }
     }
 
@@ -241,6 +255,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     description = draft.description,
                     archived = false,
                     shared = false,
+                    canCreateTasks = true,
                     version = 0,
                     createdAt = now,
                     updatedAt = now,
@@ -295,6 +310,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     fun createTask(userId: String, goalId: String, draft: TaskDraft): String {
         val now = nowIso()
         val id = localId()
+        val shared = isSharedGoal(userId, goalId)
         writableDatabase.insertOrThrow(
             TABLE_TASKS,
             null,
@@ -311,7 +327,10 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     plannedTime = draft.plannedTime,
                     dueTime = draft.dueTime,
                     archived = false,
-                    shared = false,
+                    shared = shared,
+                    creatorUserId = userId,
+                    creatorEmail = null,
+                    creatorName = null,
                     version = 0,
                     tagIds = draft.tagIds ?: emptyList(),
                     recurrenceJson = draft.recurrenceJson,
@@ -414,7 +433,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     fun pendingTasks(userId: String): List<PlanningTask> {
         return queryTasks(readableDatabase, userId, includeDeleted = true).filter {
-            it.syncState.isPending() && (!it.shared || it.syncState == SyncState.PendingUpdate)
+            it.syncState.isPending() && (!it.shared || it.syncState == SyncState.PendingCreate || it.syncState == SyncState.PendingUpdate)
         }
     }
 
@@ -858,6 +877,20 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    private fun isSharedGoal(userId: String, goalId: String): Boolean {
+        return readableDatabase.query(
+            TABLE_GOALS,
+            arrayOf("shared"),
+            "user_id = ? AND id = ? AND locally_deleted = 0",
+            arrayOf(userId, goalId),
+            null,
+            null,
+            null
+        ).use { cursor ->
+            cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow("shared")) == 1
+        }
+    }
+
     private fun folderValues(
         userId: String,
         folder: PlanningFolder,
@@ -895,6 +928,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("description", goal.description)
             put("archived", goal.archived.toInt())
             put("shared", goal.shared.toInt())
+            put("can_create_tasks", goal.canCreateTasks.toInt())
             put("version", goal.version)
             put("created_at", goal.createdAt)
             put("updated_at", goal.updatedAt)
@@ -944,6 +978,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("due_time", task.dueTime)
             put("archived", task.archived.toInt())
             put("shared", task.shared.toInt())
+            put("creator_user_id", task.creatorUserId)
+            put("creator_email", task.creatorEmail)
+            put("creator_name", task.creatorName)
             put("version", task.version)
             put("tag_ids_json", JSONArray(task.tagIds).toString())
             put("recurrence_json", task.recurrenceJson)
@@ -980,6 +1017,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             description = string("description"),
             archived = boolean("archived"),
             shared = boolean("shared"),
+            canCreateTasks = optionalBoolean("can_create_tasks"),
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
@@ -1011,6 +1049,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             dueTime = stringOrNull("due_time"),
             archived = boolean("archived"),
             shared = boolean("shared"),
+            creatorUserId = optionalStringOrNull("creator_user_id"),
+            creatorEmail = optionalStringOrNull("creator_email"),
+            creatorName = optionalStringOrNull("creator_name"),
             version = long("version"),
             tagIds = parseStringArray(optionalStringOrNull("tag_ids_json") ?: "[]"),
             recurrenceJson = optionalStringOrNull("recurrence_json"),
@@ -1126,7 +1167,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 4
+        private const val DATABASE_VERSION = 5
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"

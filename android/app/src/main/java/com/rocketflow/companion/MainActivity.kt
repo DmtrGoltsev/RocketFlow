@@ -160,6 +160,7 @@ class MainActivity : Activity() {
         val path: String,
         val details: String,
         val collapse: String = "Collapse",
+        val creator: String = "Creator",
         val created: String,
         val updated: String,
         val synced: String,
@@ -913,6 +914,9 @@ class MainActivity : Activity() {
                 content.addView(propertyRow(c.reschedule, c.later3h, clickable = !task.shared) {
                     showRescheduleDialog(task)
                 })
+                task.creatorLabel()?.let { creator ->
+                    content.addView(propertyRow(c.creator, creator, clickable = false))
+                }
                 content.addView(propertyRow(c.created, formatDateTime(task.createdAt), clickable = false))
                 content.addView(propertyRow(c.updated, formatDateTime(task.updatedAt), clickable = false))
                 content.addView(propertyRow(c.syncDiagnostics, syncLabel(task.syncState), clickable = false))
@@ -1563,7 +1567,8 @@ class MainActivity : Activity() {
 
     private fun showTaskTargetDialog() {
         val c = copy()
-        val availableGoals = goals.filter { goal -> folders.any { it.id == goal.folderId } }
+        val availableGoals = goals.filter { goal -> folders.any { it.id == goal.folderId } } +
+            sharedGoals.filter { goal -> goal.canCreateTasks }
         if (availableGoals.isEmpty()) {
             showTaskNeedsGoalDialog()
             return
@@ -1577,7 +1582,9 @@ class MainActivity : Activity() {
             addView(dialogContextLine(c.goal, c.taskNeedsGoal))
         }
         availableGoals.forEach { goal ->
-            val folderName = folders.firstOrNull { it.id == goal.folderId }?.name ?: c.folder
+            val folderName = folders.firstOrNull { it.id == goal.folderId }?.name
+                ?: sharedFolders.firstOrNull { it.id == goal.folderId }?.name
+                ?: c.folder
             content.addView(selectionOption(R.drawable.ic_target, goal.name, folderName) {
                 dialog.dismiss()
                 selectedFolderId = goal.folderId
@@ -3728,6 +3735,11 @@ class MainActivity : Activity() {
         return listOfNotNull(folder?.name, goal?.name).joinToString(" / ").ifBlank { copy().plan }
     }
 
+    private fun PlanningTask.creatorLabel(): String? {
+        return listOf(creatorName, creatorEmail, creatorUserId)
+            .firstOrNull { !it.isNullOrBlank() }
+    }
+
     private fun localizedStatus(status: String): String {
         val c = copy()
         return when (status) {
@@ -4074,6 +4086,7 @@ class MainActivity : Activity() {
                 path = "Path",
                 details = "Details",
                 collapse = "Collapse",
+                creator = "Creator",
                 created = "Created",
                 updated = "Updated",
                 synced = "Synced",
@@ -4227,6 +4240,7 @@ class MainActivity : Activity() {
                 path = "Путь",
                 details = "Детали",
                 collapse = "Свернуть",
+                creator = "\u0421\u043e\u0437\u0434\u0430\u043b",
                 created = "Создано",
                 updated = "Обновлено",
                 synced = "Синхронизировано",

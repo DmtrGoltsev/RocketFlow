@@ -313,7 +313,7 @@ class PlanningRepository(
                         "/goals/${task.goalId}/tasks",
                         task.toCreateBody()
                     )
-                    val remoteTask = result.value.toTask(shared = false)
+                    val remoteTask = result.value.toTask(shared = task.shared)
                     val metadataSession = syncTaskMetadata(
                         result.session,
                         remoteTask.id,
@@ -321,7 +321,7 @@ class PlanningRepository(
                         remindersJson
                     )
                     val refreshed = authRepository.authorizedGet(metadataSession, "/tasks/${remoteTask.id}")
-                    localStore.applySyncedTask(userId, task.id, refreshed.value.toTask(shared = false))
+                    localStore.applySyncedTask(userId, task.id, refreshed.value.toTask(shared = task.shared))
                     refreshed.session
                 }
 
@@ -439,8 +439,11 @@ class PlanningRepository(
         val sharedFolderObjects = sharedResult.value.optJSONArray("folders").orEmptyArray()
         val sharedGoalObjects = sharedResult.value.optJSONArray("goals").orEmptyArray()
         val sharedTaskObjects = sharedResult.value.optJSONArray("tasks").orEmptyArray()
+        val createTaskGoalIds = sharedResult.value.optJSONArray("createTaskGoalIds").toStringSet()
         val sharedFolders = sharedFolderObjects.toFolders(shared = true).toMutableList()
-        val sharedGoals = sharedGoalObjects.toGoals(shared = true).toMutableList()
+        val sharedGoals = sharedGoalObjects.toGoals(shared = true)
+            .map { goal -> goal.copy(canCreateTasks = goal.id in createTaskGoalIds) }
+            .toMutableList()
         val sharedTasks = sharedTaskObjects.toTasks(shared = true)
         sharedGoalObjects.forEachObject { goalJson ->
             goalJson.optJSONObject("folder")?.toFolder(shared = true)?.let { sharedFolders += it }
@@ -449,6 +452,7 @@ class PlanningRepository(
             taskJson.optJSONObject("folder")?.toFolder(shared = true)?.let { sharedFolders += it }
             taskJson.optJSONObject("goal")?.let { goalJson ->
                 sharedGoals += goalJson.toGoal(shared = true)
+                    .copy(canCreateTasks = goalJson.text("id") in createTaskGoalIds)
                 goalJson.optJSONObject("folder")?.toFolder(shared = true)?.let { sharedFolders += it }
             }
         }
@@ -556,6 +560,7 @@ class PlanningRepository(
             description = text("description"),
             archived = optBoolean("archived", false),
             shared = shared,
+            canCreateTasks = !shared || optBoolean("canCreateTasks", false),
             version = optLong("version", 0),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
             updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },
@@ -577,6 +582,9 @@ class PlanningRepository(
             dueTime = nullableText("dueTime"),
             archived = optBoolean("archived", false),
             shared = shared,
+            creatorUserId = nullableText("creatorUserId"),
+            creatorEmail = nullableText("creatorEmail"),
+            creatorName = nullableText("creatorName"),
             version = optLong("version", 0),
             tagIds = tagIds(),
             recurrenceJson = optJsonObjectString("recurrence"),
@@ -632,6 +640,15 @@ class PlanningRepository(
 
     private fun JSONArray?.orEmptyArray(): JSONArray {
         return this ?: JSONArray()
+    }
+
+    private fun JSONArray?.toStringSet(): Set<String> {
+        if (this == null) {
+            return emptySet()
+        }
+        return List(length()) { index -> optString(index) }
+            .filter { it.isNotBlank() }
+            .toSet()
     }
 
     private fun String.normalizedFor(task: PlanningTask): String {

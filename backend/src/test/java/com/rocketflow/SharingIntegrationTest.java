@@ -301,7 +301,7 @@ class SharingIntegrationTest {
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+        String collaboratorCreatedTaskId = read(mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
                         .header("Authorization", "Bearer " + collaborator.accessToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -316,8 +316,19 @@ class SharingIntegrationTest {
                                   "tagIds": []
                                 }
                                 """))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("not_found"));
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.shared").value(true))
+                .andExpect(jsonPath("$.creatorEmail").value("collaborator@example.com"))
+                .andExpect(jsonPath("$.creatorName").value("Collaborator"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(), "/id");
+
+        mockMvc.perform(get("/api/tasks/" + collaboratorCreatedTaskId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.creatorEmail").value("collaborator@example.com"))
+                .andExpect(jsonPath("$.creatorName").value("Collaborator"));
 
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + collaborator.accessToken()))
@@ -326,10 +337,12 @@ class SharingIntegrationTest {
                 .andExpect(jsonPath("$.folders[0].id").value(folderId))
                 .andExpect(jsonPath("$.goals[0].id").value(goalId))
                 .andExpect(jsonPath("$.goals[0].shared").value(true))
-                .andExpect(jsonPath("$.tasks.length()").value(1))
+                .andExpect(jsonPath("$.tasks.length()").value(2))
                 .andExpect(jsonPath("$.tasks[0].shared").value(true))
+                .andExpect(jsonPath("$.tasks[0].creatorEmail").value("owner@example.com"))
                 .andExpect(jsonPath("$.tasks[0].recurrence.mode").value("weekly"))
-                .andExpect(jsonPath("$.tasks[0].reminders[0].mode").value("before_planned_time"));
+                .andExpect(jsonPath("$.tasks[0].reminders[0].mode").value("before_planned_time"))
+                .andExpect(jsonPath("$.createTaskGoalIds[0]").value(goalId));
     }
 
     @Test
@@ -341,6 +354,22 @@ class SharingIntegrationTest {
         String folderId = createFolder(owner.accessToken());
         String goalId = read(createGoal(owner.accessToken(), folderId, "Work", "Main work area"), "/id");
         String taskId = read(createTask(owner.accessToken(), goalId, "Prepare status update", 5), "/id");
+
+        mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + decliner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "No-share task",
+                                  "description": "No share grants this",
+                                  "type": "green",
+                                  "priority": 4,
+                                  "status": "todo",
+                                  "tagIds": []
+                                }
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
 
         String declinedInvitationId = read(mockMvc.perform(post("/api/tasks/" + taskId + "/share")
                         .header("Authorization", "Bearer " + owner.accessToken())
@@ -429,8 +458,25 @@ class SharingIntegrationTest {
                 .andExpect(jsonPath("$.folders[0].id").value(folderId))
                 .andExpect(jsonPath("$.goals.length()").value(1))
                 .andExpect(jsonPath("$.goals[0].id").value(goalId))
+                .andExpect(jsonPath("$.createTaskGoalIds").isEmpty())
                 .andExpect(jsonPath("$.tasks.length()").value(1))
                 .andExpect(jsonPath("$.tasks[0].id").value(taskId));
+
+        mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Task share sibling",
+                                  "description": "A task share must not grant sibling creation",
+                                  "type": "green",
+                                  "priority": 4,
+                                  "status": "todo",
+                                  "tagIds": []
+                                }
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
 
         mockMvc.perform(post("/api/tasks/" + taskId + "/share")
                         .header("Authorization", "Bearer " + owner.accessToken())
@@ -786,7 +832,26 @@ class SharingIntegrationTest {
                 .andExpect(jsonPath("$.folders[0].id").value(folderId))
                 .andExpect(jsonPath("$.folders[0].shared").value(true))
                 .andExpect(jsonPath("$.goals[0].id").value(goalId))
+                .andExpect(jsonPath("$.createTaskGoalIds[0]").value(goalId))
                 .andExpect(jsonPath("$.tasks[0].id").value(taskId));
+
+        mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + folderCollaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Folder collaborator task",
+                                  "description": "Allowed by folder share",
+                                  "type": "green",
+                                  "priority": 6,
+                                  "status": "todo",
+                                  "tagIds": []
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.shared").value(true))
+                .andExpect(jsonPath("$.creatorEmail").value("folder-collaborator@example.com"))
+                .andExpect(jsonPath("$.creatorName").value("Folder Collaborator"));
 
         String folderLinkResponse = mockMvc.perform(post("/api/folders/" + folderId + "/share-links")
                         .header("Authorization", "Bearer " + owner.accessToken())

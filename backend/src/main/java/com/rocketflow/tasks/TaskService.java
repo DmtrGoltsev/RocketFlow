@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.common.ApiException;
 import com.rocketflow.recurrence.RecurrenceService;
 import com.rocketflow.reminders.ReminderService;
@@ -29,6 +30,7 @@ import com.rocketflow.sharing.SharingAccessService.TaskAccess;
 public class TaskService {
 
     private final TaskRepository taskRepository;
+    private final UserRepository userRepository;
     private final SharingAccessService sharingAccessService;
     private final TaskTagRepository taskTagRepository;
     private final TaskTagLinkRepository taskTagLinkRepository;
@@ -37,6 +39,7 @@ public class TaskService {
 
     public TaskService(
             TaskRepository taskRepository,
+            UserRepository userRepository,
             SharingAccessService sharingAccessService,
             TaskTagRepository taskTagRepository,
             TaskTagLinkRepository taskTagLinkRepository,
@@ -44,6 +47,7 @@ public class TaskService {
             ReminderService reminderService
     ) {
         this.taskRepository = taskRepository;
+        this.userRepository = userRepository;
         this.sharingAccessService = sharingAccessService;
         this.taskTagRepository = taskTagRepository;
         this.taskTagLinkRepository = taskTagLinkRepository;
@@ -73,12 +77,13 @@ public class TaskService {
 
     @Transactional
     public TaskDto create(UUID actorUserId, UUID goalId, CreateTaskRequest request) {
-        GoalAccess goalAccess = sharingAccessService.requireGoalOwner(goalId, actorUserId);
+        GoalAccess goalAccess = sharingAccessService.requireGoalTaskCreateAccess(goalId, actorUserId);
         Instant now = Instant.now();
         Task task = new Task();
         task.setId(UUID.randomUUID());
         task.setGoalId(goalAccess.goal().getId());
         task.setOwnerUserId(goalAccess.goal().getOwnerUserId());
+        task.setCreatorUserId(actorUserId);
         task.setTitle(request.title().trim());
         task.setDescription(request.description());
         task.setType(request.type());
@@ -186,6 +191,7 @@ public class TaskService {
             RecurrenceDto recurrence,
             List<ReminderDto> reminders
     ) {
+        CreatorDetails creator = creatorDetails(task.getCreatorUserId());
         return new TaskDto(
                 task.getId(),
                 task.getGoalId(),
@@ -198,6 +204,9 @@ public class TaskService {
                 task.getDueTime(),
                 task.isArchived(),
                 shared,
+                task.getCreatorUserId(),
+                creator.email(),
+                creator.name(),
                 task.getVersion(),
                 tags,
                 recurrence,
@@ -205,6 +214,15 @@ public class TaskService {
                 task.getCreatedAt(),
                 task.getUpdatedAt()
         );
+    }
+
+    private CreatorDetails creatorDetails(UUID creatorUserId) {
+        return userRepository.findById(creatorUserId)
+                .map(user -> new CreatorDetails(user.getEmail(), user.getDisplayName()))
+                .orElse(new CreatorDetails(null, null));
+    }
+
+    private record CreatorDetails(String email, String name) {
     }
 
     private void replaceTags(UUID taskId, UUID ownerUserId, List<UUID> tagIds) {

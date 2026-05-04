@@ -235,6 +235,11 @@ public class SharingService {
         folderGoalsById.values().stream()
                 .sorted(Comparator.comparing(Goal::getCreatedAt))
                 .forEach(goal -> goalsById.putIfAbsent(goal.getId(), toGoalDto(goal, true)));
+        List<UUID> createTaskGoalIds = new ArrayList<>();
+        createTaskGoalIds.addAll(directGoalsById.keySet());
+        folderGoalsById.keySet().stream()
+                .filter(goalId -> !createTaskGoalIds.contains(goalId))
+                .forEach(createTaskGoalIds::add);
 
         Map<UUID, Task> tasksById = new LinkedHashMap<>();
         for (Goal goal : folderGoalsById.values()) {
@@ -277,7 +282,7 @@ public class SharingService {
                 .sorted(Comparator.comparing(GoalDto::createdAt))
                 .toList();
 
-        return new SharedResourcesResponse(folderDtos, goalDtos, taskDtos);
+        return new SharedResourcesResponse(folderDtos, goalDtos, taskDtos, createTaskGoalIds);
     }
 
     private ShareInvitationDto createInvitation(
@@ -728,6 +733,7 @@ public class SharingService {
     }
 
     private TaskDto toTaskDto(Task task, boolean shared, RecurrenceDto recurrence, List<ReminderDto> reminders) {
+        CreatorDetails creator = creatorDetails(task.getCreatorUserId());
         return new TaskDto(
                 task.getId(),
                 task.getGoalId(),
@@ -740,6 +746,9 @@ public class SharingService {
                 task.getDueTime(),
                 task.isArchived(),
                 shared,
+                task.getCreatorUserId(),
+                creator.email(),
+                creator.name(),
                 task.getVersion(),
                 resolveTags(task.getId()),
                 recurrence,
@@ -747,6 +756,15 @@ public class SharingService {
                 task.getCreatedAt(),
                 task.getUpdatedAt()
         );
+    }
+
+    private CreatorDetails creatorDetails(UUID creatorUserId) {
+        return userRepository.findById(creatorUserId)
+                .map(user -> new CreatorDetails(user.getEmail(), user.getDisplayName()))
+                .orElse(new CreatorDetails(null, null));
+    }
+
+    private record CreatorDetails(String email, String name) {
     }
 
     private List<TagDto> resolveTags(UUID taskId) {

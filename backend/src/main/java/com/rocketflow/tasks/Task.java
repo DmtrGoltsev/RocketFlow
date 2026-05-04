@@ -22,6 +22,9 @@ public class Task {
     @Column(name = "owner_user_id", nullable = false)
     private UUID ownerUserId;
 
+    @Column(name = "creator_user_id", nullable = false)
+    private UUID creatorUserId;
+
     @Column(nullable = false, length = 200)
     private String title;
 
@@ -64,6 +67,8 @@ public class Task {
     public void setGoalId(UUID goalId) { this.goalId = goalId; }
     public UUID getOwnerUserId() { return ownerUserId; }
     public void setOwnerUserId(UUID ownerUserId) { this.ownerUserId = ownerUserId; }
+    public UUID getCreatorUserId() { return creatorUserId; }
+    public void setCreatorUserId(UUID creatorUserId) { this.creatorUserId = creatorUserId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getDescription() { return description; }

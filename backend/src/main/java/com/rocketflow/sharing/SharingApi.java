@@ -77,6 +77,11 @@ public final class SharingApi {
     public record ShareLinkAcceptResponse(UUID shareId, String targetType, UUID targetId, String status) {
     }
 
-    public record SharedResourcesResponse(List<FolderDto> folders, List<GoalDto> goals, List<TaskDto> tasks) {
+    public record SharedResourcesResponse(
+            List<FolderDto> folders,
+            List<GoalDto> goals,
+            List<TaskDto> tasks,
+            List<UUID> createTaskGoalIds
+    ) {
     }
 }
