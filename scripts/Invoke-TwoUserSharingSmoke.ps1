@@ -211,8 +211,8 @@ Share-And-Accept -OwnerToken $ownerToken -CollaboratorToken $collaboratorToken -
 Share-And-Accept -OwnerToken $ownerToken -CollaboratorToken $collaboratorToken -Path "/tasks/$($sharedTask.id)/share" | Out-Null
 
 $resources = Invoke-Json -Method Get -Path "/shares/resources" -Token $collaboratorToken
-Assert-ContainsOnlyIds -Items @($resources.folders) -ExpectedIds @("$($folderShared.id)") -Label "Shared folders"
-Assert-ContainsOnlyIds -Items @($resources.goals) -ExpectedIds @("$($goalInSharedFolder.id)", "$($sharedGoal.id)") -Label "Shared goals"
+Assert-ContainsOnlyIds -Items @($resources.folders) -ExpectedIds @("$($folderShared.id)", "$($folderForGoal.id)", "$($folderForTask.id)") -Label "Shared folders"
+Assert-ContainsOnlyIds -Items @($resources.goals) -ExpectedIds @("$($goalInSharedFolder.id)", "$($sharedGoal.id)", "$($taskShareGoal.id)") -Label "Shared goals"
 Assert-ContainsOnlyIds -Items @($resources.tasks) -ExpectedIds @("$($taskInSharedFolder.id)", "$($taskInSharedGoal.id)", "$($sharedTask.id)") -Label "Shared tasks"
 
 Write-Step "Verifying private resources stay hidden."

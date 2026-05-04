@@ -71,8 +71,10 @@ import com.rocketflow.companion.sharing.ShareTarget
 import com.rocketflow.companion.sharing.ShareTargetType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -320,6 +322,7 @@ class MainActivity : Activity() {
     private var searchQuery = ""
     private var busy = false
     private var message: String? = null
+    private var plannerRefreshJob: Job? = null
 
     private var emailInput: EditText? = null
     private var passwordInput: EditText? = null
@@ -327,6 +330,7 @@ class MainActivity : Activity() {
     private var passwordDraft = ""
     private var passwordVisible = false
     private var keyboardShowSerial = 0
+    private var activeTextInput: EditText? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -353,6 +357,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        stopPlannerRefresh()
         authRepository.setOnSessionClearedListener(null)
         unregisterNetworkRestore()
         scope.cancel()
@@ -392,6 +397,7 @@ class MainActivity : Activity() {
                 if (currentSession != null) {
                     currentScreen = Screen.Planner
                     loadPlannerData()
+                    startPlannerRefresh()
                     syncRegisteredDeviceIfPossible(currentSession ?: return@launch)
                     maybeOpenPendingTask()
                 }
@@ -422,6 +428,7 @@ class MainActivity : Activity() {
                 passwordDraft = ""
                 currentScreen = Screen.Planner
                 loadPlannerData()
+                startPlannerRefresh()
                 syncRegisteredDeviceIfPossible(currentSession ?: return@launch)
                 maybeOpenPendingTask()
             } catch (error: Exception) {
@@ -478,6 +485,7 @@ class MainActivity : Activity() {
                 )
                 currentScreen = Screen.Planner
                 loadPlannerData()
+                startPlannerRefresh()
                 syncRegisteredDeviceIfPossible(currentSession ?: return@launch)
             } catch (error: Exception) {
                 message = humanError(error)
@@ -535,6 +543,7 @@ class MainActivity : Activity() {
         collapsedFolderIds.clear()
         collapsedGoalIds.clear()
         searchQuery = ""
+        stopPlannerRefresh()
     }
 
     private fun reloadPlanner(showBusy: Boolean = true) {
@@ -1120,6 +1129,39 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startPlannerRefresh() {
+        if (plannerRefreshJob?.isActive == true) return
+        plannerRefreshJob = scope.launch {
+            while (true) {
+                delay(PLANNER_REFRESH_INTERVAL_MS)
+                refreshPlannerQuietly()
+            }
+        }
+    }
+
+    private fun stopPlannerRefresh() {
+        plannerRefreshJob?.cancel()
+        plannerRefreshJob = null
+    }
+
+    private suspend fun refreshPlannerQuietly() {
+        if (currentSession == null || busy || hasActiveTextInput()) return
+        try {
+            loadPlannerData()
+            if (!hasActiveTextInput() && currentScreen != Screen.Auth) {
+                render()
+            }
+        } catch (_: Exception) {
+            // Quiet refresh should never interrupt typing or surface transient network noise.
+        }
+    }
+
+    private fun hasActiveTextInput(): Boolean {
+        val trackedInput = activeTextInput
+        return currentFocus is EditText ||
+            (trackedInput != null && trackedInput.isFocused && trackedInput.windowToken != null)
+    }
+
     private fun readableThresholdLabel(preset: String): String {
         return when (preset) {
             "day" -> if (currentLanguage == "en") "day" else "\u0434\u0435\u043d\u044c"
@@ -1501,6 +1543,18 @@ class MainActivity : Activity() {
                 window.decorView.postDelayed({ showGoalDialog(null, folder.id) }, 120)
             })
         }
+        content.addView(selectionOption(R.drawable.ic_folder, c.newFolder, c.newGoal) {
+            dialog.dismiss()
+            window.decorView.postDelayed(
+                {
+                    showFolderDialog(null) { folder ->
+                        selectedFolderId = folder.id
+                        showGoalDialog(null, folder.id)
+                    }
+                },
+                120
+            )
+        })
         dialog = AlertDialog.Builder(this)
             .setView(content)
             .create()
@@ -1989,7 +2043,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showFolderDialog(folder: PlanningFolder?) {
+    private fun showFolderDialog(folder: PlanningFolder?, onSaved: ((PlanningFolder) -> Unit)? = null) {
         val c = copy()
         val nameInput = dialogInput(c.nameField, folder?.name.orEmpty())
         val notesInput = dialogInput(c.notesField, folder?.description.orEmpty(), multiline = true)
@@ -2004,7 +2058,7 @@ class MainActivity : Activity() {
                     render()
                     return@setPositiveButton
                 }
-                saveFolder(folder, draft)
+                saveFolder(folder, draft, onSaved)
             }
             .show()
         focusDialogInput(dialog, nameInput)
@@ -2104,7 +2158,12 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle(copy().status)
             .setSingleChoiceItems(labels, checked) { dialog, which ->
-                saveTask(task.goalId, task, task.toDraft(status = values[which]))
+                saveTask(
+                    task.goalId,
+                    task,
+                    task.toDraft(status = values[which]),
+                    successMessage = "${copy().status}: ${labels[which]}"
+                )
                 dialog.dismiss()
             }
             .show()
@@ -2284,8 +2343,9 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun saveFolder(folder: PlanningFolder?, draft: FolderDraft) {
+    private fun saveFolder(folder: PlanningFolder?, draft: FolderDraft, onSaved: ((PlanningFolder) -> Unit)? = null) {
         val session = currentSession ?: return
+        val existingFolderIds = folders.map { it.id }.toSet()
         setBusy(true)
         message = null
         scope.launch {
@@ -2296,6 +2356,14 @@ class MainActivity : Activity() {
                     planningRepository.updateFolder(session, folder, draft)
                 }
                 applyPlanningResult(result)
+                val savedFolder = folder?.id?.let { folderId ->
+                    result.snapshot.folders.firstOrNull { it.id == folderId }
+                } ?: result.snapshot.folders.firstOrNull { it.id !in existingFolderIds && it.name == draft.name }
+                    ?: result.snapshot.folders.firstOrNull { it.name == draft.name }
+                if (savedFolder != null) {
+                    selectedFolderId = savedFolder.id
+                    onSaved?.invoke(savedFolder)
+                }
             } catch (error: Exception) {
                 message = humanError(error)
             } finally {
@@ -2331,7 +2399,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun saveTask(goalId: String, task: PlanningTask?, draft: TaskDraft) {
+    private fun saveTask(goalId: String, task: PlanningTask?, draft: TaskDraft, successMessage: String? = null) {
         val session = currentSession ?: return
         setBusy(true)
         message = null
@@ -2343,6 +2411,13 @@ class MainActivity : Activity() {
                     planningRepository.updateTask(session, task, draft)
                 }
                 applyPlanningResult(result)
+                if (successMessage != null) {
+                    message = if (result.snapshot.offline || result.snapshot.pendingCount > 0) {
+                        "$successMessage ${copy().pending}"
+                    } else {
+                        successMessage
+                    }
+                }
                 val parentGoal = result.snapshot.goals.firstOrNull { it.id == goalId }
                     ?: result.snapshot.sharedGoals.firstOrNull { it.id == goalId }
                 selectedFolderId = parentGoal?.folderId ?: selectedFolderId
@@ -2406,7 +2481,13 @@ class MainActivity : Activity() {
 
     private fun toggleTaskDone(task: PlanningTask) {
         val nextStatus = if (isDone(task)) "todo" else "done"
-        saveTask(task.goalId, task, task.toDraft(status = nextStatus))
+        val c = copy()
+        saveTask(
+            task.goalId,
+            task,
+            task.toDraft(status = nextStatus),
+            successMessage = "${c.status}: ${localizedStatus(nextStatus)}"
+        )
     }
 
     private fun quickRescheduleTask(task: PlanningTask, preset: String) {
@@ -3398,10 +3479,14 @@ class MainActivity : Activity() {
         showSoftInputOnFocus = true
         setOnFocusChangeListener { view, hasFocus ->
             if (hasFocus) {
+                activeTextInput = this
                 view.ensureKeyboardVisible()
+            } else if (activeTextInput === this) {
+                activeTextInput = null
             }
         }
         setOnClickListener {
+            activeTextInput = this
             ensureKeyboardVisible()
         }
     }
@@ -4250,6 +4335,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val PLANNER_REFRESH_INTERVAL_MS = 30_000L
         private const val EXTRA_ACCEPTANCE_SEED = "rocketflow_acceptance_seed"
         private const val EXTRA_ACCEPTANCE_EMPTY = "rocketflow_acceptance_empty"
         private const val EXTRA_ACCEPTANCE_LANGUAGE = "rocketflow_acceptance_language"

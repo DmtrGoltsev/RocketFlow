@@ -322,6 +322,8 @@ class SharingIntegrationTest {
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + collaborator.accessToken()))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.folders.length()").value(1))
+                .andExpect(jsonPath("$.folders[0].id").value(folderId))
                 .andExpect(jsonPath("$.goals[0].id").value(goalId))
                 .andExpect(jsonPath("$.goals[0].shared").value(true))
                 .andExpect(jsonPath("$.tasks.length()").value(1))
@@ -423,7 +425,10 @@ class SharingIntegrationTest {
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.goals.length()").value(0))
+                .andExpect(jsonPath("$.folders.length()").value(1))
+                .andExpect(jsonPath("$.folders[0].id").value(folderId))
+                .andExpect(jsonPath("$.goals.length()").value(1))
+                .andExpect(jsonPath("$.goals[0].id").value(goalId))
                 .andExpect(jsonPath("$.tasks.length()").value(1))
                 .andExpect(jsonPath("$.tasks[0].id").value(taskId));
 
@@ -459,6 +464,7 @@ class SharingIntegrationTest {
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.folders.length()").value(0))
                 .andExpect(jsonPath("$.goals.length()").value(0))
                 .andExpect(jsonPath("$.tasks.length()").value(0));
     }
@@ -520,7 +526,8 @@ class SharingIntegrationTest {
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + goalCollaborator.accessToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.folders.length()").value(0))
+                .andExpect(jsonPath("$.folders.length()").value(1))
+                .andExpect(jsonPath("$.folders[0].id").value(goalScopeFolderId))
                 .andExpect(jsonPath("$.goals.length()").value(1))
                 .andExpect(jsonPath("$.goals[0].id").value(sharedGoalId))
                 .andExpect(jsonPath("$.tasks.length()").value(1))
@@ -551,8 +558,10 @@ class SharingIntegrationTest {
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.folders.length()").value(0))
-                .andExpect(jsonPath("$.goals.length()").value(0))
+                .andExpect(jsonPath("$.folders.length()").value(1))
+                .andExpect(jsonPath("$.folders[0].id").value(taskScopeFolderId))
+                .andExpect(jsonPath("$.goals.length()").value(1))
+                .andExpect(jsonPath("$.goals[0].id").value(taskScopeGoalId))
                 .andExpect(jsonPath("$.tasks.length()").value(1))
                 .andExpect(jsonPath("$.tasks[0].id").value(sharedTaskId))
                 .andExpect(jsonPath("$.tasks[0].status").value("todo"));
@@ -604,14 +613,10 @@ class SharingIntegrationTest {
                 .andExpect(jsonPath("$.status").value("done"))
                 .andExpect(jsonPath("$.title").value("Shared completion"));
 
-        String refreshedCollaboratorTaskResponse = mockMvc.perform(get("/api/tasks/" + sharedTaskId)
+        mockMvc.perform(get("/api/tasks/" + sharedTaskId)
                         .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("done"))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String refreshedCollaboratorTaskVersion = read(refreshedCollaboratorTaskResponse, "/version");
+                .andExpect(jsonPath("$.status").value("done"));
 
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
@@ -619,6 +624,54 @@ class SharingIntegrationTest {
                 .andExpect(jsonPath("$.tasks.length()").value(1))
                 .andExpect(jsonPath("$.tasks[0].id").value(sharedTaskId))
                 .andExpect(jsonPath("$.tasks[0].status").value("done"));
+
+        String ownerTaskAfterCollaboratorUpdate = mockMvc.perform(get("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("done"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String ownerTaskVersion = read(ownerTaskAfterCollaboratorUpdate, "/version");
+
+        mockMvc.perform(patch("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Shared completion",
+                                  "description": "Task description",
+                                  "type": "green",
+                                  "priority": 6,
+                                  "status": "todo",
+                                  "plannedTime": "2026-05-01T09:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "archived": false,
+                                  "version": %s
+                                }
+                                """.formatted(ownerTaskVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("todo"));
+
+        String taskAfterOwnerUpdate = mockMvc.perform(get("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("todo"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String taskAfterOwnerUpdateVersion = read(taskAfterOwnerUpdate, "/version");
+
+        mockMvc.perform(get("/api/shares/resources")
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.folders.length()").value(1))
+                .andExpect(jsonPath("$.folders[0].id").value(taskScopeFolderId))
+                .andExpect(jsonPath("$.goals.length()").value(1))
+                .andExpect(jsonPath("$.goals[0].id").value(taskScopeGoalId))
+                .andExpect(jsonPath("$.tasks.length()").value(1))
+                .andExpect(jsonPath("$.tasks[0].id").value(sharedTaskId))
+                .andExpect(jsonPath("$.tasks[0].status").value("todo"));
 
         mockMvc.perform(patch("/api/tasks/" + sharedTaskId)
                         .header("Authorization", "Bearer " + taskCollaborator.accessToken())
@@ -635,14 +688,14 @@ class SharingIntegrationTest {
                                   "archived": false,
                                   "version": %s
                                 }
-                                """.formatted(refreshedCollaboratorTaskVersion)))
+                                """.formatted(taskAfterOwnerUpdateVersion)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("not_found"));
 
         mockMvc.perform(get("/api/tasks/" + sharedTaskId)
                         .header("Authorization", "Bearer " + owner.accessToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("done"))
+                .andExpect(jsonPath("$.status").value("todo"))
                 .andExpect(jsonPath("$.title").value("Shared completion"));
     }
 
@@ -807,7 +860,8 @@ class SharingIntegrationTest {
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + linkCollaborator.accessToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.folders.length()").value(0))
+                .andExpect(jsonPath("$.folders.length()").value(1))
+                .andExpect(jsonPath("$.folders[0].id").value(folderId))
                 .andExpect(jsonPath("$.goals[0].id").value(goalId))
                 .andExpect(jsonPath("$.tasks[0].id").value(taskId));
 
@@ -941,6 +995,7 @@ class SharingIntegrationTest {
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + invitee.accessToken()))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.folders[0].id").value(folderId))
                 .andExpect(jsonPath("$.goals[0].id").value(goalId));
     }
 

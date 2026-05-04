@@ -27,6 +27,7 @@ import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.auth.TokenHasher;
 import com.rocketflow.common.ApiException;
 import com.rocketflow.folders.Folder;
+import com.rocketflow.folders.FolderRepository;
 import com.rocketflow.goals.Goal;
 import com.rocketflow.goals.GoalRepository;
 import com.rocketflow.recurrence.RecurrenceService;
@@ -54,6 +55,7 @@ public class SharingService {
     private final TaskShareRepository taskShareRepository;
     private final SharingAccessService sharingAccessService;
     private final UserRepository userRepository;
+    private final FolderRepository folderRepository;
     private final GoalRepository goalRepository;
     private final TaskRepository taskRepository;
     private final TaskTagRepository taskTagRepository;
@@ -70,6 +72,7 @@ public class SharingService {
             TaskShareRepository taskShareRepository,
             SharingAccessService sharingAccessService,
             UserRepository userRepository,
+            FolderRepository folderRepository,
             GoalRepository goalRepository,
             TaskRepository taskRepository,
             TaskTagRepository taskTagRepository,
@@ -85,6 +88,7 @@ public class SharingService {
         this.taskShareRepository = taskShareRepository;
         this.sharingAccessService = sharingAccessService;
         this.userRepository = userRepository;
+        this.folderRepository = folderRepository;
         this.goalRepository = goalRepository;
         this.taskRepository = taskRepository;
         this.taskTagRepository = taskTagRepository;
@@ -212,13 +216,18 @@ public class SharingService {
                     .forEach(goal -> folderGoalsById.put(goal.getId(), goal));
         }
 
-        Map<UUID, GoalDto> goalsById = goalShares.stream()
-                .map(GoalShare::getGoalId)
-                .distinct()
-                .map(goalId -> sharingAccessService.requireGoalAccess(goalId, actorUserId).goal())
-                .sorted(Comparator.comparing(goal -> goal.getCreatedAt()))
+        Map<UUID, Goal> directGoalsById = new LinkedHashMap<>();
+        for (GoalShare goalShare : goalShares) {
+            Goal goal = sharingAccessService.requireGoalAccess(goalShare.getGoalId(), actorUserId).goal();
+            directGoalsById.put(goal.getId(), goal);
+            Folder parentFolder = requireFolder(goal.getFolderId(), goal.getOwnerUserId());
+            foldersById.putIfAbsent(parentFolder.getId(), toFolderDto(parentFolder, true));
+        }
+
+        Map<UUID, GoalDto> goalsById = directGoalsById.values().stream()
+                .sorted(Comparator.comparing(Goal::getCreatedAt))
                 .collect(Collectors.toMap(
-                        goal -> goal.getId(),
+                        Goal::getId,
                         goal -> toGoalDto(goal, true),
                         (left, right) -> left,
                         LinkedHashMap::new
@@ -239,6 +248,10 @@ public class SharingService {
         }
         for (TaskShare taskShare : taskShares) {
             Task task = sharingAccessService.requireTaskAccess(taskShare.getTaskId(), actorUserId).task();
+            Goal parentGoal = requireGoal(task.getGoalId(), task.getOwnerUserId());
+            goalsById.putIfAbsent(parentGoal.getId(), toGoalDto(parentGoal, true));
+            Folder parentFolder = requireFolder(parentGoal.getFolderId(), parentGoal.getOwnerUserId());
+            foldersById.putIfAbsent(parentFolder.getId(), toFolderDto(parentFolder, true));
             tasksById.put(task.getId(), task);
         }
 
@@ -257,7 +270,14 @@ public class SharingService {
             ));
         }
 
-        return new SharedResourcesResponse(new ArrayList<>(foldersById.values()), new ArrayList<>(goalsById.values()), taskDtos);
+        List<FolderDto> folderDtos = foldersById.values().stream()
+                .sorted(Comparator.comparing(FolderDto::displayOrder).thenComparing(FolderDto::createdAt))
+                .toList();
+        List<GoalDto> goalDtos = goalsById.values().stream()
+                .sorted(Comparator.comparing(GoalDto::createdAt))
+                .toList();
+
+        return new SharedResourcesResponse(folderDtos, goalDtos, taskDtos);
     }
 
     private ShareInvitationDto createInvitation(
@@ -642,6 +662,16 @@ public class SharingService {
     private User requireUser(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> notFound("User"));
+    }
+
+    private Goal requireGoal(UUID goalId, UUID ownerUserId) {
+        return goalRepository.findByIdAndOwnerUserId(goalId, ownerUserId)
+                .orElseThrow(() -> notFound("Goal"));
+    }
+
+    private Folder requireFolder(UUID folderId, UUID ownerUserId) {
+        return folderRepository.findByIdAndOwnerUserId(folderId, ownerUserId)
+                .orElseThrow(() -> notFound("Folder"));
     }
 
     private ShareInvitationDto toDto(ShareInvitation invitation) {

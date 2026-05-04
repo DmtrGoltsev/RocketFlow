@@ -436,11 +436,27 @@ class PlanningRepository(
 
         val sharedResult = syncGet(activeSession, "/shares/resources")
         activeSession = sharedResult.session
+        val sharedFolderObjects = sharedResult.value.optJSONArray("folders").orEmptyArray()
+        val sharedGoalObjects = sharedResult.value.optJSONArray("goals").orEmptyArray()
+        val sharedTaskObjects = sharedResult.value.optJSONArray("tasks").orEmptyArray()
+        val sharedFolders = sharedFolderObjects.toFolders(shared = true).toMutableList()
+        val sharedGoals = sharedGoalObjects.toGoals(shared = true).toMutableList()
+        val sharedTasks = sharedTaskObjects.toTasks(shared = true)
+        sharedGoalObjects.forEachObject { goalJson ->
+            goalJson.optJSONObject("folder")?.toFolder(shared = true)?.let { sharedFolders += it }
+        }
+        sharedTaskObjects.forEachObject { taskJson ->
+            taskJson.optJSONObject("folder")?.toFolder(shared = true)?.let { sharedFolders += it }
+            taskJson.optJSONObject("goal")?.let { goalJson ->
+                sharedGoals += goalJson.toGoal(shared = true)
+                goalJson.optJSONObject("folder")?.toFolder(shared = true)?.let { sharedFolders += it }
+            }
+        }
         localStore.replaceRemoteSharedResources(
             userId,
-            folders = sharedResult.value.optJSONArray("folders").orEmptyArray().toFolders(shared = true),
-            goals = sharedResult.value.optJSONArray("goals").orEmptyArray().toGoals(shared = true),
-            tasks = sharedResult.value.optJSONArray("tasks").orEmptyArray().toTasks(shared = true)
+            folders = sharedFolders.distinctBy { it.id },
+            goals = sharedGoals.distinctBy { it.id },
+            tasks = sharedTasks
         )
 
         return activeSession
@@ -510,6 +526,12 @@ class PlanningRepository(
         return List(length()) { index -> getJSONObject(index).toTaskTag() }
     }
 
+    private fun JSONArray.forEachObject(block: (JSONObject) -> Unit) {
+        for (index in 0 until length()) {
+            optJSONObject(index)?.let(block)
+        }
+    }
+
     private fun JSONObject.toFolder(shared: Boolean): PlanningFolder {
         return PlanningFolder(
             id = getString("id"),
@@ -529,7 +551,7 @@ class PlanningRepository(
     private fun JSONObject.toGoal(shared: Boolean): PlanningGoal {
         return PlanningGoal(
             id = getString("id"),
-            folderId = text("folderId"),
+            folderId = text("folderId").ifBlank { optJSONObject("folder")?.text("id").orEmpty() },
             name = text("name"),
             description = text("description"),
             archived = optBoolean("archived", false),
@@ -545,7 +567,7 @@ class PlanningRepository(
     private fun JSONObject.toTask(shared: Boolean): PlanningTask {
         return PlanningTask(
             id = getString("id"),
-            goalId = text("goalId"),
+            goalId = text("goalId").ifBlank { optJSONObject("goal")?.text("id").orEmpty() },
             title = text("title"),
             description = text("description"),
             type = text("type").ifBlank { "green" },
