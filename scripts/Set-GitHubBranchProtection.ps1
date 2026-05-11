@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Owner = "DmtrGoltsev",
     [string]$Repo = "RocketFlow",
     [string]$Branch = "master",
@@ -16,11 +16,11 @@ function Write-Step([string]$Message) {
 }
 
 if ([string]::IsNullOrWhiteSpace($Token)) {
-    throw "Set GITHUB_TOKEN or pass -Token. The token must have repository administration permission."
+    throw "Укажите GITHUB_TOKEN или передайте -Token. Token должен иметь административные права на repository."
 }
 
 if ($RequiredChecks.Count -eq 0) {
-    throw "At least one required check is required."
+    throw "Нужен хотя бы один обязательный check."
 }
 
 $uri = "https://api.github.com/repos/$Owner/$Repo/branches/$Branch/protection"
@@ -58,8 +58,8 @@ $body = @{
     allow_fork_syncing            = $true
 } | ConvertTo-Json -Depth 10
 
-Write-Step "Applying branch protection to $Owner/$Repo branch $Branch."
-Write-Step "Required checks: $($RequiredChecks -join ', ')"
+Write-Step "Применяем branch protection к $Owner/$Repo, branch $Branch."
+Write-Step "Обязательные checks: $($RequiredChecks -join ', ')"
 
 Invoke-RestMethod `
     -Method Put `
@@ -68,4 +68,4 @@ Invoke-RestMethod `
     -ContentType "application/json" `
     -Body $body | Out-Null
 
-Write-Step "Branch protection applied."
+Write-Step "Branch protection применена."

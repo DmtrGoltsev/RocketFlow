@@ -1,14 +1,14 @@
-name: Backend Yandex Prod Deploy
+name: Деплой backend в Yandex Cloud Prod
 
 on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: Optional image tag, for example prod-20260511
+        description: Опциональный image tag, например prod-20260511
         required: false
         type: string
       health_url:
-        description: Optional health URL override
+        description: Опциональный override для health URL
         required: false
         type: string
 
@@ -26,17 +26,17 @@ jobs:
     environment: production
 
     steps:
-      - name: Check out repository
+      - name: Получить код репозитория
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
-      - name: Set up Temurin JDK 21
+      - name: Настроить Temurin JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
 
-      - name: Resolve Yandex Container Registry image
+      - name: Подготовить имя image в Yandex Container Registry
         id: image
         shell: bash
         env:
@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "${YC_PROD_REGISTRY_ID}" ]; then
-            echo "YC_PROD_REGISTRY_ID is required." >&2
+            echo "YC_PROD_REGISTRY_ID обязателен." >&2
             exit 1
           fi
 
@@ -56,22 +56,22 @@ jobs:
           if [ -n "${EXTRA_IMAGE_TAG}" ]; then
             image_tag="$(echo "${EXTRA_IMAGE_TAG}" | tr '[:upper:]' '[:lower:]' | sed 's#[^a-z0-9._-]#-#g' | sed 's#-\{2,\}#-#g' | sed 's#^-##; s#-$##')"
             if [ -z "${image_tag}" ]; then
-              echo "The image_tag input became empty after sanitization." >&2
+              echo "После sanitization input image_tag стал пустым." >&2
               exit 1
             fi
           fi
 
           echo "image=${image_repo}:${image_tag}" >> "${GITHUB_OUTPUT}"
 
-      - name: Run backend test and migration gate
+      - name: Запустить backend tests и migration gate
         working-directory: backend
         run: mvn --batch-mode --no-transfer-progress test
 
-      - name: Build backend Docker image
+      - name: Собрать backend Docker image
         working-directory: backend
         run: docker build -t "${{ steps.image.outputs.image }}" .
 
-      - name: Run backend container health smoke
+      - name: Запустить container health smoke backend
         shell: pwsh
         run: |
           ./scripts/Invoke-BackendDockerRuntimeSmoke.ps1 `
@@ -79,14 +79,14 @@ jobs:
             -BackendPort 28080 `
             -PostgresPort 15432
 
-      - name: Install Yandex Cloud CLI
+      - name: Установить Yandex Cloud CLI
         shell: bash
         run: |
           set -euo pipefail
           curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i "${HOME}/yandex-cloud" -n
           echo "${HOME}/yandex-cloud/bin" >> "${GITHUB_PATH}"
 
-      - name: Authenticate Yandex Cloud CLI
+      - name: Авторизовать Yandex Cloud CLI
         shell: bash
         env:
           YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
@@ -96,7 +96,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "${YC_SERVICE_ACCOUNT_KEY_JSON}" ] || [ -z "${YC_CLOUD_ID}" ] || [ -z "${YC_FOLDER_ID}" ]; then
-            echo "YC_SERVICE_ACCOUNT_KEY_JSON, YC_CLOUD_ID, and YC_FOLDER_ID are required." >&2
+            echo "YC_SERVICE_ACCOUNT_KEY_JSON, YC_CLOUD_ID и YC_FOLDER_ID обязательны." >&2
             exit 1
           fi
 
@@ -108,14 +108,14 @@ jobs:
           yc config set cloud-id "${YC_CLOUD_ID}"
           yc config set folder-id "${YC_FOLDER_ID}"
 
-      - name: Push backend image to Yandex Container Registry
+      - name: Опубликовать backend image в Yandex Container Registry
         shell: bash
         run: |
           set -euo pipefail
           yc iam create-token | docker login --username iam --password-stdin cr.yandex
           docker push "${{ steps.image.outputs.image }}"
 
-      - name: Create production container environment file
+      - name: Создать production env-файл контейнера
         shell: bash
         id: container-env
         env:
@@ -132,7 +132,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "${ROCKETFLOW_DB_URL}" ] || [ -z "${ROCKETFLOW_DB_USERNAME}" ] || [ -z "${ROCKETFLOW_DB_PASSWORD}" ]; then
-            echo "ROCKETFLOW_PROD_DB_URL, ROCKETFLOW_PROD_DB_USERNAME, and ROCKETFLOW_PROD_DB_PASSWORD are required." >&2
+            echo "ROCKETFLOW_PROD_DB_URL, ROCKETFLOW_PROD_DB_USERNAME и ROCKETFLOW_PROD_DB_PASSWORD обязательны." >&2
             exit 1
           fi
 
@@ -164,7 +164,7 @@ jobs:
 
           echo "path=${env_file}" >> "${GITHUB_OUTPUT}"
 
-      - name: Deploy backend container to Yandex Compute Cloud
+      - name: Развернуть backend container в Yandex Compute Cloud
         shell: bash
         env:
           YC_PROD_BACKEND_INSTANCE_ID: ${{ secrets.YC_PROD_BACKEND_INSTANCE_ID }}
@@ -172,7 +172,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "${YC_PROD_BACKEND_INSTANCE_ID}" ]; then
-            echo "YC_PROD_BACKEND_INSTANCE_ID is required." >&2
+            echo "YC_PROD_BACKEND_INSTANCE_ID обязателен." >&2
             exit 1
           fi
 
@@ -182,7 +182,7 @@ jobs:
             --container-env-file "${{ steps.container-env.outputs.path }}" \
             --container-restart-policy Always
 
-      - name: Check production backend health
+      - name: Проверить production health backend
         shell: bash
         env:
           INPUT_HEALTH_URL: ${{ inputs.health_url }}
@@ -192,24 +192,24 @@ jobs:
 
           health_url="${INPUT_HEALTH_URL:-${DEFAULT_HEALTH_URL:-}}"
           if [ -z "${health_url}" ]; then
-            echo "Set ROCKETFLOW_PROD_HEALTH_URL or pass the health_url workflow input." >&2
+            echo "Укажите ROCKETFLOW_PROD_HEALTH_URL или передайте workflow input health_url." >&2
             exit 1
           fi
 
           for attempt in {1..30}; do
             if curl --fail --silent --show-error "${health_url}" | grep -q '"status":"UP"'; then
-              echo "Production backend is healthy."
+              echo "Production backend здоров."
               exit 0
             fi
 
-            echo "Waiting for production backend health, attempt ${attempt}/30..."
+            echo "Ждем production health backend, попытка ${attempt}/30..."
             sleep 5
           done
 
-          echo "Production backend did not become healthy in time." >&2
+          echo "Production backend не вернул health status UP за отведенное время." >&2
           exit 1
 
-      - name: Upload backend container smoke artifacts on failure
+      - name: Загрузить artifacts container smoke при ошибке
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

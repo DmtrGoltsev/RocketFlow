@@ -13,7 +13,7 @@ tmp/
 scripts/Set-NotificationSmokeStagingEnv.ps1
 *.log
 
-# Terraform local state and working files
+# Локальное состояние и рабочие файлы Terraform
 **/.terraform/
 *.tfstate
 *.tfstate.*

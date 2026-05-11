@@ -76,8 +76,8 @@ Current notification/runtime status:
 - repo-backed owned-runtime startup now has a canonical entrypoint in `scripts/Start-NotificationSmokeBackend.ps1`
 - repo-backed smoke-task provisioning and backend outcome capture now have a canonical helper in `scripts/Invoke-NotificationSmokeTask.ps1`
 - repo-backed backend container smoke now also has a canonical helper in `scripts/Invoke-BackendDockerRuntimeSmoke.ps1`, reused by CI/publish automation
-- Yandex Cloud production infrastructure baseline is documented in `docs/57-yandex-cloud-prod-infra.md`
-- GitHub CI/CD policy and required branch protection checks are documented in `docs/58-github-cicd-policy.md`
+- Production baseline для Yandex Cloud описан в `docs/57-yandex-cloud-prod-infra.md`
+- GitHub CI/CD policy и обязательные branch protection checks описаны в `docs/58-github-cicd-policy.md`
 
 Known readiness limits:
 - Android runtime path is now locally proven, but not yet formalized as CI or staging certification

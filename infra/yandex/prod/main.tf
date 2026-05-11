@@ -43,7 +43,7 @@ resource "yandex_vpc_security_group" "backend" {
   }
 
   egress {
-    description    = "Allow outbound traffic"
+    description    = "Разрешить исходящий трафик"
     protocol       = "ANY"
     v4_cidr_blocks = ["0.0.0.0/0"]
   }
@@ -55,14 +55,14 @@ resource "yandex_vpc_security_group" "postgres" {
   labels     = local.labels
 
   ingress {
-    description    = "PostgreSQL from production subnet"
+    description    = "PostgreSQL из production-подсети"
     protocol       = "TCP"
     port           = 6432
     v4_cidr_blocks = [var.subnet_cidr]
   }
 
   egress {
-    description    = "Allow outbound traffic"
+    description    = "Разрешить исходящий трафик"
     protocol       = "ANY"
     v4_cidr_blocks = ["0.0.0.0/0"]
   }
@@ -79,12 +79,12 @@ resource "yandex_container_repository" "backend" {
 
 resource "yandex_iam_service_account" "backend_vm" {
   name        = "${local.name_prefix}-backend-vm"
-  description = "Runs the RocketFlow backend VM and pulls backend images."
+  description = "Запускает backend VM RocketFlow и скачивает образы backend."
 }
 
 resource "yandex_iam_service_account" "deployer" {
   name        = "${local.name_prefix}-github-deployer"
-  description = "Used by GitHub Actions to push images and update the backend container."
+  description = "Используется GitHub Actions для публикации образов и обновления контейнера backend."
 }
 
 resource "yandex_resourcemanager_folder_iam_member" "backend_vm_registry_puller" {

@@ -1,86 +1,86 @@
-# RocketFlow GitHub CI/CD Setup
+# Настройка GitHub CI/CD для RocketFlow
 
-This file is not executed by GitHub.
+Этот файл сам по себе не выполняется GitHub.
 
-Executable CI/CD files live in `.github/workflows/*.yml`. This document explains what those workflows do and how to apply the non-file GitHub settings that cannot be enforced by a markdown file.
+Исполняемые CI/CD-файлы находятся в `.github/workflows/*.yml`. Этот документ объясняет, что именно выполняют workflow, и какие настройки GitHub нельзя зафиксировать обычным markdown-файлом.
 
-## What GitHub Executes
+## Что GitHub выполняет автоматически
 
-These workflows already run on every `push`, every `pull_request`, and can also be started manually:
+Эти workflow уже запускаются на каждый `push`, каждый `pull_request`, а также вручную:
 
-- `Backend Verify` / required job `backend-verify`
-  - runs backend Maven tests
-  - validates Flyway migrations through the test suite
-  - builds the backend Docker image
-  - runs the backend container health smoke against temporary PostgreSQL
-- `Web Verify` / required job `web-verify`
-  - installs web dependencies
-  - runs `npm run build`
-- `Android Verify` / required job `android-verify`
-  - installs Android SDK packages
-  - runs `./gradlew assembleDebug`
+- `Backend Verify` / обязательный job `backend-verify`
+  - запускает Maven tests backend;
+  - проверяет Flyway migrations через test suite;
+  - собирает backend Docker image;
+  - запускает container health smoke backend против временного PostgreSQL.
+- `Web Verify` / обязательный job `web-verify`
+  - устанавливает web dependencies;
+  - запускает `npm run build`.
+- `Android Verify` / обязательный job `android-verify`
+  - устанавливает Android SDK packages;
+  - запускает `./gradlew assembleDebug`.
 
-The production deploy workflow is also executable, but it is manual:
+Workflow для production-деплоя тоже является исполняемым, но запускается только вручную:
 
-- workflow: `Backend Yandex Prod Deploy`
-- trigger: `workflow_dispatch`
-- GitHub environment: `production`
+- workflow: `Деплой backend в Yandex Cloud Prod`;
+- trigger: `workflow_dispatch`;
+- GitHub environment: `production`.
 
-Production deploy is intentionally not automatic on `push`.
+Production-деплой намеренно не запускается автоматически на каждый `push`.
 
-## What Must Be Applied In GitHub Settings
+## Что нужно применить в настройках GitHub
 
-Branch protection is a GitHub repository setting, not a normal repo file. It must be applied through the GitHub UI, GitHub API, GitHub CLI, or infrastructure tooling.
+Защита ветки является настройкой репозитория GitHub, а не обычным файлом в репозитории. Ее нужно применить через GitHub UI, GitHub API, GitHub CLI или инфраструктурный инструмент.
 
-Minimum branch protection for `master`:
+Минимальная branch protection для `master`:
 
-- require status checks before merge
-- require branch to be up to date before merge
-- required checks:
+- требовать status checks перед merge;
+- требовать актуальную ветку перед merge;
+- обязательные checks:
   - `backend-verify`
   - `web-verify`
   - `android-verify`
-- block force pushes
-- block branch deletion
-- require conversation resolution
+- запретить force push;
+- запретить удаление ветки;
+- требовать resolution всех conversations.
 
-When the team starts using pull requests consistently, also require pull requests before merging.
+Когда команда начнет стабильно работать через pull requests, нужно дополнительно включить требование pull request перед merge.
 
-## Apply Branch Protection By Script
+## Применить branch protection скриптом
 
-The repository includes an executable helper:
+В репозитории есть исполняемый helper:
 
 ```powershell
 $env:GITHUB_TOKEN = "<token-with-repository-admin-permission>"
 ./scripts/Set-GitHubBranchProtection.ps1
 ```
 
-With pull requests required:
+Вариант с обязательными pull requests:
 
 ```powershell
 $env:GITHUB_TOKEN = "<token-with-repository-admin-permission>"
 ./scripts/Set-GitHubBranchProtection.ps1 -RequirePullRequest
 ```
 
-The script calls the GitHub REST API and applies the required checks:
+Скрипт вызывает GitHub REST API и применяет обязательные checks:
 
 - `backend-verify`
 - `web-verify`
 - `android-verify`
 
-## Apply Production Environment Protection
+## Настроить защиту production environment
 
-The `production` environment must also be configured in GitHub settings:
+GitHub environment `production` тоже нужно настроить в GitHub settings:
 
-- require manual approval before deployment
-- store production secrets in the `production` environment when possible
-- do not expose production secrets to pull request workflows
+- требовать ручное approval перед deployment;
+- хранить production secrets в environment `production`, когда это возможно;
+- не раскрывать production secrets для pull request workflows.
 
-The deploy workflow already contains `environment: production`, so GitHub can enforce approvals after the environment rule is configured.
+Deploy workflow уже содержит `environment: production`, поэтому GitHub сможет применять approvals после настройки environment rule.
 
-## Production Secrets
+## Production secrets
 
-Required secrets:
+Обязательные secrets:
 
 - `YC_SERVICE_ACCOUNT_KEY_JSON`
 - `YC_CLOUD_ID`
@@ -91,11 +91,11 @@ Required secrets:
 - `ROCKETFLOW_PROD_DB_USERNAME`
 - `ROCKETFLOW_PROD_DB_PASSWORD`
 
-Optional secrets:
+Опциональные secrets:
 
 - `ROCKETFLOW_PROD_FCM_CREDENTIALS_JSON`
 
-Recommended variables:
+Рекомендуемые variables:
 
 - `ROCKETFLOW_PROD_ALLOWED_ORIGINS`
 - `ROCKETFLOW_PROD_ALLOWED_ORIGIN_PATTERNS`
@@ -104,18 +104,18 @@ Recommended variables:
 - `ROCKETFLOW_PROD_NOTIFICATIONS_FCM_ENABLED`
 - `ROCKETFLOW_PROD_FCM_PROJECT_ID`
 
-## Normal Promotion Flow
+## Нормальный promotion flow
 
-1. Push code to a feature branch.
-2. Open a pull request into `master`.
-3. Wait for `backend-verify`, `web-verify`, and `android-verify`.
-4. Merge only after all required checks are green.
-5. Start `Backend Yandex Prod Deploy` manually.
-6. Confirm the production health check is green.
+1. Запушить код в feature branch.
+2. Открыть pull request в `master`.
+3. Дождаться `backend-verify`, `web-verify` и `android-verify`.
+4. Merge делать только после зеленых обязательных checks.
+5. Вручную запустить `Деплой backend в Yandex Cloud Prod`.
+6. Подтвердить зеленый production health check.
 
-## Current Limits
+## Текущие ограничения
 
-- Web and Android gates are build-only, not device/browser runtime certification.
-- Terraform validation still requires local or CI Terraform installation.
-- Production HTTPS is not yet configured in this baseline.
-- Backend horizontal scaling remains blocked until scheduler and notification behavior are certified for multiple instances.
+- Web и Android gates пока являются build-only, а не runtime certification на устройстве/в браузере.
+- Terraform validation все еще требует локальную или CI-установку Terraform.
+- Production HTTPS в этом baseline еще не настроен.
+- Горизонтальное масштабирование backend остается заблокированным, пока scheduler и уведомления не сертифицированы для нескольких инстансов.

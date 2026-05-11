@@ -1,135 +1,135 @@
 variable "cloud_id" {
-  description = "Yandex Cloud id."
+  description = "ID облака Yandex Cloud."
   type        = string
 }
 
 variable "folder_id" {
-  description = "Yandex Cloud folder id."
+  description = "ID каталога Yandex Cloud."
   type        = string
 }
 
 variable "project_name" {
-  description = "Short project name used in resource names."
+  description = "Короткое имя проекта для имен ресурсов."
   type        = string
   default     = "rocketflow"
 }
 
 variable "environment" {
-  description = "Deployment environment name."
+  description = "Имя окружения развертывания."
   type        = string
   default     = "prod"
 }
 
 variable "zone" {
-  description = "Yandex Cloud availability zone."
+  description = "Зона доступности Yandex Cloud."
   type        = string
   default     = "ru-central1-a"
 }
 
 variable "subnet_cidr" {
-  description = "CIDR block for the production subnet."
+  description = "CIDR-блок production-подсети."
   type        = string
   default     = "10.42.0.0/24"
 }
 
 variable "api_allowed_cidr_blocks" {
-  description = "CIDR blocks allowed to reach the backend HTTP port."
+  description = "CIDR-блоки, которым разрешен доступ к HTTP-порту backend."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
 
 variable "ssh_allowed_cidr_blocks" {
-  description = "CIDR blocks allowed to reach SSH. Keep empty to close SSH."
+  description = "CIDR-блоки, которым разрешен SSH. Оставьте пустым, чтобы закрыть SSH."
   type        = list(string)
   default     = []
 }
 
 variable "ssh_public_key" {
-  description = "Optional SSH public key for yc-user on the backend VM."
+  description = "Опциональный публичный SSH-ключ для yc-user на backend VM."
   type        = string
   default     = ""
 }
 
 variable "initial_container_image" {
-  description = "Container image used for the first VM boot before CI/CD deploys the real backend image."
+  description = "Container image для первого запуска VM до того, как CI/CD развернет настоящий образ backend."
   type        = string
   default     = "cr.yandex/yc/demo/coi:v1"
 }
 
 variable "compute_platform_id" {
-  description = "Compute platform id for the backend VM."
+  description = "ID compute platform для backend VM."
   type        = string
   default     = "standard-v3"
 }
 
 variable "compute_cores" {
-  description = "Backend VM CPU cores."
+  description = "Количество CPU-ядер для backend VM."
   type        = number
   default     = 2
 }
 
 variable "compute_memory_gb" {
-  description = "Backend VM memory in GB."
+  description = "Память backend VM в ГБ."
   type        = number
   default     = 2
 }
 
 variable "compute_disk_size_gb" {
-  description = "Backend VM boot disk size in GB."
+  description = "Размер boot disk backend VM в ГБ."
   type        = number
   default     = 20
 }
 
 variable "compute_disk_type_id" {
-  description = "Backend VM boot disk type."
+  description = "Тип boot disk backend VM."
   type        = string
   default     = "network-ssd"
 }
 
 variable "postgresql_version" {
-  description = "Managed PostgreSQL major version."
+  description = "Основная версия Managed PostgreSQL."
   type        = string
   default     = "16"
 }
 
 variable "db_name" {
-  description = "RocketFlow application database name."
+  description = "Имя базы данных приложения RocketFlow."
   type        = string
   default     = "rocketflow"
 }
 
 variable "db_user" {
-  description = "RocketFlow application database user."
+  description = "Пользователь базы данных приложения RocketFlow."
   type        = string
   default     = "rocketflow_app"
 }
 
 variable "db_password" {
-  description = "RocketFlow application database password. Terraform state will contain this value."
+  description = "Пароль базы данных приложения RocketFlow. Terraform state будет содержать это значение."
   type        = string
   sensitive   = true
 }
 
 variable "db_resource_preset_id" {
-  description = "Managed PostgreSQL resource preset."
+  description = "Профиль ресурсов Managed PostgreSQL."
   type        = string
   default     = "s2.micro"
 }
 
 variable "db_disk_type_id" {
-  description = "Managed PostgreSQL disk type."
+  description = "Тип диска Managed PostgreSQL."
   type        = string
   default     = "network-ssd"
 }
 
 variable "db_disk_size_gb" {
-  description = "Managed PostgreSQL disk size in GB."
+  description = "Размер диска Managed PostgreSQL в ГБ."
   type        = number
   default     = 20
 }
 
 variable "db_deletion_protection" {
-  description = "Enable deletion protection for the Managed PostgreSQL cluster."
+  description = "Включить deletion protection для кластера Managed PostgreSQL."
   type        = bool
   default     = true
 }

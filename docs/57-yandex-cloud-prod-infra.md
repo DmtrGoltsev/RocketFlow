@@ -1,23 +1,23 @@
-# RocketFlow Production Infrastructure on Yandex Cloud
+# Production-инфраструктура RocketFlow в Yandex Cloud
 
-This document describes the first production-ready deployment baseline for RocketFlow backend in Yandex Cloud.
+Этот документ описывает первый production-ready базовый вариант разворачивания backend RocketFlow в Yandex Cloud.
 
-## Target Architecture
+## Целевая архитектура
 
-- Yandex Container Registry stores backend Docker images.
-- Yandex Compute Cloud VM runs the backend through Container Optimized Image.
-- Yandex Managed Service for PostgreSQL stores application data.
-- GitHub Actions builds, smokes, pushes, and deploys the backend container.
-- The first production topology intentionally uses one backend instance until scheduler and notification behavior is certified for horizontal scaling.
-- Container Optimized Image runs containers on the host network, so the backend listens on VM port `8080`; the security group controls public access to that port.
+- Yandex Container Registry хранит Docker-образы backend.
+- Виртуальная машина Yandex Compute Cloud запускает backend через Container Optimized Image.
+- Yandex Managed Service for PostgreSQL хранит данные приложения.
+- GitHub Actions собирает образ, прогоняет smoke-проверку, публикует образ и разворачивает backend-контейнер.
+- Первая production-топология намеренно использует один backend-инстанс, пока работа scheduler и push-уведомлений не будет сертифицирована для горизонтального масштабирования.
+- Container Optimized Image запускает контейнеры в host network, поэтому backend слушает порт VM `8080`; публичный доступ к этому порту контролирует security group.
 
-## Why This Baseline
+## Почему такой baseline
 
-This is the smallest production shape that still gives us managed PostgreSQL, private database networking, immutable container deploys, and an auditable CI/CD path. Kubernetes is deferred until we need multiple backend replicas, rolling orchestration, or separate worker processes.
+Это минимальная production-схема, которая уже дает managed PostgreSQL, приватную сеть до базы, неизменяемые container-deploy и проверяемый CI/CD-путь. Kubernetes откладываем до момента, когда понадобятся несколько backend-реплик, rolling orchestration или отдельные worker-процессы.
 
-## Terraform Bootstrap
+## Bootstrap через Terraform
 
-Install and authenticate `yc` and Terraform on the operator machine, then apply:
+На машине оператора нужно установить и авторизовать `yc` и Terraform, затем выполнить:
 
 ```bash
 cd infra/yandex/prod
@@ -27,9 +27,9 @@ terraform plan
 terraform apply
 ```
 
-The local `terraform.tfvars` file and Terraform state contain sensitive values, including the database password. Keep state in a protected backend before more people or automation manage production.
+Локальный файл `terraform.tfvars` и Terraform state содержат чувствительные значения, включая пароль базы данных. До того как production начнут обслуживать несколько людей или автоматизация, state нужно перенести в защищенный backend.
 
-Expected Terraform outputs:
+Ожидаемые outputs Terraform:
 
 - `registry_id`
 - `backend_repository`
@@ -39,9 +39,9 @@ Expected Terraform outputs:
 - `rocketflow_db_url`
 - `deployer_service_account_id`
 
-## Service Account Key
+## Ключ сервисного аккаунта
 
-Create an authorized key for the `rocketflow-prod-github-deployer` service account after Terraform apply:
+После `terraform apply` нужно создать authorized key для сервисного аккаунта `rocketflow-prod-github-deployer`:
 
 ```bash
 yc iam key create \
@@ -49,52 +49,52 @@ yc iam key create \
   --output yc-prod-github-deployer-key.json
 ```
 
-Store the entire JSON document in GitHub as `YC_SERVICE_ACCOUNT_KEY_JSON`.
+Весь JSON-документ нужно сохранить в GitHub secret `YC_SERVICE_ACCOUNT_KEY_JSON`.
 
 ## GitHub Secrets
 
-Create these GitHub environment or repository secrets:
+Нужно создать эти secrets на уровне GitHub environment или repository:
 
-- `YC_SERVICE_ACCOUNT_KEY_JSON`: deployer service account authorized key JSON.
-- `YC_CLOUD_ID`: Yandex Cloud id.
-- `YC_FOLDER_ID`: Yandex Cloud folder id.
+- `YC_SERVICE_ACCOUNT_KEY_JSON`: JSON authorized key сервисного аккаунта deployer.
+- `YC_CLOUD_ID`: id облака Yandex Cloud.
+- `YC_FOLDER_ID`: id каталога Yandex Cloud.
 - `YC_PROD_REGISTRY_ID`: Terraform output `registry_id`.
 - `YC_PROD_BACKEND_INSTANCE_ID`: Terraform output `backend_instance_id`.
 - `ROCKETFLOW_PROD_DB_URL`: Terraform output `rocketflow_db_url`.
 - `ROCKETFLOW_PROD_DB_USERNAME`: Terraform variable `db_user`.
 - `ROCKETFLOW_PROD_DB_PASSWORD`: Terraform variable `db_password`.
-- `ROCKETFLOW_PROD_FCM_CREDENTIALS_JSON`: optional, minified Firebase service account JSON.
+- `ROCKETFLOW_PROD_FCM_CREDENTIALS_JSON`: опционально, minified JSON сервисного аккаунта Firebase.
 
 ## GitHub Variables
 
-Create these GitHub environment or repository variables:
+Нужно создать эти variables на уровне GitHub environment или repository:
 
-- `ROCKETFLOW_PROD_ALLOWED_ORIGINS`: comma-separated explicit browser origins.
-- `ROCKETFLOW_PROD_ALLOWED_ORIGIN_PATTERNS`: comma-separated pattern origins, if needed.
-- `ROCKETFLOW_PROD_HEALTH_URL`: `http://<backend_public_ip>:8080/actuator/health` until HTTPS ingress is added.
-- `ROCKETFLOW_PROD_NOTIFICATIONS_SCHEDULER_ENABLED`: `true` only after production notification checks pass.
-- `ROCKETFLOW_PROD_NOTIFICATIONS_FCM_ENABLED`: `true` only after Firebase production credentials are configured.
-- `ROCKETFLOW_PROD_FCM_PROJECT_ID`: Firebase project id when FCM is enabled.
+- `ROCKETFLOW_PROD_ALLOWED_ORIGINS`: явные browser origins через запятую.
+- `ROCKETFLOW_PROD_ALLOWED_ORIGIN_PATTERNS`: pattern origins через запятую, если нужны.
+- `ROCKETFLOW_PROD_HEALTH_URL`: `http://<backend_public_ip>:8080/actuator/health`, пока не добавлен HTTPS ingress.
+- `ROCKETFLOW_PROD_NOTIFICATIONS_SCHEDULER_ENABLED`: `true` только после production-проверок уведомлений.
+- `ROCKETFLOW_PROD_NOTIFICATIONS_FCM_ENABLED`: `true` только после настройки production-credentials Firebase.
+- `ROCKETFLOW_PROD_FCM_PROJECT_ID`: id Firebase project, если FCM включен.
 
-## Deploy
+## Деплой
 
-Run the GitHub Actions workflow `Backend Yandex Prod Deploy`.
+Запускается GitHub Actions workflow `Деплой backend в Yandex Cloud Prod`.
 
-The workflow:
+Workflow делает следующее:
 
-1. Runs backend tests.
-2. Builds the Docker image from `backend/Dockerfile`.
-3. Starts a temporary PostgreSQL container and checks `/actuator/health`.
-4. Pushes the image to Yandex Container Registry.
-5. Updates the backend VM container through `yc compute instance update-container`.
-6. Checks the production health endpoint.
+1. Запускает backend tests.
+2. Собирает Docker image из `backend/Dockerfile`.
+3. Поднимает временный PostgreSQL-контейнер и проверяет `/actuator/health`.
+4. Публикует image в Yandex Container Registry.
+5. Обновляет backend-контейнер на VM через `yc compute instance update-container`.
+6. Проверяет production health endpoint.
 
-The default image tag is `sha-<short-git-sha>`. A manual `image_tag` input can override it.
+По умолчанию image tag имеет формат `sha-<short-git-sha>`. Ручной input `image_tag` может его переопределить.
 
-## Current Gaps Before Hard Production
+## Что еще нужно до жесткого production
 
-- Add HTTPS termination through Yandex Application Load Balancer or another reverse proxy.
-- Move Terraform state to a protected remote backend.
-- Decide whether production SSH should stay closed or be restricted to a fixed office/VPN CIDR.
-- Add database backup restore drill and document RPO/RTO.
-- Certify scheduler and notification behavior before enabling more than one backend instance.
+- Добавить HTTPS termination через Yandex Application Load Balancer или другой reverse proxy.
+- Перенести Terraform state в защищенный remote backend.
+- Решить, должен ли production SSH оставаться закрытым или быть ограниченным фиксированным office/VPN CIDR.
+- Добавить тренировку восстановления backup базы и зафиксировать RPO/RTO.
+- Сертифицировать scheduler и уведомления перед включением более чем одного backend-инстанса.
