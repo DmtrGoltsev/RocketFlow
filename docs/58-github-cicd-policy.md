@@ -1,10 +1,12 @@
-# RocketFlow GitHub CI/CD Policy
+# RocketFlow GitHub CI/CD Setup
 
-This document defines the repository CI/CD rules that should be enforced before production deployment.
+This file is not executed by GitHub.
 
-## Current CI Gates
+Executable CI/CD files live in `.github/workflows/*.yml`. This document explains what those workflows do and how to apply the non-file GitHub settings that cannot be enforced by a markdown file.
 
-These workflows run on every `push`, every `pull_request`, and can also be started manually:
+## What GitHub Executes
+
+These workflows already run on every `push`, every `pull_request`, and can also be started manually:
 
 - `Backend Verify` / required job `backend-verify`
   - runs backend Maven tests
@@ -18,47 +20,63 @@ These workflows run on every `push`, every `pull_request`, and can also be start
   - installs Android SDK packages
   - runs `./gradlew assembleDebug`
 
-These gates are intentionally verification-only. They must stay green before merging or promoting code.
+The production deploy workflow is also executable, but it is manual:
 
-## Production Deploy Rule
-
-Production deploy is not automatic on `push`.
-
-The production backend workflow is manual:
-
-- `Backend Yandex Prod Deploy` / job `deploy-backend`
+- workflow: `Backend Yandex Prod Deploy`
 - trigger: `workflow_dispatch`
 - GitHub environment: `production`
 
-Reason: direct deploy-on-push is too risky for the current stage. We should only deploy after the normal CI gates are green and the operator intentionally starts production deployment.
+Production deploy is intentionally not automatic on `push`.
 
-## Required GitHub Branch Protection
+## What Must Be Applied In GitHub Settings
 
-Configure this in GitHub UI:
+Branch protection is a GitHub repository setting, not a normal repo file. It must be applied through the GitHub UI, GitHub API, GitHub CLI, or infrastructure tooling.
 
-1. Open repository settings.
-2. Go to `Rules` -> `Rulesets` or `Branches`.
-3. Target branch: `master`.
-4. Enable required status checks before merge.
-5. Require these checks:
-   - `backend-verify`
-   - `web-verify`
-   - `android-verify`
-6. Enable "Require branches to be up to date before merging".
-7. Enable "Require a pull request before merging" when the team starts using PRs consistently.
-8. Restrict direct pushes to `master` when production work begins.
+Minimum branch protection for `master`:
 
-If GitHub rulesets are available, prefer a ruleset over the older branch protection screen because it is easier to audit and extend.
+- require status checks before merge
+- require branch to be up to date before merge
+- required checks:
+  - `backend-verify`
+  - `web-verify`
+  - `android-verify`
+- block force pushes
+- block branch deletion
+- require conversation resolution
 
-## Required Production Environment Protection
+When the team starts using pull requests consistently, also require pull requests before merging.
 
-Configure GitHub environment `production`:
+## Apply Branch Protection By Script
+
+The repository includes an executable helper:
+
+```powershell
+$env:GITHUB_TOKEN = "<token-with-repository-admin-permission>"
+./scripts/Set-GitHubBranchProtection.ps1
+```
+
+With pull requests required:
+
+```powershell
+$env:GITHUB_TOKEN = "<token-with-repository-admin-permission>"
+./scripts/Set-GitHubBranchProtection.ps1 -RequirePullRequest
+```
+
+The script calls the GitHub REST API and applies the required checks:
+
+- `backend-verify`
+- `web-verify`
+- `android-verify`
+
+## Apply Production Environment Protection
+
+The `production` environment must also be configured in GitHub settings:
 
 - require manual approval before deployment
-- store production secrets only in the `production` environment when possible
+- store production secrets in the `production` environment when possible
 - do not expose production secrets to pull request workflows
 
-The deploy workflow already points to `environment: production`, so GitHub can enforce approvals once the environment rule is configured.
+The deploy workflow already contains `environment: production`, so GitHub can enforce approvals after the environment rule is configured.
 
 ## Production Secrets
 
@@ -86,7 +104,7 @@ Recommended variables:
 - `ROCKETFLOW_PROD_NOTIFICATIONS_FCM_ENABLED`
 - `ROCKETFLOW_PROD_FCM_PROJECT_ID`
 
-## Promotion Flow
+## Normal Promotion Flow
 
 1. Push code to a feature branch.
 2. Open a pull request into `master`.
