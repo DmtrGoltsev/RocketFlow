@@ -32,11 +32,14 @@ import {
   listTasks,
   updateTask,
 } from '../planning-api';
+import { getSharedResources } from '../../advanced/advanced-api';
 import { usePlanningCopy } from '../planning-copy';
 import { mapPlanningError } from '../planning-errors';
 import { formatDateTime, fromDateTimeInputValue, toDateTimeInputValue } from '../planning-utils';
 import type { FolderDto, GoalDto, TaskDto, TaskStatus, TaskType } from '../types';
+import type { SharedResourcesResponse } from '../../advanced/types';
 
+type PlanFolder = FolderDto & { shared?: boolean };
 type GoalsByFolder = Record<string, GoalDto[]>;
 type TasksByGoal = Record<string, TaskDto[]>;
 
@@ -47,7 +50,7 @@ interface VisibleGoal {
 }
 
 interface VisibleFolder {
-  folder: FolderDto;
+  folder: PlanFolder;
   goals: VisibleGoal[];
   allGoals: GoalDto[];
   allTasks: TaskDto[];
@@ -186,6 +189,26 @@ function describeCreator(task: TaskDto) {
   return task.creatorName || task.creatorEmail || task.creatorUserId || null;
 }
 
+function mergeById<TItem extends { id: string }>(primary: TItem[], secondary: TItem[]) {
+  const merged = new Map<string, TItem>();
+  [...primary, ...secondary].forEach((item) => merged.set(item.id, item));
+  return Array.from(merged.values());
+}
+
+function groupGoalsByFolder(goals: GoalDto[]) {
+  return goals.reduce<GoalsByFolder>((groups, goal) => {
+    groups[goal.folderId] = [...(groups[goal.folderId] ?? []), goal];
+    return groups;
+  }, {});
+}
+
+function groupTasksByGoal(tasks: TaskDto[]) {
+  return tasks.reduce<TasksByGoal>((groups, task) => {
+    groups[task.goalId] = [...(groups[task.goalId] ?? []), task];
+    return groups;
+  }, {});
+}
+
 function usePlanCopy() {
   const { locale } = useI18n();
 
@@ -200,6 +223,8 @@ function usePlanCopy() {
     noSearchResults: locale === 'ru' ? 'Ничего не найдено' : 'No results found',
     collapse: locale === 'ru' ? 'Свернуть панель' : 'Close panel',
     add: locale === 'ru' ? 'Создать' : 'Create',
+    shared: locale === 'ru' ? 'Общие' : 'Shared',
+    sharedResource: locale === 'ru' ? 'Общий доступ' : 'Shared',
     more: locale === 'ru' ? 'Еще' : 'More',
     newFolder: locale === 'ru' ? 'Новая папка' : 'New folder',
     newGoal: locale === 'ru' ? 'Новая цель' : 'New goal',
@@ -242,9 +267,10 @@ export function TasksRoute() {
   const { locale } = useI18n();
   const planningCopy = usePlanningCopy();
   const copy = usePlanCopy();
-  const [folders, setFolders] = useState<FolderDto[]>([]);
+  const [folders, setFolders] = useState<PlanFolder[]>([]);
   const [goalsByFolder, setGoalsByFolder] = useState<GoalsByFolder>({});
   const [tasksByGoal, setTasksByGoal] = useState<TasksByGoal>({});
+  const [createTaskGoalIds, setCreateTaskGoalIds] = useState<Set<string>>(() => new Set());
   const [selection, setSelection] = useState<Selection>({ folderId: null, goalId: null, taskId: null });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -264,6 +290,9 @@ export function TasksRoute() {
   const isSearching = normalizedSearch.length > 0;
   const selectedCreator = selectedTask ? describeCreator(selectedTask) : null;
   const canArchiveSelectedTask = selectedTask ? !selectedTask.shared : false;
+  const canEditSelectedTaskFields = selectedTask ? !selectedTask.shared : false;
+  const canCreateGoalInFolder = (folder: PlanFolder | null) => Boolean(folder && !folder.shared);
+  const canCreateTaskInGoal = (goal: GoalDto | null) => Boolean(goal && (!goal.shared || createTaskGoalIds.has(goal.id)));
   const visiblePlanTree = useMemo<VisibleFolder[]>(() => {
     return folders
       .map((folder) => {
@@ -325,9 +354,6 @@ export function TasksRoute() {
 
   useEffect(() => {
     setDraft(toDraft(selectedTask));
-    if (selectedTask) {
-      setIsPanelOpen(true);
-    }
   }, [selectedTask?.id]);
 
   async function loadPlan(preferred: Partial<Selection> = {}) {
@@ -335,17 +361,31 @@ export function TasksRoute() {
     setLoadError(null);
 
     try {
-      const nextFolders = await listFolders(authorizedFetch);
+      const [ownedFolders, sharedResources] = await Promise.all([
+        listFolders(authorizedFetch),
+        getSharedResources(authorizedFetch).catch((): SharedResourcesResponse => ({
+          folders: [],
+          goals: [],
+          tasks: [],
+          createTaskGoalIds: [],
+        })),
+      ]);
       const nextGoalsEntries = await Promise.all(
-        nextFolders.map(async (folder) => [folder.id, await listGoals(authorizedFetch, folder.id)] as const),
+        ownedFolders.map(async (folder) => [folder.id, await listGoals(authorizedFetch, folder.id)] as const),
       );
-      const nextGoalsByFolder = Object.fromEntries(nextGoalsEntries);
-      const nextGoals = nextGoalsEntries.flatMap(([, folderGoals]) => folderGoals);
+      const ownedGoals = nextGoalsEntries.flatMap(([, folderGoals]) => folderGoals);
       const nextTaskEntries = await Promise.all(
-        nextGoals.map(async (goal) => [goal.id, await listTasks(authorizedFetch, goal.id)] as const),
+        ownedGoals.map(async (goal) => [goal.id, await listTasks(authorizedFetch, goal.id)] as const),
       );
-      const nextTasksByGoal = Object.fromEntries(nextTaskEntries);
-      const nextTasks = nextTaskEntries.flatMap(([, goalTasks]) => goalTasks);
+      const ownedTasks = nextTaskEntries.flatMap(([, goalTasks]) => goalTasks);
+      const nextFolders = mergeById<PlanFolder>(
+        ownedFolders.map((folder) => ({ ...folder, shared: false })),
+        (sharedResources.folders ?? []).map((folder) => ({ ...folder, shared: true })),
+      );
+      const nextGoals = mergeById(ownedGoals, sharedResources.goals ?? []);
+      const nextTasks = mergeById(ownedTasks, sharedResources.tasks ?? []);
+      const nextGoalsByFolder = groupGoalsByFolder(nextGoals);
+      const nextTasksByGoal = groupTasksByGoal(nextTasks);
 
       const nextFolderId = preferred.folderId ?? selection.folderId ?? nextFolders[0]?.id ?? null;
       const nextGoalId =
@@ -364,6 +404,7 @@ export function TasksRoute() {
       setFolders(nextFolders);
       setGoalsByFolder(nextGoalsByFolder);
       setTasksByGoal(nextTasksByGoal);
+      setCreateTaskGoalIds(new Set(sharedResources.createTaskGoalIds ?? []));
       setSelection({ folderId: nextFolderId, goalId: nextGoalId, taskId: nextTaskId });
     } catch (error) {
       const mapped = mapPlanningError(error, planningCopy);
@@ -371,6 +412,7 @@ export function TasksRoute() {
       setFolders([]);
       setGoalsByFolder({});
       setTasksByGoal({});
+      setCreateTaskGoalIds(new Set());
     } finally {
       setLoading(false);
     }
@@ -394,7 +436,8 @@ export function TasksRoute() {
   }
 
   async function handleCreateGoal(folderId = selection.folderId) {
-    if (!folderId) {
+    const targetFolder = folders.find((folder) => folder.id === folderId) ?? null;
+    if (!folderId || !canCreateGoalInFolder(targetFolder)) {
       return;
     }
 
@@ -411,7 +454,8 @@ export function TasksRoute() {
   }
 
   async function handleCreateTask(goalId = selection.goalId) {
-    if (!goalId) {
+    const targetGoal = goals.find((goal) => goal.id === goalId) ?? null;
+    if (!goalId || !canCreateTaskInGoal(targetGoal)) {
       return;
     }
 
@@ -428,6 +472,7 @@ export function TasksRoute() {
       });
       const goal = goals.find((item) => item.id === goalId);
       await loadPlan({ folderId: goal?.folderId ?? selection.folderId, goalId, taskId: task.id });
+      setIsPanelOpen(true);
     } finally {
       setSaving(false);
     }
@@ -481,6 +526,11 @@ export function TasksRoute() {
         archived: task.archived,
         version: task.version,
       });
+
+      if (task.shared) {
+        await loadPlan({ folderId: goal.folderId, goalId: goal.id, taskId: updated.id });
+        return;
+      }
 
       setTasksByGoal((current) => ({
         ...current,
@@ -610,11 +660,11 @@ export function TasksRoute() {
                     <Folder aria-hidden="true" size={16} strokeWidth={1.75} />
                     <span>{copy.folder}</span>
                   </button>
-                  <button type="button" role="menuitem" disabled={!selection.folderId} onClick={() => { setIsCreateMenuOpen(false); void handleCreateGoal(); }}>
+                  <button type="button" role="menuitem" disabled={!canCreateGoalInFolder(selectedFolder)} onClick={() => { setIsCreateMenuOpen(false); void handleCreateGoal(); }}>
                     <Target aria-hidden="true" size={16} strokeWidth={1.75} />
                     <span>{copy.goal}</span>
                   </button>
-                  <button type="button" role="menuitem" disabled={!selection.goalId} onClick={() => { setIsCreateMenuOpen(false); void handleCreateTask(); }}>
+                  <button type="button" role="menuitem" disabled={!canCreateTaskInGoal(selectedGoal)} onClick={() => { setIsCreateMenuOpen(false); void handleCreateTask(); }}>
                     <Circle aria-hidden="true" size={16} strokeWidth={1.75} />
                     <span>{copy.task}</span>
                   </button>
@@ -640,11 +690,15 @@ export function TasksRoute() {
           </div>
         ) : (
           <div className="plan-tree" role="tree" aria-label={copy.plan}>
-            {visiblePlanTree.map(({ folder, goals: folderGoals, allGoals, allTasks: folderTasks }) => {
+            {visiblePlanTree.map(({ folder, goals: folderGoals, allGoals, allTasks: folderTasks }, index) => {
               const firstGoal = allGoals[0] ?? null;
+              const startsSharedSection = folder.shared && !visiblePlanTree[index - 1]?.folder.shared;
 
               return (
                 <div className="plan-tree__group" key={folder.id}>
+                  {startsSharedSection ? (
+                    <div className="plan-section-label">{copy.shared}</div>
+                  ) : null}
                   <button
                     type="button"
                     className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.taskId ? ' is-selected' : ''}`}
@@ -656,17 +710,20 @@ export function TasksRoute() {
                     <Folder aria-hidden="true" size={18} strokeWidth={1.75} />
                     <span className="plan-row__title">{folder.name}</span>
                     <span className="plan-row__meta">{folderTasks.length ? progress(folderTasks) : '0'}</span>
+                    {folder.shared ? <span className="plan-row__shared">{copy.sharedResource}</span> : null}
                     <span className="plan-row__actions">
-                      <span className="plan-row__icon" title={copy.newGoal}>
-                        <Plus size={15} strokeWidth={1.75} />
-                      </span>
+                      {!folder.shared ? (
+                        <span className="plan-row__icon" title={copy.newGoal}>
+                          <Plus size={15} strokeWidth={1.75} />
+                        </span>
+                      ) : null}
                       <span className="plan-row__icon" title={copy.more}>
                         <MoreHorizontal size={15} strokeWidth={1.75} />
                       </span>
                     </span>
                   </button>
 
-                  {allGoals.length === 0 ? (
+                  {allGoals.length === 0 && !folder.shared ? (
                     <button type="button" className="plan-row plan-row--inline" onClick={() => void handleCreateGoal(folder.id)}>
                       <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
                       <span>{copy.addGoal}</span>
@@ -692,17 +749,20 @@ export function TasksRoute() {
                             </span>
                           </span>
                           <span className="plan-row__meta">{progress(allGoalTasks)}</span>
+                          {goal.shared ? <span className="plan-row__shared">{copy.sharedResource}</span> : null}
                           <span className="plan-row__actions">
-                            <span className="plan-row__icon" title={copy.newTask}>
-                              <Plus size={15} strokeWidth={1.75} />
-                            </span>
+                            {canCreateTaskInGoal(goal) ? (
+                              <span className="plan-row__icon" title={copy.newTask}>
+                                <Plus size={15} strokeWidth={1.75} />
+                              </span>
+                            ) : null}
                             <span className="plan-row__icon" title={copy.more}>
                               <MoreHorizontal size={15} strokeWidth={1.75} />
                             </span>
                           </span>
                         </button>
 
-                        {allGoalTasks.length === 0 ? (
+                        {allGoalTasks.length === 0 && canCreateTaskInGoal(goal) ? (
                           <button type="button" className="plan-row plan-row--inline plan-row--task" onClick={() => void handleCreateTask(goal.id)}>
                             <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
                             <span>{copy.addTask}</span>
@@ -741,7 +801,10 @@ export function TasksRoute() {
                               <button
                                 type="button"
                                 className="plan-row__content"
-                                onClick={() => setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id })}
+                                onClick={() => {
+                                  setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id });
+                                  setIsPanelOpen(true);
+                                }}
                               >
                                 <span
                                   className={`marker-dot marker-dot--${markerToneForTask(task)}`}
@@ -766,7 +829,10 @@ export function TasksRoute() {
                                   className="plan-row__icon"
                                   aria-label={rowCopy.editTask}
                                   title={rowCopy.editTask}
-                                  onClick={() => setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id })}
+                                  onClick={() => {
+                                    setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id });
+                                    setIsPanelOpen(true);
+                                  }}
                                 >
                                   <Pencil size={14} strokeWidth={1.75} />
                                 </button>
@@ -880,15 +946,15 @@ export function TasksRoute() {
                 <div className="detail-editor">
                   <label className="field detail-grid__wide">
                     <span>{copy.task}</span>
-                    <input className="field__control" value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
+                    <input className="field__control" disabled={!canEditSelectedTaskFields} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} />
                   </label>
                   <label className="field detail-grid__wide">
                     <span>{copy.notes}</span>
-                    <textarea className="field__control field__control--area" value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
+                    <textarea className="field__control field__control--area" disabled={!canEditSelectedTaskFields} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
                   </label>
                   <label className="field">
                     <span>{copy.type}</span>
-                    <select className="field__control" value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as TaskType }))}>
+                    <select className="field__control" disabled={!canEditSelectedTaskFields} value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as TaskType }))}>
                       <option value="green">{planningCopy.enums.taskType.green}</option>
                       <option value="red">{planningCopy.enums.taskType.red}</option>
                     </select>
@@ -904,15 +970,15 @@ export function TasksRoute() {
                   </label>
                   <label className="field">
                     <span>{copy.priority}</span>
-                    <input className="field__control" type="number" min={1} max={10} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} />
+                    <input className="field__control" type="number" min={1} max={10} disabled={!canEditSelectedTaskFields} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} />
                   </label>
                   <label className="field">
                     <span>{copy.planned}</span>
-                    <input className="field__control" type="datetime-local" value={draft.plannedTime} onChange={(event) => setDraft((current) => ({ ...current, plannedTime: event.target.value }))} />
+                    <input className="field__control" type="datetime-local" disabled={!canEditSelectedTaskFields} value={draft.plannedTime} onChange={(event) => setDraft((current) => ({ ...current, plannedTime: event.target.value }))} />
                   </label>
                   <label className="field detail-grid__wide">
                     <span>{copy.due}</span>
-                    <input className="field__control" type="datetime-local" value={draft.dueTime} onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))} />
+                    <input className="field__control" type="datetime-local" disabled={!canEditSelectedTaskFields} value={draft.dueTime} onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))} />
                   </label>
                   <div className="cluster detail-grid__wide">
                     <button className="button button--primary" type="button" disabled={saving} onClick={() => void handleSaveTask()}>

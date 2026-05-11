@@ -1,9 +1,16 @@
-import { ListTree } from 'lucide-react';
+import { CalendarDays, ListTree, Settings, Share2 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 import { routeInventory } from '../../app/route-map';
 import { useAppRuntime } from '../../app/foundation/runtime/AppRuntimeContext';
 import { LanguageSwitch, LogoutButton } from './StatusBar';
+
+const navIcons = {
+  tasks: ListTree,
+  calendar: CalendarDays,
+  sharing: Share2,
+  settings: Settings,
+};
 
 export function SidebarNav() {
   const { copy, locale } = useAppRuntime();
@@ -17,16 +24,7 @@ export function SidebarNav() {
 
       <div className="rail__primary">
         {navRoutes.map((route) => (
-          <NavLink
-            key={route.id}
-            className="rail__item"
-            to={route.path}
-            end={route.path === '/app/tasks'}
-            aria-label={route.label[locale]}
-            title={route.label[locale]}
-          >
-            <ListTree aria-hidden="true" size={20} strokeWidth={1.75} />
-          </NavLink>
+          <NavItem key={route.id} route={route} label={route.label[locale]} />
         ))}
       </div>
 
@@ -35,5 +33,21 @@ export function SidebarNav() {
         <LogoutButton />
       </div>
     </nav>
+  );
+}
+
+function NavItem({ route, label }: { route: (typeof routeInventory)[number]; label: string }) {
+  const Icon = navIcons[route.id as keyof typeof navIcons] ?? ListTree;
+
+  return (
+    <NavLink
+      className="rail__item"
+      to={route.path}
+      end={route.path === '/app/tasks'}
+      aria-label={label}
+      title={label}
+    >
+      <Icon aria-hidden="true" size={20} strokeWidth={1.75} />
+    </NavLink>
   );
 }
