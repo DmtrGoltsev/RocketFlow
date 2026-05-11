@@ -1,0 +1,14 @@
+cloud_id  = "b1gxxxxxxxxxxxxxxxxx"
+folder_id = "b1gxxxxxxxxxxxxxxxxx"
+
+project_name = "rocketflow"
+environment  = "prod"
+zone         = "ru-central1-a"
+
+api_allowed_cidr_blocks = ["0.0.0.0/0"]
+ssh_allowed_cidr_blocks = ["203.0.113.10/32"]
+ssh_public_key          = "ssh-ed25519 AAAA..."
+
+db_name     = "rocketflow"
+db_user     = "rocketflow_app"
+db_password = "CHANGE_ME_STORE_SECURELY"

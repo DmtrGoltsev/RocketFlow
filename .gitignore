@@ -12,3 +12,12 @@ tmp/notification-smoke/
 tmp/
 scripts/Set-NotificationSmokeStagingEnv.ps1
 *.log
+
+# Terraform local state and working files
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log

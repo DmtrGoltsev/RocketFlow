@@ -1,0 +1,218 @@
+name: Backend Yandex Prod Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Optional image tag, for example prod-20260511
+        required: false
+        type: string
+      health_url:
+        description: Optional health URL override
+        required: false
+        type: string
+
+concurrency:
+  group: backend-yandex-prod-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-backend:
+    name: deploy-backend
+    runs-on: ubuntu-24.04
+    environment: production
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Resolve Yandex Container Registry image
+        id: image
+        shell: bash
+        env:
+          YC_PROD_REGISTRY_ID: ${{ secrets.YC_PROD_REGISTRY_ID }}
+          EXTRA_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${YC_PROD_REGISTRY_ID}" ]; then
+            echo "YC_PROD_REGISTRY_ID is required." >&2
+            exit 1
+          fi
+
+          image_repo="cr.yandex/${YC_PROD_REGISTRY_ID}/rocketflow-backend"
+          image_tag="sha-${GITHUB_SHA::12}"
+
+          if [ -n "${EXTRA_IMAGE_TAG}" ]; then
+            image_tag="$(echo "${EXTRA_IMAGE_TAG}" | tr '[:upper:]' '[:lower:]' | sed 's#[^a-z0-9._-]#-#g' | sed 's#-\{2,\}#-#g' | sed 's#^-##; s#-$##')"
+            if [ -z "${image_tag}" ]; then
+              echo "The image_tag input became empty after sanitization." >&2
+              exit 1
+            fi
+          fi
+
+          echo "image=${image_repo}:${image_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run backend test and migration gate
+        working-directory: backend
+        run: mvn --batch-mode --no-transfer-progress test
+
+      - name: Build backend Docker image
+        working-directory: backend
+        run: docker build -t "${{ steps.image.outputs.image }}" .
+
+      - name: Run backend container health smoke
+        shell: pwsh
+        run: |
+          ./scripts/Invoke-BackendDockerRuntimeSmoke.ps1 `
+            -BackendImage "${{ steps.image.outputs.image }}" `
+            -BackendPort 28080 `
+            -PostgresPort 15432
+
+      - name: Install Yandex Cloud CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash -s -- -i "${HOME}/yandex-cloud" -n
+          echo "${HOME}/yandex-cloud/bin" >> "${GITHUB_PATH}"
+
+      - name: Authenticate Yandex Cloud CLI
+        shell: bash
+        env:
+          YC_SERVICE_ACCOUNT_KEY_JSON: ${{ secrets.YC_SERVICE_ACCOUNT_KEY_JSON }}
+          YC_CLOUD_ID: ${{ secrets.YC_CLOUD_ID }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${YC_SERVICE_ACCOUNT_KEY_JSON}" ] || [ -z "${YC_CLOUD_ID}" ] || [ -z "${YC_FOLDER_ID}" ]; then
+            echo "YC_SERVICE_ACCOUNT_KEY_JSON, YC_CLOUD_ID, and YC_FOLDER_ID are required." >&2
+            exit 1
+          fi
+
+          key_file="${RUNNER_TEMP}/yc-key.json"
+          umask 077
+          printf '%s' "${YC_SERVICE_ACCOUNT_KEY_JSON}" > "${key_file}"
+
+          yc config set service-account-key "${key_file}"
+          yc config set cloud-id "${YC_CLOUD_ID}"
+          yc config set folder-id "${YC_FOLDER_ID}"
+
+      - name: Push backend image to Yandex Container Registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          yc iam create-token | docker login --username iam --password-stdin cr.yandex
+          docker push "${{ steps.image.outputs.image }}"
+
+      - name: Create production container environment file
+        shell: bash
+        id: container-env
+        env:
+          ROCKETFLOW_DB_URL: ${{ secrets.ROCKETFLOW_PROD_DB_URL }}
+          ROCKETFLOW_DB_USERNAME: ${{ secrets.ROCKETFLOW_PROD_DB_USERNAME }}
+          ROCKETFLOW_DB_PASSWORD: ${{ secrets.ROCKETFLOW_PROD_DB_PASSWORD }}
+          ROCKETFLOW_ALLOWED_ORIGINS: ${{ vars.ROCKETFLOW_PROD_ALLOWED_ORIGINS }}
+          ROCKETFLOW_ALLOWED_ORIGIN_PATTERNS: ${{ vars.ROCKETFLOW_PROD_ALLOWED_ORIGIN_PATTERNS }}
+          ROCKETFLOW_NOTIFICATIONS_SCHEDULER_ENABLED: ${{ vars.ROCKETFLOW_PROD_NOTIFICATIONS_SCHEDULER_ENABLED }}
+          ROCKETFLOW_NOTIFICATIONS_FCM_ENABLED: ${{ vars.ROCKETFLOW_PROD_NOTIFICATIONS_FCM_ENABLED }}
+          ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID: ${{ vars.ROCKETFLOW_PROD_FCM_PROJECT_ID }}
+          ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON: ${{ secrets.ROCKETFLOW_PROD_FCM_CREDENTIALS_JSON }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ROCKETFLOW_DB_URL}" ] || [ -z "${ROCKETFLOW_DB_USERNAME}" ] || [ -z "${ROCKETFLOW_DB_PASSWORD}" ]; then
+            echo "ROCKETFLOW_PROD_DB_URL, ROCKETFLOW_PROD_DB_USERNAME, and ROCKETFLOW_PROD_DB_PASSWORD are required." >&2
+            exit 1
+          fi
+
+          env_file="${RUNNER_TEMP}/rocketflow-prod.env"
+          umask 077
+          {
+            printf 'ROCKETFLOW_DB_URL=%s\n' "${ROCKETFLOW_DB_URL}"
+            printf 'ROCKETFLOW_DB_USERNAME=%s\n' "${ROCKETFLOW_DB_USERNAME}"
+            printf 'ROCKETFLOW_DB_PASSWORD=%s\n' "${ROCKETFLOW_DB_PASSWORD}"
+            printf 'ROCKETFLOW_NOTIFICATIONS_SCHEDULER_ENABLED=%s\n' "${ROCKETFLOW_NOTIFICATIONS_SCHEDULER_ENABLED:-false}"
+            printf 'ROCKETFLOW_NOTIFICATIONS_FCM_ENABLED=%s\n' "${ROCKETFLOW_NOTIFICATIONS_FCM_ENABLED:-false}"
+          } > "${env_file}"
+
+          if [ -n "${ROCKETFLOW_ALLOWED_ORIGINS}" ]; then
+            printf 'ROCKETFLOW_ALLOWED_ORIGINS=%s\n' "${ROCKETFLOW_ALLOWED_ORIGINS}" >> "${env_file}"
+          fi
+
+          if [ -n "${ROCKETFLOW_ALLOWED_ORIGIN_PATTERNS}" ]; then
+            printf 'ROCKETFLOW_ALLOWED_ORIGIN_PATTERNS=%s\n' "${ROCKETFLOW_ALLOWED_ORIGIN_PATTERNS}" >> "${env_file}"
+          fi
+
+          if [ -n "${ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID}" ]; then
+            printf 'ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID=%s\n' "${ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID}" >> "${env_file}"
+          fi
+
+          if [ -n "${ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON}" ]; then
+            printf 'ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON=%s\n' "${ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON}" >> "${env_file}"
+          fi
+
+          echo "path=${env_file}" >> "${GITHUB_OUTPUT}"
+
+      - name: Deploy backend container to Yandex Compute Cloud
+        shell: bash
+        env:
+          YC_PROD_BACKEND_INSTANCE_ID: ${{ secrets.YC_PROD_BACKEND_INSTANCE_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${YC_PROD_BACKEND_INSTANCE_ID}" ]; then
+            echo "YC_PROD_BACKEND_INSTANCE_ID is required." >&2
+            exit 1
+          fi
+
+          yc compute instance update-container "${YC_PROD_BACKEND_INSTANCE_ID}" \
+            --container-name rocketflow-backend \
+            --container-image "${{ steps.image.outputs.image }}" \
+            --container-env-file "${{ steps.container-env.outputs.path }}" \
+            --container-restart-policy Always
+
+      - name: Check production backend health
+        shell: bash
+        env:
+          INPUT_HEALTH_URL: ${{ inputs.health_url }}
+          DEFAULT_HEALTH_URL: ${{ vars.ROCKETFLOW_PROD_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+
+          health_url="${INPUT_HEALTH_URL:-${DEFAULT_HEALTH_URL:-}}"
+          if [ -z "${health_url}" ]; then
+            echo "Set ROCKETFLOW_PROD_HEALTH_URL or pass the health_url workflow input." >&2
+            exit 1
+          fi
+
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error "${health_url}" | grep -q '"status":"UP"'; then
+              echo "Production backend is healthy."
+              exit 0
+            fi
+
+            echo "Waiting for production backend health, attempt ${attempt}/30..."
+            sleep 5
+          done
+
+          echo "Production backend did not become healthy in time." >&2
+          exit 1
+
+      - name: Upload backend container smoke artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backend-yandex-prod-deploy-smoke-artifacts
+          path: tmp/docker-smoke
+          if-no-files-found: ignore

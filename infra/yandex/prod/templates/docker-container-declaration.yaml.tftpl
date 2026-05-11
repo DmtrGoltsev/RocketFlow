@@ -1,0 +1,9 @@
+spec:
+  containers:
+    - name: rocketflow-backend
+      image: ${image}
+      securityContext:
+        privileged: false
+      stdin: false
+      tty: false
+  restartPolicy: Always
