@@ -25,7 +25,7 @@ param(
     [string]$Email = "rocketflow.device.smoke@example.test",
     [string]$Password = "ValidationPass123",
     [string]$DisplayName = "Device Smoke",
-    [int]$BackendPort = 8080,
+    [int]$BackendPort = 8081,
     [int]$PostgresPort = 55432,
     [string]$PostgresDatabase = "rocketflow",
     [string]$PostgresUsername = "rocketflow",

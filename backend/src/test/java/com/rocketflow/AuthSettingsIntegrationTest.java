@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rocketflow.auth.AuthSessionRepository;
+import com.rocketflow.auth.TokenHasher;
 
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
 
@@ -33,6 +37,12 @@ class AuthSettingsIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private AuthSessionRepository authSessionRepository;
+
+    @Autowired
+    private TokenHasher tokenHasher;
 
     @DynamicPropertySource
     static void configureDatasource(DynamicPropertyRegistry registry) {
@@ -171,6 +181,46 @@ class AuthSettingsIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tokens.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.tokens.refreshToken").isNotEmpty());
+    }
+
+    @Test
+    void settingsRequiresCredentialsWithUnauthorizedStatus() throws Exception {
+        mockMvc.perform(get("/api/me/settings"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/me/settings")
+                        .header("Authorization", "Bearer invalid-token"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void settingsRejectsExpiredAccessTokenWithUnauthorizedStatus() throws Exception {
+        String response = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "user@example.com",
+                                  "password": "strong-password",
+                                  "displayName": "Dmitry",
+                                  "timezone": "Europe/Moscow",
+                                  "language": "ru"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String accessToken = read(response, "/tokens/accessToken");
+        var session = authSessionRepository.findByAccessTokenHashAndRevokedAtIsNull(tokenHasher.hash(accessToken))
+                .orElseThrow();
+        session.setAccessExpiresAt(Instant.now().minusSeconds(60));
+        session.setUpdatedAt(Instant.now());
+        authSessionRepository.saveAndFlush(session);
+
+        mockMvc.perform(get("/api/me/settings")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
     }
 
     private String read(String json, String path) throws Exception {

@@ -31,4 +31,16 @@
   --rf-rail-width: 60px;
   --rf-header-height: 56px;
   --rf-detail-width: 360px;
+  --rf-app-height: 100vh;
+  --rf-safe-area-top: env(safe-area-inset-top, 0px);
+  --rf-safe-area-right: env(safe-area-inset-right, 0px);
+  --rf-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --rf-safe-area-left: env(safe-area-inset-left, 0px);
+  --rf-mobile-nav-height: 64px;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --rf-app-height: 100dvh;
+  }
 }

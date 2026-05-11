@@ -99,6 +99,8 @@ class MainActivity : Activity() {
         const val ACCENT_SOFT = "#E7EFE8"
         const val ROW_PRESSED = "#F1ECE2"
         const val DANGER = "#9B4A43"
+        const val TASK_STATUS_GREEN = "#2FAF6A"
+        const val TASK_STATUS_RED = "#C44F48"
         const val INFO = "#456D8B"
         const val AMBER = "#9A7A32"
         const val LOW = "#8C887F"
@@ -3684,7 +3686,7 @@ class MainActivity : Activity() {
     }
 
     private fun taskTypeColor(task: PlanningTask): String {
-        return if (normalizeTaskType(task.type) == "red") Ui.DANGER else Ui.ACCENT
+        return if (normalizeTaskType(task.type) == "red") Ui.TASK_STATUS_RED else Ui.TASK_STATUS_GREEN
     }
 
     private fun taskTypeA11y(task: PlanningTask): String {

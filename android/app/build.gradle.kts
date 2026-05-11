@@ -8,7 +8,7 @@ fun resolveRocketFlowApiBaseUrl(): String {
     val envOverride = System.getenv("ROCKETFLOW_ANDROID_API_BASE_URL")
     return gradleOverride?.takeIf { it.isNotBlank() }
         ?: envOverride?.takeIf { it.isNotBlank() }
-        ?: "http://10.0.2.2:8080/api"
+        ?: "http://10.0.2.2:8081/api"
 }
 
 fun usesCleartextTraffic(apiBaseUrl: String): Boolean {
@@ -102,4 +102,8 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+    testImplementation("org.json:json:20240303")
 }

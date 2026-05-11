@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom';
 
+import { CalendarRoute, SettingsRoute, SharingRoute } from '../features/advanced';
 import { LoginRoute, LogoutRoute, RegisterRoute } from '../features/auth';
 import { TasksRoute } from '../features/planning';
 import { ProtectedBoundary } from './guards/ProtectedBoundary';
@@ -45,6 +46,18 @@ export const appRouter = createBrowserRouter([
       {
         path: 'tasks',
         element: <TasksRoute />
+      },
+      {
+        path: 'calendar',
+        element: <CalendarRoute />
+      },
+      {
+        path: 'sharing',
+        element: <SharingRoute />
+      },
+      {
+        path: 'settings',
+        element: <SettingsRoute />
       }
     ]
   },

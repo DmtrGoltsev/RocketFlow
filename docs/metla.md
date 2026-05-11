@@ -1,172 +1,186 @@
 # METLA Security Review
 
-## 2026-05-03 Current-Run Final Report
+## 2026-05-04 Repeat Of First-Task Run
 
 - Status: `Finalized`.
-- Run anchor: strict-mode run started after the user's 2026-05-03 request for a fresh current-state security review and new report file.
-- Artifacts used:
-  - planner: `James`
-  - context-reader: `Pascal`
-  - security reviewers: `Huygens`, `Laplace`, `Hume`, `Confucius`, `Peirce`, `Schrodinger`
-- Prior-artifact rule: any pre-existing `docs/metla.md` content was treated as stale context only, not as source of truth.
-- Reading rule: this finalization used only the current-run packets plus their already-cited references. No new broad repo read was performed.
-- Deduped root-cause count: `10`.
+- Run anchor: strict-mode repeat started after the user's repeat-the-first-task message in this chat.
+- Source of truth: `master@8f19b6ad221f46d56364bdecb75de31d9f3067e7` on `2026-05-04`.
+- Scope authority: only current-run evidence produced after that message.
+- Prior-artifact rule: any older `docs/metla.md` content was used only for formatting continuity, not as evidence.
+- Reading rule: finalization used only the current-run packets from planner, context-reader, six security reviewers, and validator decisions. No new broad repo review was performed during finalization.
+- Dirty-worktree note: the context-reader recorded only one untracked noise file, `docs/55-next-chat-transition-prompt.md`.
 - Final confirmed count: `8`.
+- Severity totals: `High 2`, `Medium 6`, `Low 0`.
 
-## Evidence Basis And Quorum / Bounded-Gate Rationale
+## Methodology Summary
 
-- Confirmed from quorum:
-  - `RC-01`
-  - `RC-02`
-  - `RC-03`
-- Accepted into the confirmed set via bounded gate after validator review:
-  - `RC-04`
-  - `RC-05`
-  - `RC-06`
-  - `RC-07`
-  - `RC-09`
-- Kept out of the confirmed set:
-  - `RC-08`
-  - `RC-10`
+- Planner: `Herschel`.
+- Designated context-reader: `Aquinas`.
+- Security reviewers: `Parfit`, `Ramanujan`, `Helmholtz`, `Hilbert`, `Russell`, `Peirce`.
+- Review topology: `planner -> context-reader -> 6 independent reviewers -> validator-led acceptance -> integrator finalization`.
+- Acceptance rules used in this run:
+  - quorum acceptance for findings with compatible multi-reviewer support
+  - bounded-gate acceptance for strong single-packet findings explicitly approved by the validator
 
-| Root ID | Deduped root cause | Supporting reviewers | Acceptance basis | Final decision |
+## Evidence Basis And Acceptance Outcome
+
+- Accepted by quorum:
+  - `F-01`
+  - `F-02`
+  - `F-03`
+- Accepted by bounded gate:
+  - `F-04`
+  - `F-05`
+  - `F-06`
+  - `F-07`
+  - `F-08`
+- Held or rejected out of the confirmed set:
+  - collaborator create-task on shared folder/goal
+  - direct-task-share parent metadata leak
+  - creator identity exposure in task DTOs
+  - refresh rotation path
+  - dangerous-execution / RCE / SSRF / arbitrary file-read claims
+
+| ID | Severity | Finding | Acceptance basis | Final decision |
 | --- | --- | --- | --- | --- |
-| `RC-01` | Link-redeemed shares survive share-link revocation and there is no in-scope owner offboarding path for already accepted link grants | `Huygens`, `Hume` | `2 of 6` compatible confirmations | Confirmed |
-| `RC-02` | Refresh-token rotation is non-atomic and replayable under concurrent `/api/auth/refresh` use | `Huygens`, `Peirce` | `2 of 6` compatible confirmations | Confirmed |
-| `RC-03` | Manual GHCR publish can build the selected workflow-dispatch ref and push trusted mutable tags without an in-repo protected-ref gate | `Confucius`, `Schrodinger` | `2 of 6` compatible confirmations | Confirmed |
-| `RC-04` | Android can be built with cleartext API transport, exposing bearer and refresh-token flows when an `http://` base URL is used | `Laplace` | bounded gate acceptance on direct current-worktree transport evidence | Confirmed |
-| `RC-05` | Share-link bearer tokens are carried in URL paths, increasing leakage risk through logs, history, and telemetry surfaces | `Hume` | bounded gate acceptance on direct API-shape evidence | Confirmed |
-| `RC-06` | Device registration trusts caller-supplied push identifiers across accounts, allowing rebind if a token or installation ID leaks | `Hume` | bounded gate acceptance on direct code and integration-test evidence | Confirmed |
-| `RC-07` | The backend image publish lane rebuilds the shipped artifact after verification instead of promoting the verified artifact | `Confucius` | bounded gate acceptance on direct release-provenance evidence | Confirmed |
-| `RC-08` | Backend verify/publish smoke depends on a mutable third-party `postgres:16` image tag | `Confucius` | single-packet evidence, not accepted into confirmed set | Rejected / insufficient evidence |
-| `RC-09` | Logout is allowed to succeed locally before backend logout and device-unregister cleanup are durably confirmed | `Peirce` | bounded gate acceptance on direct client and backend cleanup-order evidence | Confirmed |
-| `RC-10` | Notification delivery sends to FCM before the dedupe record is durably committed, leaving a crash/rollback duplicate-send window | `Schrodinger` | single-packet evidence, not accepted into confirmed set | Rejected / insufficient evidence |
+| `F-01` | Medium | Share-link bearer token is carried in URL paths | quorum | Confirmed |
+| `F-02` | Medium | Device registrations can be rebound across accounts | quorum | Confirmed |
+| `F-03` | Medium | Local-first logout can leave live server-side session or device state behind | quorum | Confirmed |
+| `F-04` | High | Redeemed share-link survives later revoke | bounded gate | Confirmed |
+| `F-05` | Medium | Replayable refresh-bearing web session is stored in `localStorage` | bounded gate | Confirmed |
+| `F-06` | Medium | Android cleartext API transport remains buildable and default-enabled in current config | bounded gate | Confirmed |
+| `F-07` | High | Manual GHCR publish can mint trusted mutable tags from `workflow_dispatch` refs without a repo-visible publication gate | bounded gate | Confirmed |
+| `F-08` | Medium | Published backend artifact is rebuilt after the Maven test gate instead of promoting the tested artifact | bounded gate | Confirmed |
 
 ## Confirmed Findings
 
-### `RC-01` Link-redeemed shares survive link revocation
+### `F-01` Share-link bearer token is carried in URL paths
 
-- Acceptance basis: quorum-confirmed.
-- Summary: two current-run reviewer packets independently showed that redeeming a share link creates persistent `folder_shares`, `goal_shares`, or `task_shares`, while revoking the link only changes `share_links` state and does not tear down already accepted grants.
-- Primary refs already cited in current-run packets:
-  - `backend/src/main/java/com/rocketflow/sharing/SharingService.java`
-  - `backend/src/main/java/com/rocketflow/sharing/SharingAccessService.java`
-  - `backend/src/test/java/com/rocketflow/SharingIntegrationTest.java`
-  - `docs/05-api-contracts.md`
-- Impact: leaked or forwarded share-link access cannot be fully offboarded after first redemption.
-
-### `RC-02` Refresh-token rotation is replayable under concurrency
-
-- Acceptance basis: quorum-confirmed.
-- Summary: two current-run reviewer packets independently converged on the same refresh path: active session lookup, later revocation write, then successor minting, without a repo-visible atomic consume guard.
-- Primary refs already cited in current-run packets:
-  - `backend/src/main/java/com/rocketflow/auth/AuthService.java`
-  - `backend/src/main/java/com/rocketflow/auth/AuthSessionRepository.java`
-  - `backend/src/main/java/com/rocketflow/auth/AuthSession.java`
-  - `backend/src/main/resources/db/migration/V2__auth_sessions.sql`
-- Impact: one stolen refresh token can mint more than one valid successor session under race conditions.
-
-### `RC-03` Manual GHCR publish can release arbitrary selected refs under trusted mutable tags
-
-- Acceptance basis: quorum-confirmed.
-- Summary: two current-run reviewer packets independently showed that the documented backend publish lane is `workflow_dispatch`, can push operator-controlled tags and `latest`, and has no repo-visible protected-ref or environment gate.
-- Primary refs already cited in current-run packets:
-  - `.github/workflows/backend-image-publish.yml`
-  - `docs/31-wave-b-devops-staging-secrets.md`
-  - `scripts/Invoke-BackendDockerRuntimeSmoke.ps1`
-- Impact: unreviewed or non-release refs can be published under trusted backend image tags.
-
-### `RC-04` Android cleartext transport can expose bearer and refresh-token flows
-
-- Acceptance basis: bounded gate.
-- Summary: validator accepted the direct current-worktree evidence that Android can enable cleartext API transport when the configured base URL is `http://`, and the same client path carries login credentials, bearer tokens, and refresh-token flows.
-- Primary refs already cited in current-run packets:
-  - `android/app/src/main/AndroidManifest.xml`
-  - `android/app/build.gradle.kts`
-  - `android/app/src/main/java/com/rocketflow/companion/network/HttpJsonClient.kt`
-  - `android/app/src/main/java/com/rocketflow/companion/auth/AuthRepository.kt`
-- Impact: if such a build is distributed, a network-positioned attacker can observe or tamper with authenticated mobile traffic.
-
-### `RC-05` Share-link bearer tokens are carried in URL paths
-
-- Acceptance basis: bounded gate.
-- Summary: validator accepted the direct API-shape evidence that share-link capabilities are exposed as URL path tokens end-to-end, increasing leakage risk through logs, copied URLs, history, and telemetry surfaces.
-- Primary refs already cited in current-run packets:
+- Severity: `Medium`.
+- Acceptance basis: quorum.
+- Summary: current-run reviewer packets converged on the same root: share-link capability tokens are exposed as URL path material end-to-end, including backend endpoints and Android link handling.
+- Current-run refs already cited:
   - `backend/src/main/java/com/rocketflow/sharing/SharingController.java`
+  - `backend/src/main/java/com/rocketflow/sharing/SharingApi.java`
   - `android/app/src/main/java/com/rocketflow/companion/sharing/SharingRepository.kt`
   - `android/app/src/main/java/com/rocketflow/companion/MainActivity.kt`
-  - `docs/11-devops-baseline.md`
-  - `docs/04-architecture-blueprint.md`
-- Impact: anyone who captures an active share-link URL can reuse that capability until expiry or revocation.
+- Impact: any log, browser history, clipboard observer, proxy, or telemetry surface that captures full request paths or copied URLs can capture a replayable share capability until expiry or revocation.
 
-### `RC-06` Device registrations can be rebound by caller-supplied push identifiers
+### `F-02` Device registrations can be rebound across accounts
 
-- Acceptance basis: bounded gate.
-- Summary: validator accepted the direct code and test evidence that registration resolution trusts caller-supplied `pushToken` or `installationId`, allowing cross-account reassignment if one of those identifiers leaks.
-- Primary refs already cited in current-run packets:
+- Severity: `Medium`.
+- Acceptance basis: quorum.
+- Summary: current-run reviewer packets showed that device registration resolution trusts caller-supplied `pushToken` or `installationId` as global logical-device keys and reassigns ownership when one matches an existing row.
+- Current-run refs already cited:
   - `backend/src/main/java/com/rocketflow/notifications/DevicesService.java`
   - `backend/src/main/java/com/rocketflow/notifications/DeviceRegistrationRepository.java`
+  - `backend/src/main/resources/db/migration/V7__notifications_devices.sql`
+  - `backend/src/main/resources/db/migration/V8__device_registration_logical_device_upsert.sql`
   - `backend/src/test/java/com/rocketflow/NotificationDeliveryIntegrationTest.java`
-  - `backend/src/main/java/com/rocketflow/notifications/NotificationPayloadFactory.java`
-  - `android/app/src/main/java/com/rocketflow/companion/notifications/RocketFlowMessagingService.kt`
-- Impact: notification routing and device ownership can drift away from the intended account binding.
+- Impact: if an attacker learns another device's `pushToken` or `installationId`, reminder routing and logical ownership can be rebound across account boundaries.
 
-### `RC-07` Backend publish rebuilds the shipped artifact after verification
+### `F-03` Local-first logout can leave live server-side session or device state behind
 
-- Acceptance basis: bounded gate.
-- Summary: validator accepted the direct evidence that the canonical backend publish lane verifies one build path and then rebuilds the artifact inside Docker before shipping, rather than promoting the already verified artifact.
-- Primary refs already cited in current-run packets:
-  - `.github/workflows/backend-image-publish.yml`
-  - `backend/Dockerfile`
-  - `backend/pom.xml`
-  - `docs/31-wave-b-devops-staging-secrets.md`
-- Impact: the tested artifact and the shipped artifact can diverge, weakening release-path provenance.
-
-### `RC-09` Logout is allowed to complete locally before authoritative server cleanup
-
-- Acceptance basis: bounded gate.
-- Summary: validator accepted the direct client and backend evidence that web and Android local sign-out can complete before backend logout and device-unregister cleanup are durably confirmed.
-- Primary refs already cited in current-run packets:
+- Severity: `Medium`.
+- Acceptance basis: quorum.
+- Summary: current-run reviewer packets showed that both web and Android can present logout as complete before backend logout and device cleanup are durably confirmed.
+- Current-run refs already cited:
   - `web/src/features/auth/AuthProvider.tsx`
   - `android/app/src/main/java/com/rocketflow/companion/MainActivity.kt`
   - `android/app/src/main/java/com/rocketflow/companion/auth/AuthRepository.kt`
   - `android/app/src/main/java/com/rocketflow/companion/notifications/NotificationsRepository.kt`
-  - `backend/src/main/java/com/rocketflow/notifications/NotificationDeliveryService.java`
-  - `backend/src/main/java/com/rocketflow/notifications/NotificationPayloadFactory.java`
-- Impact: post-logout security state can lag behind visible sign-out, including stale session or stale device-registration effects.
+  - `backend/src/main/java/com/rocketflow/auth/AuthController.java`
+  - `backend/src/main/java/com/rocketflow/auth/AuthService.java`
+- Impact: a user can believe sign-out finished while a refresh-capable session or a registered notification target remains live on the server.
 
-## Rejected / Insufficient-Evidence Items
+### `F-04` Redeemed share-link survives later revoke
 
-### `RC-08` Mutable `postgres:16` smoke-image trust root
-
-- Final decision: kept out of the confirmed set.
-- Reason: the current run produced only single-packet evidence for this root cause, and it was not accepted through the bounded gate.
+- Severity: `High`.
+- Acceptance basis: bounded gate.
+- Summary: validator accepted the current-run evidence that redeeming a share link mints persistent share rows, while later revocation changes link state but does not offboard the already accepted collaborator.
 - Current-run refs already cited:
-  - `.github/workflows/backend-verify.yml`
+  - `backend/src/main/java/com/rocketflow/sharing/SharingService.java`
+  - `backend/src/main/java/com/rocketflow/sharing/SharingAccessService.java`
+  - `backend/src/test/java/com/rocketflow/SharingIntegrationTest.java`
+- Impact: once a leaked or forwarded link has been redeemed, later revoking the link does not contain that access.
+
+### `F-05` Replayable refresh-bearing web session is stored in `localStorage`
+
+- Severity: `Medium`.
+- Acceptance basis: bounded gate.
+- Summary: validator accepted the current-run evidence that the web client stores a full auth session, including refresh-bearing material, in script-readable `localStorage` and uses it to restore sessions on boot.
+- Current-run refs already cited:
+  - `web/src/features/auth/auth-storage.ts`
+  - `web/src/features/auth/types.ts`
+  - `web/src/features/auth/auth-api.ts`
+- Impact: any browser-side code execution or equivalent storage access can steal durable session material and replay refresh flows for account takeover.
+
+### `F-06` Android cleartext API transport remains buildable and default-enabled in current config
+
+- Severity: `Medium`.
+- Acceptance basis: bounded gate.
+- Summary: validator accepted the current-run evidence that Android transport security remains configuration-driven, cleartext is permitted for `http://` bases, and the current default configuration points at a cleartext API base.
+- Current-run refs already cited:
+  - `android/app/build.gradle.kts`
+  - `android/app/src/main/AndroidManifest.xml`
+  - `android/app/src/main/java/com/rocketflow/companion/network/HttpJsonClient.kt`
+- Impact: when such a build is used, login credentials, bearer tokens, refresh traffic, device registration data, and sharing flows can be observed or modified by a network-positioned attacker.
+
+### `F-07` Manual GHCR publish can mint trusted mutable tags from `workflow_dispatch` refs without a repo-visible publication gate
+
+- Severity: `High`.
+- Acceptance basis: bounded gate.
+- Summary: validator accepted the current-run evidence that the backend image publish workflow can be manually dispatched from selected refs, uses operator-controlled tags, can append `latest`, and shows no repo-visible protected-ref or publication gate.
+- Current-run refs already cited:
   - `.github/workflows/backend-image-publish.yml`
-  - `scripts/Invoke-BackendDockerRuntimeSmoke.ps1`
-  - `README.md`
-  - `docs/31-wave-b-devops-staging-secrets.md`
+- Impact: a repo actor who can dispatch this workflow can publish unreviewed or non-release code under trusted mutable image tags consumed downstream.
 
-### `RC-10` Send-before-commit notification duplicate window
+### `F-08` Published backend artifact is rebuilt after the Maven test gate instead of promoting the tested artifact
 
-- Final decision: kept out of the confirmed set.
-- Reason: the current run produced only single-packet evidence for this root cause, and it was not accepted through the bounded gate.
+- Severity: `Medium`.
+- Acceptance basis: bounded gate.
+- Summary: validator accepted the current-run evidence that the release path tests one build output and then rebuilds the shipped backend artifact inside Docker with tests skipped, instead of promoting the exact tested artifact.
 - Current-run refs already cited:
-  - `backend/src/main/java/com/rocketflow/notifications/NotificationDeliveryService.java`
-  - `backend/src/main/resources/db/migration/V7__notifications_devices.sql`
-  - `backend/src/main/java/com/rocketflow/notifications/ReminderNotificationScheduler.java`
-  - `backend/src/test/java/com/rocketflow/NotificationDeliveryIntegrationTest.java`
+  - `.github/workflows/backend-image-publish.yml`
+  - `.github/workflows/backend-verify.yml`
+  - `backend/Dockerfile`
+- Impact: the artifact that reaches the registry can diverge from the artifact that passed the main verification gate, weakening release provenance.
 
-## Blind Spots / Remaining Risks
+## Held / Rejected Out Of Confirmed Set
 
-- GitHub org or environment controls, protected refs, GHCR immutability, and deployment tag-consumption policy are out-of-repo unknowns.
-- Release-manifest and distribution policy for Android builds were not validated from shipped artifacts.
-- Runtime logging, proxy, and APM behavior for share-link URL handling were not visible in repo-backed evidence.
-- Firebase delivery infrastructure and production notification runtime were not available for live replay.
-- Some accepted bounded-gate items depend on deployment choices outside the repo, especially Android transport configuration and image tag-consumption policy.
+### collaborator create-task on shared folder/goal
 
-## Files Finalized In This Step
+- Final decision: held out of the confirmed set.
+- Reason: it was raised as a current-run candidate by one reviewer, but the validator did not accept it into the final set for this run.
+
+### direct-task-share parent metadata leak
+
+- Final decision: held out of the confirmed set.
+- Reason: the current run produced only a single-packet low-severity metadata concern, and it was not validator-accepted.
+
+### creator identity exposure in task DTOs
+
+- Final decision: held out of the confirmed set.
+- Reason: the current run produced only a single-packet low-severity disclosure concern, and it was not validator-accepted.
+
+### refresh rotation path
+
+- Final decision: held out of the confirmed set.
+- Reason: although the context-reader revalidated the mechanics, the validator explicitly marked the exploit packet as insufficient for confirmation in this run.
+
+### dangerous-execution / RCE / SSRF / arbitrary file-read claims
+
+- Final decision: rejected from the confirmed set.
+- Reason: the dangerous-execution reviewer did not produce a confirmed current-run packet for these classes.
+
+## Blind Spots And Residual Uncertainty
+
+- GitHub org and environment controls remain out-of-repo unknowns, including who can dispatch publish workflows, protected refs, approvals, and GHCR tag immutability.
+- Actual Android release configuration was not validated from a shipped production artifact, including whether production builds retain the current cleartext-capable default API base.
+- The share-link URL-token finding does not independently establish real production leakage through logging, APM, reverse proxies, browser history, or clipboard capture; it confirms that the token shape is exposure-prone.
+- The device-rebind finding assumes an attacker can learn a valid `pushToken` or `installationId`; the leak source was not established in the current run.
+- The `localStorage` session finding assumes browser-side code execution or equivalent storage access; the current run did not separately establish an XSS source.
+
+## File Finalized In This Step
 
 - Canonical report: `C:\Users\hp\Documents\Codex\RocketFlow\docs\metla.md`
-- External snapshot copy: `C:\Users\hp\Documents\Codex\SecuritySnapshots\RocketFlow\2026-05-03-current-state-metla.md`

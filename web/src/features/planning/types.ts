@@ -63,6 +63,9 @@ export interface TaskDto {
   dueTime: string | null;
   archived: boolean;
   shared: boolean;
+  creatorUserId: string | null;
+  creatorEmail: string | null;
+  creatorName: string | null;
   version: number;
   tags: TaskTagDto[];
   recurrence: TaskRecurrenceDto | null;

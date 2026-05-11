@@ -1,7 +1,7 @@
-import type { GoalDto, TaskDto } from '../planning/types';
+import type { FolderDto, GoalDto, TaskDto } from '../planning/types';
 
 export type CalendarPreset = 'day' | 'week' | 'month';
-export type ShareTargetType = 'goal' | 'task';
+export type ShareTargetType = 'folder' | 'goal' | 'task';
 export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
 export type ThresholdPreset = 'day' | 'week' | 'month';
 export type Locale = 'ru' | 'en';
@@ -58,14 +58,21 @@ export interface ShareInvitationDto {
   targetType: ShareTargetType;
   targetId: string;
   targetEmail: string;
+  targetUserId?: string | null;
   status: InvitationStatus;
   createdAt: string;
   expiresAt: string;
 }
 
+export type SharedFolderDto = FolderDto & {
+  shared?: boolean;
+};
+
 export interface SharedResourcesResponse {
+  folders: SharedFolderDto[];
   goals: GoalDto[];
   tasks: TaskDto[];
+  createTaskGoalIds: string[];
 }
 
 export interface ShareInvitationListResponse {
@@ -79,6 +86,22 @@ export interface ShareInvitationActionResponse {
 
 export interface ShareRequestPayload {
   email: string;
+  userId?: string;
+}
+
+export interface ShareLinkResolveResponse {
+  id: string;
+  targetType: ShareTargetType;
+  targetId: string;
+  status: string;
+  expiresAt: string;
+}
+
+export interface ShareLinkAcceptResponse {
+  shareId: string;
+  targetType: ShareTargetType;
+  targetId: string;
+  status: string;
 }
 
 export interface PriorityDecayPolicyDto {

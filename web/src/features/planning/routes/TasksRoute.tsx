@@ -15,6 +15,9 @@ import {
   Save,
   StickyNote,
   Target,
+  Archive,
+  UserCircle,
+  X,
 } from 'lucide-react';
 
 import { useAuth } from '../../auth';
@@ -23,6 +26,7 @@ import {
   createFolder,
   createGoal,
   createTask,
+  deleteTask,
   listFolders,
   listGoals,
   listTasks,
@@ -31,10 +35,23 @@ import {
 import { usePlanningCopy } from '../planning-copy';
 import { mapPlanningError } from '../planning-errors';
 import { formatDateTime, fromDateTimeInputValue, toDateTimeInputValue } from '../planning-utils';
-import type { FolderDto, GoalDto, TaskDto, TaskStatus } from '../types';
+import type { FolderDto, GoalDto, TaskDto, TaskStatus, TaskType } from '../types';
 
 type GoalsByFolder = Record<string, GoalDto[]>;
 type TasksByGoal = Record<string, TaskDto[]>;
+
+interface VisibleGoal {
+  goal: GoalDto;
+  tasks: TaskDto[];
+  allTasks: TaskDto[];
+}
+
+interface VisibleFolder {
+  folder: FolderDto;
+  goals: VisibleGoal[];
+  allGoals: GoalDto[];
+  allTasks: TaskDto[];
+}
 
 interface Selection {
   folderId: string | null;
@@ -45,8 +62,10 @@ interface Selection {
 interface TaskDraft {
   title: string;
   description: string;
+  type: TaskType;
   status: TaskStatus;
   priority: string;
+  plannedTime: string;
   dueTime: string;
 }
 
@@ -56,8 +75,10 @@ function toDraft(task: TaskDto | null): TaskDraft {
   return {
     title: task?.title ?? '',
     description: task?.description ?? '',
+    type: task?.type ?? 'green',
     status: task?.status ?? 'todo',
     priority: String(task?.priority ?? 2),
+    plannedTime: toDateTimeInputValue(task?.plannedTime ?? null),
     dueTime: toDateTimeInputValue(task?.dueTime ?? null),
   };
 }
@@ -157,6 +178,14 @@ function dueTone(value: string | null): MarkerTone {
   return 'blue';
 }
 
+function matchesQuery(value: string | null | undefined, query: string, locale: 'ru' | 'en') {
+  return value?.toLocaleLowerCase(locale === 'ru' ? 'ru-RU' : 'en-US').includes(query) ?? false;
+}
+
+function describeCreator(task: TaskDto) {
+  return task.creatorName || task.creatorEmail || task.creatorUserId || null;
+}
+
 function usePlanCopy() {
   const { locale } = useI18n();
 
@@ -166,6 +195,9 @@ function usePlanCopy() {
     goal: locale === 'ru' ? 'Цель' : 'Goal',
     task: locale === 'ru' ? 'Задача' : 'Task',
     search: locale === 'ru' ? 'Поиск' : 'Search',
+    searchPlaceholder: locale === 'ru' ? 'Найти в плане' : 'Search plan',
+    closeSearch: locale === 'ru' ? 'Закрыть поиск' : 'Close search',
+    noSearchResults: locale === 'ru' ? 'Ничего не найдено' : 'No results found',
     collapse: locale === 'ru' ? 'Свернуть панель' : 'Close panel',
     add: locale === 'ru' ? 'Создать' : 'Create',
     more: locale === 'ru' ? 'Еще' : 'More',
@@ -183,8 +215,13 @@ function usePlanCopy() {
     notes: locale === 'ru' ? 'Заметки' : 'Notes',
     details: locale === 'ru' ? 'Сведения' : 'Details',
     status: locale === 'ru' ? 'Статус' : 'Status',
+    type: locale === 'ru' ? 'Тип' : 'Type',
     priority: locale === 'ru' ? 'Приоритет' : 'Priority',
+    planned: locale === 'ru' ? 'План' : 'Planned',
     due: locale === 'ru' ? 'Срок' : 'Due',
+    creator: locale === 'ru' ? 'Создатель' : 'Creator',
+    archive: locale === 'ru' ? 'В архив' : 'Archive',
+    archiveConfirm: locale === 'ru' ? 'Переместить задачу в архив?' : 'Archive this task?',
     synced: locale === 'ru' ? 'Синхронизировано' : 'Synced',
     savedOffline: locale === 'ru' ? 'Сохранено офлайн' : 'Saved offline',
     save: locale === 'ru' ? 'Сохранить' : 'Save',
@@ -214,6 +251,8 @@ export function TasksRoute() {
   const [saving, setSaving] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const goals = useMemo(() => Object.values(goalsByFolder).flat(), [goalsByFolder]);
   const tasks = useMemo(() => Object.values(tasksByGoal).flat(), [tasksByGoal]);
@@ -221,6 +260,62 @@ export function TasksRoute() {
   const selectedGoal = goals.find((goal) => goal.id === selection.goalId) ?? null;
   const selectedTask = tasks.find((task) => task.id === selection.taskId) ?? null;
   const [draft, setDraft] = useState<TaskDraft>(() => toDraft(null));
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase(locale === 'ru' ? 'ru-RU' : 'en-US');
+  const isSearching = normalizedSearch.length > 0;
+  const selectedCreator = selectedTask ? describeCreator(selectedTask) : null;
+  const canArchiveSelectedTask = selectedTask ? !selectedTask.shared : false;
+  const visiblePlanTree = useMemo<VisibleFolder[]>(() => {
+    return folders
+      .map((folder) => {
+        const allGoals = goalsByFolder[folder.id] ?? [];
+        const folderMatches = isSearching && (
+          matchesQuery(folder.name, normalizedSearch, locale) ||
+          matchesQuery(folder.description, normalizedSearch, locale)
+        );
+        const visibleGoals = allGoals
+          .map((goal) => {
+            const allTasks = tasksByGoal[goal.id] ?? [];
+            const goalMatches = isSearching && (
+              matchesQuery(goal.name, normalizedSearch, locale) ||
+              matchesQuery(goal.description, normalizedSearch, locale)
+            );
+            const visibleTasks = allTasks.filter((task) => {
+              if (!isSearching || folderMatches || goalMatches) {
+                return true;
+              }
+
+              return (
+                matchesQuery(task.title, normalizedSearch, locale) ||
+                matchesQuery(task.description, normalizedSearch, locale) ||
+                matchesQuery(planningCopy.enums.taskStatus[task.status], normalizedSearch, locale) ||
+                matchesQuery(planningCopy.enums.taskType[task.type], normalizedSearch, locale) ||
+                matchesQuery(describeCreator(task), normalizedSearch, locale)
+              );
+            });
+
+            return {
+              goal,
+              tasks: visibleTasks,
+              allTasks,
+              matches: goalMatches,
+            };
+          })
+          .filter((goal) => !isSearching || folderMatches || goal.matches || goal.tasks.length > 0)
+          .map(({ matches, ...goal }) => goal);
+
+        const allTasks = allGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []);
+
+        return {
+          folder,
+          goals: visibleGoals,
+          allGoals,
+          allTasks,
+          matches: folderMatches,
+        };
+      })
+      .filter((folder) => !isSearching || folder.matches || folder.goals.length > 0)
+      .map(({ matches, ...folder }) => folder);
+  }, [folders, goalsByFolder, isSearching, locale, normalizedSearch, planningCopy.enums.taskStatus, planningCopy.enums.taskType, tasksByGoal]);
   const rowCopy = {
     complete: locale === 'ru' ? 'Отметить выполненной' : 'Mark complete',
     reopen: locale === 'ru' ? 'Вернуть в работу' : 'Mark active',
@@ -353,10 +448,10 @@ export function TasksRoute() {
       const updated = await updateTask(authorizedFetch, selectedTask.id, {
         title: draft.title.trim(),
         description: draft.description.trim(),
-        type: selectedTask.type,
+        type: draft.type,
         priority,
         status: draft.status,
-        plannedTime: selectedTask.plannedTime,
+        plannedTime: fromDateTimeInputValue(draft.plannedTime),
         dueTime: fromDateTimeInputValue(draft.dueTime),
         archived: selectedTask.archived,
         version: selectedTask.version,
@@ -392,6 +487,30 @@ export function TasksRoute() {
         [goal.id]: (current[goal.id] ?? []).map((item) => (item.id === updated.id ? updated : item)),
       }));
       setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: updated.id });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleArchiveTask(task: TaskDto, goal: GoalDto) {
+    if (!window.confirm(copy.archiveConfirm)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await deleteTask(authorizedFetch, task.id);
+      const nextGoalTasks = (tasksByGoal[goal.id] ?? []).filter((item) => item.id !== task.id);
+      const nextTaskId = nextGoalTasks[0]?.id ?? null;
+
+      setTasksByGoal((current) => ({
+        ...current,
+        [goal.id]: (current[goal.id] ?? []).filter((item) => item.id !== task.id),
+      }));
+      setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: nextTaskId });
+      if (!nextTaskId) {
+        setIsPanelOpen(false);
+      }
     } finally {
       setSaving(false);
     }
@@ -436,9 +555,42 @@ export function TasksRoute() {
             </div>
           </div>
           <div className="planner-toolbar">
-            <button className="icon-button" type="button" aria-label={copy.search} title={copy.search}>
-              <Search aria-hidden="true" size={18} strokeWidth={1.75} />
-            </button>
+            {isSearchOpen ? (
+              <>
+                <input
+                  className="field__control"
+                  type="search"
+                  value={searchQuery}
+                  aria-label={copy.search}
+                  placeholder={copy.searchPlaceholder}
+                  autoFocus
+                  style={{ minHeight: 40, width: 'min(46vw, 220px)' }}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                />
+                <button
+                  className="icon-button"
+                  type="button"
+                  aria-label={copy.closeSearch}
+                  title={copy.closeSearch}
+                  onClick={() => {
+                    setSearchQuery('');
+                    setIsSearchOpen(false);
+                  }}
+                >
+                  <X aria-hidden="true" size={18} strokeWidth={1.75} />
+                </button>
+              </>
+            ) : (
+              <button
+                className="icon-button"
+                type="button"
+                aria-label={copy.search}
+                title={copy.search}
+                onClick={() => setIsSearchOpen(true)}
+              >
+                <Search aria-hidden="true" size={18} strokeWidth={1.75} />
+              </button>
+            )}
             <div className="create-menu">
               <button
                 className="icon-button"
@@ -481,18 +633,22 @@ export function TasksRoute() {
               {copy.newFolder}
             </button>
           </div>
+        ) : isSearching && visiblePlanTree.length === 0 ? (
+          <div className="planner-empty">
+            <Search aria-hidden="true" size={34} strokeWidth={1.75} />
+            <h2>{copy.noSearchResults}</h2>
+          </div>
         ) : (
           <div className="plan-tree" role="tree" aria-label={copy.plan}>
-            {folders.map((folder) => {
-              const folderGoals = goalsByFolder[folder.id] ?? [];
-              const folderTasks = folderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []);
+            {visiblePlanTree.map(({ folder, goals: folderGoals, allGoals, allTasks: folderTasks }) => {
+              const firstGoal = allGoals[0] ?? null;
 
               return (
                 <div className="plan-tree__group" key={folder.id}>
                   <button
                     type="button"
                     className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.taskId ? ' is-selected' : ''}`}
-                    onClick={() => setSelection({ folderId: folder.id, goalId: folderGoals[0]?.id ?? null, taskId: null })}
+                    onClick={() => setSelection({ folderId: folder.id, goalId: firstGoal?.id ?? null, taskId: null })}
                     role="treeitem"
                     aria-expanded="true"
                   >
@@ -510,21 +666,20 @@ export function TasksRoute() {
                     </span>
                   </button>
 
-                  {folderGoals.length === 0 ? (
+                  {allGoals.length === 0 ? (
                     <button type="button" className="plan-row plan-row--inline" onClick={() => void handleCreateGoal(folder.id)}>
                       <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
                       <span>{copy.addGoal}</span>
                     </button>
                   ) : null}
 
-                  {folderGoals.map((goal) => {
-                    const goalTasks = tasksByGoal[goal.id] ?? [];
+                  {folderGoals.map(({ goal, tasks: goalTasks, allTasks: allGoalTasks }) => {
                     return (
                       <div className="plan-tree__group" key={goal.id}>
                         <button
                           type="button"
                           className={`plan-row plan-row--goal${selection.goalId === goal.id && !selection.taskId ? ' is-selected' : ''}`}
-                          onClick={() => setSelection({ folderId: folder.id, goalId: goal.id, taskId: goalTasks[0]?.id ?? null })}
+                          onClick={() => setSelection({ folderId: folder.id, goalId: goal.id, taskId: allGoalTasks[0]?.id ?? null })}
                           role="treeitem"
                           aria-expanded="true"
                         >
@@ -533,10 +688,10 @@ export function TasksRoute() {
                           <span className="plan-row__main">
                             <span className="plan-row__title">{goal.name}</span>
                             <span className="plan-row__progress" aria-hidden="true">
-                              <span style={{ width: `${progressPercent(goalTasks)}%` }} />
+                              <span style={{ width: `${progressPercent(allGoalTasks)}%` }} />
                             </span>
                           </span>
-                          <span className="plan-row__meta">{progress(goalTasks)}</span>
+                          <span className="plan-row__meta">{progress(allGoalTasks)}</span>
                           <span className="plan-row__actions">
                             <span className="plan-row__icon" title={copy.newTask}>
                               <Plus size={15} strokeWidth={1.75} />
@@ -547,7 +702,7 @@ export function TasksRoute() {
                           </span>
                         </button>
 
-                        {goalTasks.length === 0 ? (
+                        {allGoalTasks.length === 0 ? (
                           <button type="button" className="plan-row plan-row--inline plan-row--task" onClick={() => void handleCreateTask(goal.id)}>
                             <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
                             <span>{copy.addTask}</span>
@@ -560,6 +715,7 @@ export function TasksRoute() {
                           const statusLabel = planningCopy.enums.taskStatus[task.status];
                           const typeLabel = planningCopy.enums.taskType[task.type];
                           const priorityLabel = `${copy.priority} ${task.priority}`;
+                          const canArchiveTask = !task.shared;
 
                           return (
                             <div
@@ -614,15 +770,18 @@ export function TasksRoute() {
                                 >
                                   <Pencil size={14} strokeWidth={1.75} />
                                 </button>
-                                <button
-                                  type="button"
-                                  className="plan-row__icon"
-                                  aria-label={copy.more}
-                                  title={copy.more}
-                                  onClick={() => setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id })}
-                                >
-                                  <MoreHorizontal size={15} strokeWidth={1.75} />
-                                </button>
+                                {canArchiveTask ? (
+                                  <button
+                                    type="button"
+                                    className="plan-row__icon"
+                                    aria-label={copy.archive}
+                                    title={copy.archive}
+                                    disabled={saving}
+                                    onClick={() => void handleArchiveTask(task, goal)}
+                                  >
+                                    <Archive size={15} strokeWidth={1.75} />
+                                  </button>
+                                ) : null}
                               </span>
                             </div>
                           );
@@ -662,11 +821,31 @@ export function TasksRoute() {
                       {formatDateTime(selectedTask.dueTime, locale)}
                     </span>
                   ) : null}
+                  {selectedTask.plannedTime ? (
+                    <span className="meta-chip" title={copy.planned}>
+                      <CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />
+                      {formatDateTime(selectedTask.plannedTime, locale)}
+                    </span>
+                  ) : null}
                 </div>
               </div>
-              <button className="icon-button" type="button" aria-label={copy.collapse} title={copy.collapse} onClick={() => setIsPanelOpen(false)}>
-                <PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} />
-              </button>
+              <div className="cluster" style={{ justifyContent: 'flex-end' }}>
+                {canArchiveSelectedTask ? (
+                  <button
+                    className="icon-button"
+                    type="button"
+                    aria-label={copy.archive}
+                    title={copy.archive}
+                    disabled={saving}
+                    onClick={() => void handleArchiveTask(selectedTask, selectedGoal)}
+                  >
+                    <Archive aria-hidden="true" size={18} strokeWidth={1.75} />
+                  </button>
+                ) : null}
+                <button className="icon-button" type="button" aria-label={copy.collapse} title={copy.collapse} onClick={() => setIsPanelOpen(false)}>
+                  <PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} />
+                </button>
+              </div>
             </header>
 
             <div className="detail-panel__body">
@@ -678,6 +857,16 @@ export function TasksRoute() {
                 </div>
               </div>
 
+              {selectedCreator ? (
+                <div className="detail-section">
+                  <div className="detail-label">{copy.creator}</div>
+                  <div className="breadcrumb">
+                    <UserCircle aria-hidden="true" size={15} strokeWidth={1.75} />
+                    <span>{selectedCreator}</span>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="detail-section">
                 <div className="detail-label">{copy.notes}</div>
                 <div className="detail-note">
@@ -686,7 +875,7 @@ export function TasksRoute() {
                 </div>
               </div>
 
-              <details className="detail-disclosure">
+              <details className="detail-disclosure" open>
                 <summary>{copy.details}</summary>
                 <div className="detail-editor">
                   <label className="field detail-grid__wide">
@@ -696,6 +885,13 @@ export function TasksRoute() {
                   <label className="field detail-grid__wide">
                     <span>{copy.notes}</span>
                     <textarea className="field__control field__control--area" value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
+                  </label>
+                  <label className="field">
+                    <span>{copy.type}</span>
+                    <select className="field__control" value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as TaskType }))}>
+                      <option value="green">{planningCopy.enums.taskType.green}</option>
+                      <option value="red">{planningCopy.enums.taskType.red}</option>
+                    </select>
                   </label>
                   <label className="field">
                     <span>{copy.status}</span>
@@ -710,14 +906,26 @@ export function TasksRoute() {
                     <span>{copy.priority}</span>
                     <input className="field__control" type="number" min={1} max={10} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} />
                   </label>
+                  <label className="field">
+                    <span>{copy.planned}</span>
+                    <input className="field__control" type="datetime-local" value={draft.plannedTime} onChange={(event) => setDraft((current) => ({ ...current, plannedTime: event.target.value }))} />
+                  </label>
                   <label className="field detail-grid__wide">
                     <span>{copy.due}</span>
                     <input className="field__control" type="datetime-local" value={draft.dueTime} onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))} />
                   </label>
-                  <button className="button button--primary detail-save" type="button" disabled={saving} onClick={() => void handleSaveTask()}>
-                    <Save aria-hidden="true" size={16} strokeWidth={1.75} />
-                    <span>{copy.save}</span>
-                  </button>
+                  <div className="cluster detail-grid__wide">
+                    <button className="button button--primary" type="button" disabled={saving} onClick={() => void handleSaveTask()}>
+                      <Save aria-hidden="true" size={16} strokeWidth={1.75} />
+                      <span>{copy.save}</span>
+                    </button>
+                    {canArchiveSelectedTask ? (
+                      <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleArchiveTask(selectedTask, selectedGoal)}>
+                        <Archive aria-hidden="true" size={16} strokeWidth={1.75} />
+                        <span>{copy.archive}</span>
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <dl>
                   <div>

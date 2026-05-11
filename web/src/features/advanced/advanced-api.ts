@@ -8,6 +8,8 @@ import type {
   ShareInvitationActionResponse,
   ShareInvitationDto,
   ShareInvitationListResponse,
+  ShareLinkAcceptResponse,
+  ShareLinkResolveResponse,
   ShareRequestPayload,
   SharedResourcesResponse,
   UpdateSettingsPayload,
@@ -168,6 +170,22 @@ export async function revokeInvitation(authorizedFetch: AuthorizedFetch, invitat
   return requestJson<ShareInvitationActionResponse>(
     authorizedFetch,
     `/shares/invitations/${invitationId}/revoke`,
+    { method: 'POST' },
+  );
+}
+
+export async function resolveShareLink(authorizedFetch: AuthorizedFetch, token: string) {
+  return requestJson<ShareLinkResolveResponse>(
+    authorizedFetch,
+    `/shares/links/${encodeURIComponent(token)}`,
+    { method: 'GET' },
+  );
+}
+
+export async function acceptShareLink(authorizedFetch: AuthorizedFetch, token: string) {
+  return requestJson<ShareLinkAcceptResponse>(
+    authorizedFetch,
+    `/shares/links/${encodeURIComponent(token)}/accept`,
     { method: 'POST' },
   );
 }
