@@ -307,7 +307,6 @@ class PlanningRepository(
             when (task.syncState) {
                 SyncState.PendingCreate -> {
                     val recurrenceJson = task.recurrenceJson
-                    val remindersJson = task.remindersJson
                     val result = authRepository.authorizedPost(
                         session,
                         "/goals/${task.goalId}/tasks",
@@ -317,8 +316,7 @@ class PlanningRepository(
                     val metadataSession = syncTaskMetadata(
                         result.session,
                         remoteTask.id,
-                        recurrenceJson,
-                        remindersJson
+                        recurrenceJson
                     )
                     val refreshed = authRepository.authorizedGet(metadataSession, "/tasks/${remoteTask.id}")
                     localStore.applySyncedTask(userId, task.id, refreshed.value.toTask(shared = task.shared))
@@ -332,11 +330,6 @@ class PlanningRepository(
                     } else {
                         null
                     }
-                    val remindersJson = if (task.remindersJson.differsFromReminders(remoteBefore.value.optJsonArrayString("reminders"))) {
-                        task.remindersJson?.withoutReminderIds()
-                    } else {
-                        null
-                    }
                     val result = authRepository.authorizedPatch(
                         remoteBefore.session,
                         "/tasks/${task.id}",
@@ -345,8 +338,7 @@ class PlanningRepository(
                     val metadataSession = syncTaskMetadata(
                         result.session,
                         task.id,
-                        recurrenceJson,
-                        remindersJson
+                        recurrenceJson
                     )
                     val refreshed = authRepository.authorizedGet(metadataSession, "/tasks/${task.id}")
                     localStore.applySyncedTask(userId, task.id, refreshed.value.toTask(shared = task.shared))
@@ -380,8 +372,7 @@ class PlanningRepository(
     private suspend fun syncTaskMetadata(
         session: AuthSession,
         taskId: String,
-        recurrenceJson: String?,
-        remindersJson: String?
+        recurrenceJson: String?
     ): AuthSession {
         var activeSession = session
         if (!recurrenceJson.isNullOrBlank()) {
@@ -389,15 +380,6 @@ class PlanningRepository(
                 activeSession,
                 "/tasks/$taskId/recurrence",
                 JSONObject(recurrenceJson)
-            )
-            activeSession = result.session
-        }
-        if (!remindersJson.isNullOrBlank()) {
-            val reminders = JSONArray(remindersJson)
-            val result = authRepository.authorizedPut(
-                activeSession,
-                "/tasks/$taskId/reminders",
-                JSONObject().put("reminders", reminders)
             )
             activeSession = result.session
         }
@@ -682,20 +664,6 @@ class PlanningRepository(
         }
     }
 
-    private fun String?.differsFromReminders(remote: String?): Boolean {
-        if (this.isNullOrBlank() && remote.isNullOrBlank()) {
-            return false
-        }
-        if (this.isNullOrBlank() || remote.isNullOrBlank()) {
-            return true
-        }
-        return try {
-            this.withoutReminderIds() != remote.withoutReminderIds()
-        } catch (_: Exception) {
-            this != remote
-        }
-    }
-
     private fun String.recurrenceComparable(): String {
         val recurrence = JSONObject(this)
         return JSONObject()
@@ -709,22 +677,4 @@ class PlanningRepository(
             .toString()
     }
 
-    private fun String.withoutReminderIds(): String {
-        return try {
-            val source = JSONArray(this)
-            val cleaned = JSONArray()
-            for (index in 0 until source.length()) {
-                val reminder = source.getJSONObject(index)
-                cleaned.put(
-                    JSONObject()
-                        .put("mode", reminder.optString("mode"))
-                        .put("offsetMinutes", reminder.optInt("offsetMinutes"))
-                        .put("active", reminder.optBoolean("active", true))
-                )
-            }
-            cleaned.toString()
-        } catch (_: Exception) {
-            this
-        }
-    }
 }

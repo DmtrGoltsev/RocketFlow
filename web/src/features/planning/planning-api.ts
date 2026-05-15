@@ -6,7 +6,6 @@ import type {
   PlanningApiErrorPayload,
   TaskDto,
   TaskRecurrenceUpsertPayload,
-  TaskRemindersReplacePayload,
   TaskUpsertPayload,
 } from './types';
 
@@ -209,17 +208,6 @@ export async function upsertTaskRecurrence(
   payload: TaskRecurrenceUpsertPayload,
 ) {
   return requestJson<{ taskId: string; recurrence: TaskDto['recurrence'] }>(authorizedFetch, `/tasks/${taskId}/recurrence`, {
-    method: 'PUT',
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function replaceTaskReminders(
-  authorizedFetch: AuthorizedFetch,
-  taskId: string,
-  payload: TaskRemindersReplacePayload,
-) {
-  return requestJson<{ taskId: string; reminders: TaskDto['reminders'] }>(authorizedFetch, `/tasks/${taskId}/reminders`, {
     method: 'PUT',
     body: JSON.stringify(payload),
   });

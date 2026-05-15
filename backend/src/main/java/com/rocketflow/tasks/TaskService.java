@@ -63,15 +63,13 @@ public class TaskService {
         Set<UUID> directlySharedTaskIds = sharingAccessService.findSharedTaskIds(taskIds);
         Map<UUID, List<TagDto>> tagsByTaskId = resolveTags(taskIds);
         Map<UUID, RecurrenceDto> recurrenceByTaskId = recurrenceService.findDtos(taskIds);
-        Map<UUID, List<ReminderDto>> remindersByTaskId = reminderService.findDtos(taskIds);
 
         return new TaskListResponse(tasks.stream()
                 .map(task -> toDto(
                         task,
                         tagsByTaskId.getOrDefault(task.getId(), List.of()),
                         goalAccess.shared() || directlySharedTaskIds.contains(task.getId()),
-                        recurrenceByTaskId.get(task.getId()),
-                        remindersByTaskId.getOrDefault(task.getId(), List.of())))
+                        recurrenceByTaskId.get(task.getId())))
                 .toList());
     }
 
@@ -101,8 +99,7 @@ public class TaskService {
                 saved,
                 resolveTags(saved.getId()),
                 goalAccess.shared(),
-                recurrenceService.findDto(saved.getId()),
-                reminderService.findDtos(saved.getId()));
+                recurrenceService.findDto(saved.getId()));
     }
 
     @Transactional(readOnly = true)
@@ -112,8 +109,7 @@ public class TaskService {
                 access.task(),
                 resolveTags(access.task().getId()),
                 access.shared(),
-                recurrenceService.findDto(access.task().getId()),
-                reminderService.findDtos(access.task().getId()));
+                recurrenceService.findDto(access.task().getId()));
     }
 
     @Transactional
@@ -133,8 +129,7 @@ public class TaskService {
                     task,
                     resolveTags(task.getId()),
                     access.shared(),
-                    recurrenceService.findDto(task.getId()),
-                    reminderService.findDtos(task.getId()));
+                    recurrenceService.findDto(task.getId()));
         }
 
         task.setTitle(request.title().trim());
@@ -155,8 +150,7 @@ public class TaskService {
                 saved,
                 resolveTags(saved.getId()),
                 access.shared(),
-                recurrenceService.findDto(saved.getId()),
-                reminderService.findDtos(saved.getId()));
+                recurrenceService.findDto(saved.getId()));
     }
 
     @Transactional
@@ -188,8 +182,7 @@ public class TaskService {
             Task task,
             List<TagDto> tags,
             boolean shared,
-            RecurrenceDto recurrence,
-            List<ReminderDto> reminders
+            RecurrenceDto recurrence
     ) {
         CreatorDetails creator = creatorDetails(task.getCreatorUserId());
         return new TaskDto(
@@ -210,7 +203,7 @@ public class TaskService {
                 task.getVersion(),
                 tags,
                 recurrence,
-                reminders,
+                List.of(),
                 task.getCreatedAt(),
                 task.getUpdatedAt()
         );

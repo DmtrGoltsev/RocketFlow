@@ -12,6 +12,8 @@ import com.rocketflow.companion.notifications.FirebasePushCoordinator
 import com.rocketflow.companion.notifications.NotificationRuntime
 import com.rocketflow.companion.notifications.NotificationsRepository
 import com.rocketflow.companion.notifications.PushTokenStore
+import com.rocketflow.companion.notifications.TaskReminderAlarmScheduler
+import com.rocketflow.companion.notifications.TaskReminderStore
 import com.rocketflow.companion.planning.PlanningLocalStore
 import com.rocketflow.companion.planning.PlanningRepository
 import com.rocketflow.companion.planning.PlanningSyncReason
@@ -34,6 +36,8 @@ class RocketFlowCompanionApp : Application() {
         val notificationRuntime = NotificationRuntime(this)
         val languageStore = LanguageStore(this)
         val pushTokenStore = PushTokenStore(this)
+        val taskReminderStore = TaskReminderStore(this)
+        val taskReminderAlarmScheduler = TaskReminderAlarmScheduler(this, taskReminderStore)
         val firebasePushCoordinator = FirebasePushCoordinator(this, pushTokenStore)
         val planningLocalStore = PlanningLocalStore(this)
         val planningSyncScheduler = PlanningSyncScheduler(this)
@@ -54,9 +58,12 @@ class RocketFlowCompanionApp : Application() {
                 firebasePushCoordinator = firebasePushCoordinator
             ),
             notificationRuntime = notificationRuntime,
+            taskReminderStore = taskReminderStore,
+            taskReminderAlarmScheduler = taskReminderAlarmScheduler,
             firebasePushCoordinator = firebasePushCoordinator,
             planningSyncScheduler = planningSyncScheduler
         )
+        taskReminderAlarmScheduler.rescheduleActive()
         planningSyncScheduler.enqueuePlanningSync(PlanningSyncReason.Startup)
     }
 }
@@ -71,6 +78,8 @@ data class AppContainer(
     val sharingRepository: SharingRepository,
     val notificationsRepository: NotificationsRepository,
     val notificationRuntime: NotificationRuntime,
+    val taskReminderStore: TaskReminderStore,
+    val taskReminderAlarmScheduler: TaskReminderAlarmScheduler,
     val firebasePushCoordinator: FirebasePushCoordinator,
     val planningSyncScheduler: PlanningSyncScheduler
 )

@@ -158,7 +158,7 @@ class RecurrenceReminderIntegrationTest {
     }
 
     @Test
-    void remindersArePersistedExposedAndCanBeCleared() throws Exception {
+    void serverSideTaskReminderEndpointIsGoneAndTaskDtoDoesNotExposeReminders() throws Exception {
         String accessToken = accessToken();
         String taskId = createTask(accessToken, """
                 {
@@ -191,34 +191,17 @@ class RecurrenceReminderIntegrationTest {
                                   ]
                                 }
                                 """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reminders[0].mode").value("before_planned_time"))
-                .andExpect(jsonPath("$.reminders[1].mode").value("before_due_time"));
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.error.code").value("reminders_not_supported"));
 
         mockMvc.perform(get("/api/tasks/" + taskId)
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reminders.length()").value(2));
-
-        mockMvc.perform(put("/api/tasks/" + taskId + "/reminders")
-                        .header("Authorization", "Bearer " + accessToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "reminders": []
-                                }
-                                """))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reminders.length()").value(0));
-
-        mockMvc.perform(get("/api/tasks/" + taskId)
-                        .header("Authorization", "Bearer " + accessToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.reminders.length()").value(0));
+                .andExpect(jsonPath("$.reminders").doesNotExist());
     }
 
     @Test
-    void reminderAnchorValidationRejectsMissingPlannedTime() throws Exception {
+    void serverSideTaskReminderEndpointIsGoneForDueOnlyTasks() throws Exception {
         String accessToken = accessToken();
         String taskId = createTask(accessToken, """
                 {
@@ -246,12 +229,12 @@ class RecurrenceReminderIntegrationTest {
                                   ]
                                 }
                                 """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("validation_error"));
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.error.code").value("reminders_not_supported"));
     }
 
     @Test
-    void ownerTimezoneDrivesWeeklyAnchorsAndEligibilityCalculations() throws Exception {
+    void ownerTimezoneDrivesWeeklyAnchors() throws Exception {
         String accessToken = accessToken();
         String taskId = createTask(accessToken, """
                 {
@@ -280,22 +263,6 @@ class RecurrenceReminderIntegrationTest {
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(put("/api/tasks/" + taskId + "/reminders")
-                        .header("Authorization", "Bearer " + accessToken)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "reminders": [
-                                    {
-                                      "mode": "before_planned_time",
-                                      "offsetMinutes": 60,
-                                      "active": true
-                                    }
-                                  ]
-                                }
-                                """))
-                .andExpect(status().isOk());
-
         UUID taskUuid = UUID.fromString(taskId);
         TaskRecurrenceRule recurrenceRule = recurrenceRuleRepository.findByTaskId(taskUuid).orElseThrow();
         Optional<Instant> nextOccurrence = recurrenceCalculationService.nextOccurrence(
@@ -305,16 +272,6 @@ class RecurrenceReminderIntegrationTest {
         );
         assertTrue(nextOccurrence.isPresent());
         assertEquals(Instant.parse("2026-05-10T21:30:00Z"), nextOccurrence.orElseThrow());
-
-        TaskReminderRule reminderRule = reminderRuleRepository.findByTaskIdOrderBySortOrderAsc(taskUuid).getFirst();
-        Task task = taskRepository.findById(taskUuid).orElseThrow();
-        Optional<Instant> eligibleAt = reminderEligibilityService.calculateEligibleAt(
-                task,
-                reminderRule,
-                ZoneId.of("Europe/Moscow")
-        );
-        assertTrue(eligibleAt.isPresent());
-        assertEquals(Instant.parse("2026-05-03T20:30:00Z"), eligibleAt.orElseThrow());
     }
 
     private String accessToken() throws Exception {

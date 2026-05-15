@@ -51,6 +51,8 @@ import com.rocketflow.companion.notifications.DeviceRegistration
 import com.rocketflow.companion.notifications.NotificationIntents
 import com.rocketflow.companion.notifications.NotificationRuntime
 import com.rocketflow.companion.notifications.PushTokenSnapshot
+import com.rocketflow.companion.notifications.TaskReminderRepeat
+import com.rocketflow.companion.notifications.TaskReminderSetting
 import com.rocketflow.companion.planning.FolderDraft
 import com.rocketflow.companion.planning.GoalDraft
 import com.rocketflow.companion.planning.PlanningFolder
@@ -278,6 +280,8 @@ class MainActivity : Activity() {
     private val planningSyncScheduler by lazy { appContainer.planningSyncScheduler }
     private val notificationsRepository by lazy { appContainer.notificationsRepository }
     private val notificationRuntime by lazy { appContainer.notificationRuntime }
+    private val taskReminderStore by lazy { appContainer.taskReminderStore }
+    private val taskReminderAlarmScheduler by lazy { appContainer.taskReminderAlarmScheduler }
     private val connectivityManager by lazy { getSystemService(ConnectivityManager::class.java) }
     private val zone: ZoneId by lazy { ZoneId.systemDefault() }
 
@@ -365,6 +369,11 @@ class MainActivity : Activity() {
         unregisterNetworkRestore()
         scope.cancel()
         super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        taskReminderAlarmScheduler.rescheduleActive()
     }
 
     override fun onBackPressed() {
@@ -910,7 +919,7 @@ class MainActivity : Activity() {
                 content.addView(propertyRow(c.recurrence, describeRecurrence(task.recurrenceJson), clickable = !task.shared) {
                     showRecurrenceDialog(task)
                 })
-                content.addView(propertyRow(c.reminders, describeReminders(task.remindersJson), clickable = !task.shared) {
+                content.addView(propertyRow(c.reminders, describeLocalReminder(task), clickable = true) {
                     showRemindersDialog(task)
                 })
                 content.addView(propertyRow(c.reschedule, c.later3h, clickable = !task.shared) {
@@ -2319,27 +2328,138 @@ class MainActivity : Activity() {
     }
 
     private fun showRemindersDialog(task: PlanningTask) {
+        val session = currentSession ?: return
         val c = copy()
-        val labels = arrayOf(
-            c.noDate,
-            "15 min ${c.remindersBeforeDue.lowercase(Locale.ROOT)}",
-            "30 min ${c.remindersBeforeDue.lowercase(Locale.ROOT)}",
-            "60 min ${c.remindersBeforeDue.lowercase(Locale.ROOT)}",
-            "30 min ${c.remindersBeforePlanned.lowercase(Locale.ROOT)}"
-        )
-        AlertDialog.Builder(this)
-            .setTitle(c.reminders)
-            .setItems(labels) { _, which ->
-                val reminders = JSONArray()
-                when (which) {
-                    1 -> reminders.put(reminderPayload("before_due_time", 15))
-                    2 -> reminders.put(reminderPayload("before_due_time", 30))
-                    3 -> reminders.put(reminderPayload("before_due_time", 60))
-                    4 -> reminders.put(reminderPayload("before_planned_time", 30))
+        val current = taskReminderStore.read(session.user.id, task.id)
+        var selectedDateTime = current?.triggerAtMillis
+            ?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime() }
+            ?: defaultReminderDateTime(task)
+        var selectedRepeat = current?.repeat ?: TaskReminderRepeat.None
+
+        val selectedTime = TextView(this).apply {
+            textSize = 16f
+            setTextColor(color(Ui.TEXT))
+            setPadding(0, 0, 0, dp(8))
+        }
+        fun updateSelectedTime() {
+            selectedTime.text = formatReminderDateTime(selectedDateTime)
+        }
+        updateSelectedTime()
+
+        val pickTime = Button(this).apply {
+            text = c.pickDate
+            setOnClickListener {
+                pickReminderDateTime(selectedDateTime) { picked ->
+                    selectedDateTime = picked
+                    updateSelectedTime()
                 }
-                saveTask(task.goalId, task, task.toDraft(remindersJson = reminders.toString()))
             }
+        }
+
+        val repeats = listOf(
+            TaskReminderRepeat.None to c.noRecurrence,
+            TaskReminderRepeat.Daily to c.daily,
+            TaskReminderRepeat.Weekly to c.weekly,
+            TaskReminderRepeat.Monthly to c.monthly
+        )
+        val repeatIds = mutableMapOf<Int, TaskReminderRepeat>()
+        val repeatGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            repeats.forEach { (repeat, label) ->
+                val id = View.generateViewId()
+                repeatIds[id] = repeat
+                addView(RadioButton(this@MainActivity).apply {
+                    this.id = id
+                    text = label
+                    textSize = 15f
+                    setTextColor(color(Ui.TEXT))
+                    isChecked = repeat == selectedRepeat
+                })
+            }
+            setOnCheckedChangeListener { _, checkedId ->
+                selectedRepeat = repeatIds[checkedId] ?: TaskReminderRepeat.None
+            }
+        }
+
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), 0)
+            addView(selectedTime)
+            addView(pickTime)
+            addView(TextView(this@MainActivity).apply {
+                text = c.recurrence
+                textSize = 13f
+                setTextColor(color(Ui.MUTED))
+                setPadding(0, dp(14), 0, dp(4))
+            })
+            addView(repeatGroup)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(c.reminders)
+            .setView(form)
+            .setNegativeButton(c.cancel, null)
+            .setNeutralButton(c.clearDate, null)
+            .setPositiveButton(c.save, null)
             .show()
+
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            current?.let(taskReminderAlarmScheduler::cancel)
+            taskReminderStore.clear(session.user.id, task.id)
+            message = c.remindersOff
+            dialog.dismiss()
+            render()
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val triggerAtMillis = selectedDateTime.atZone(zone).toInstant().toEpochMilli()
+            if (triggerAtMillis <= System.currentTimeMillis()) {
+                Toast.makeText(this, reminderFutureTimeMessage(), Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val setting = TaskReminderSetting(
+                userId = session.user.id,
+                taskId = task.id,
+                taskTitle = task.title,
+                triggerAtMillis = triggerAtMillis,
+                repeat = selectedRepeat,
+                enabled = true
+            )
+            current?.let(taskReminderAlarmScheduler::cancel)
+            taskReminderStore.save(setting)
+            val result = taskReminderAlarmScheduler.schedule(setting)
+            message = if (result.exact) c.remindersOn else reminderApproximateMessage()
+            dialog.dismiss()
+            render()
+            if (!notificationRuntime.hasNotificationPermission()) {
+                notificationRuntime.requestNotificationPermission(this)
+            }
+            if (!result.exact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                showExactAlarmSettingsDialog()
+            }
+        }
+    }
+
+    private fun pickReminderDateTime(
+        initial: LocalDateTime,
+        onPicked: (LocalDateTime) -> Unit
+    ) {
+        DatePickerDialog(
+            this,
+            { _, year, month, dayOfMonth ->
+                TimePickerDialog(
+                    this,
+                    { _, hourOfDay, minute ->
+                        onPicked(LocalDateTime.of(year, month + 1, dayOfMonth, hourOfDay, minute))
+                    },
+                    initial.hour,
+                    initial.minute,
+                    true
+                ).show()
+            },
+            initial.year,
+            initial.monthValue - 1,
+            initial.dayOfMonth
+        ).show()
     }
 
     private fun showRescheduleDialog(task: PlanningTask) {
@@ -3612,6 +3732,18 @@ class MainActivity : Activity() {
         return "$prefix, $every, $start"
     }
 
+    private fun describeLocalReminder(task: PlanningTask): String {
+        val userId = currentSession?.user?.id ?: return copy().noDate
+        val setting = taskReminderStore.read(userId, task.id)?.takeIf { it.enabled } ?: return copy().noDate
+        val repeat = when (setting.repeat) {
+            TaskReminderRepeat.None -> null
+            TaskReminderRepeat.Daily -> copy().daily
+            TaskReminderRepeat.Weekly -> copy().weekly
+            TaskReminderRepeat.Monthly -> copy().monthly
+        }
+        return listOfNotNull(formatReminderDateTime(setting.triggerAtMillis), repeat).joinToString(", ")
+    }
+
     private fun describeReminders(raw: String?): String {
         val reminders = raw?.let(::jsonArrayOrNull) ?: return copy().noDate
         if (reminders.length() == 0) return copy().noDate
@@ -3651,6 +3783,59 @@ class MainActivity : Activity() {
             .put("mode", mode)
             .put("offsetMinutes", offsetMinutes)
             .put("active", true)
+    }
+
+    private fun defaultReminderDateTime(task: PlanningTask): LocalDateTime {
+        val taskTime = (task.dueTime ?: task.plannedTime)
+            ?.let(::parseInstant)
+            ?.atZone(zone)
+            ?.toLocalDateTime()
+        val fallback = LocalDateTime.now(zone).plusHours(1)
+        return (taskTime ?: fallback).withSecond(0).withNano(0)
+    }
+
+    private fun formatReminderDateTime(dateTime: LocalDateTime): String {
+        val locale = if (currentLanguage == "en") Locale.ENGLISH else Locale("ru")
+        val pattern = if (currentLanguage == "en") "MMM d, yyyy h:mm a" else "dd.MM.yyyy HH:mm"
+        return DateTimeFormatter.ofPattern(pattern, locale).format(dateTime)
+    }
+
+    private fun formatReminderDateTime(triggerAtMillis: Long): String {
+        return formatReminderDateTime(Instant.ofEpochMilli(triggerAtMillis).atZone(zone).toLocalDateTime())
+    }
+
+    private fun reminderFutureTimeMessage(): String {
+        return if (currentLanguage == "en") {
+            "Choose a future time."
+        } else {
+            "Выберите время в будущем."
+        }
+    }
+
+    private fun reminderApproximateMessage(): String {
+        return if (currentLanguage == "en") {
+            "Reminder saved. Android may deliver it approximately until exact alarms are allowed."
+        } else {
+            "Напоминание сохранено. Android может сработать примерно, пока точные будильники не разрешены."
+        }
+    }
+
+    private fun showExactAlarmSettingsDialog() {
+        val title = if (currentLanguage == "en") "Exact alarms" else "Точные будильники"
+        val body = if (currentLanguage == "en") {
+            "RocketFlow saved the reminder and scheduled a safe fallback. Allow exact alarms in Android settings for alarm-like delivery."
+        } else {
+            "RocketFlow сохранил напоминание и поставил безопасный fallback. Разрешите точные будильники в настройках Android для срабатывания как будильник."
+        }
+        val settings = if (currentLanguage == "en") "Settings" else "Настройки"
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(body)
+            .setNegativeButton(copy().cancel, null)
+            .setPositiveButton(settings) { _, _ ->
+                runCatching { startActivity(taskReminderAlarmScheduler.exactAlarmSettingsIntent()) }
+            }
+            .show()
     }
 
     private fun weekdaySummary(days: JSONArray?): String {
@@ -4225,8 +4410,8 @@ class MainActivity : Activity() {
                 notes = "Заметки",
                 status = "Статус",
                 priority = "Приоритет",
-                planned = "План",
-                due = "Срок",
+                planned = "\u041a\u043e\u0433\u0434\u0430 \u0434\u0435\u043b\u0430\u0442\u044c",
+                due = "\u0414\u0435\u0434\u043b\u0430\u0439\u043d",
                 tags = "Теги",
                 recurrence = "Повтор",
                 noRecurrence = "Без повтора",

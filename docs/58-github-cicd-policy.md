@@ -1,121 +1,69 @@
 # Настройка GitHub CI/CD для RocketFlow
 
-Этот файл сам по себе не выполняется GitHub.
+Этот файл не выполняется GitHub напрямую. Исполняемые сценарии лежат в `.github/workflows/*.yml`.
 
-Исполняемые CI/CD-файлы находятся в `.github/workflows/*.yml`. Этот документ объясняет, что именно выполняют workflow, и какие настройки GitHub нельзя зафиксировать обычным markdown-файлом.
+## Что проверяется автоматически
 
-## Что GitHub выполняет автоматически
+На каждый `push`, `pull_request` и ручной запуск должны проходить проверки:
 
-Эти workflow уже запускаются на каждый `push`, каждый `pull_request`, а также вручную:
+- `backend-verify`: Maven tests backend, Flyway migrations через тесты, сборка backend Docker image, container health smoke против временного PostgreSQL.
+- `web-verify`: установка зависимостей web и `npm run build`.
+- `android-verify`: установка Android SDK packages, `:app:testDebugUnitTest`, `:app:assembleDebug` и `:app:lintDebug`.
 
-- `Backend Verify` / обязательный job `backend-verify`
-  - запускает Maven tests backend;
-  - проверяет Flyway migrations через test suite;
-  - собирает backend Docker image;
-  - запускает container health smoke backend против временного PostgreSQL.
-- `Web Verify` / обязательный job `web-verify`
-  - устанавливает web dependencies;
-  - запускает `npm run build`.
-- `Android Verify` / обязательный job `android-verify`
-  - устанавливает Android SDK packages;
-  - запускает `./gradlew assembleDebug`.
+## Production Deploy
 
-Workflow для production-деплоя тоже является исполняемым, но запускается только вручную:
+Production deploy работает только через HexCore-сервер:
 
-- workflow: `Деплой backend в Yandex Cloud Prod`;
-- trigger: `workflow_dispatch`;
-- GitHub environment: `production`.
+- workflow: `Деплой backend в HexCore Prod`;
+- файл: `.github/workflows/backend-hexcore-prod-deploy.yml`;
+- сервер: `45.10.110.42`;
+- пользователь деплоя: `rocketdeploy`;
+- backend runtime: jar + `systemd`, без Docker;
+- web runtime: статическая сборка Vite через Nginx;
+- backend service: `rocketflow-backend`;
+- health check: `http://45.10.110.42/api/health`.
 
-Production-деплой намеренно не запускается автоматически на каждый `push`.
+Workflow запускается:
 
-## Что нужно применить в настройках GitHub
+- вручную через `workflow_dispatch`;
+- автоматически на `push` в ветку `release_1`.
 
-Защита ветки является настройкой репозитория GitHub, а не обычным файлом в репозитории. Ее нужно применить через GitHub UI, GitHub API, GitHub CLI или инфраструктурный инструмент.
+Это и есть деплой после принятия pull request: PR из `MVP2` вливается в `release_1`, GitHub создаёт push в `release_1`, после чего стартует production deploy. На каждый push в `MVP2` production deploy намеренно не запускается.
 
-Минимальная branch protection для `master`:
+## GitHub Secrets
+
+Для production environment или repository secrets нужны:
+
+- `HEXCORE_PROD_SSH_HOST`: `45.10.110.42`
+- `HEXCORE_PROD_SSH_USER`: `rocketdeploy`
+- `HEXCORE_PROD_SSH_PRIVATE_KEY`: приватный deploy-ключ из `C:\Users\style\.ssh\rocketflow_prod_deploy`
+
+Приватный ключ нельзя коммитить в репозиторий. Его нужно добавить только в GitHub secrets.
+
+## Branch Protection
+
+Минимальная защита для `release_1`:
 
 - требовать status checks перед merge;
 - требовать актуальную ветку перед merge;
-- обязательные checks:
-  - `backend-verify`
-  - `web-verify`
-  - `android-verify`
+- обязательные checks: `backend-verify`, `web-verify`, `android-verify`;
 - запретить force push;
 - запретить удаление ветки;
-- требовать resolution всех conversations.
+- требовать resolution всех conversations;
+- требовать pull request перед merge.
 
-Когда команда начнет стабильно работать через pull requests, нужно дополнительно включить требование pull request перед merge.
+## Нормальный Promotion Flow
 
-## Применить branch protection скриптом
-
-В репозитории есть исполняемый helper:
-
-```powershell
-$env:GITHUB_TOKEN = "<token-with-repository-admin-permission>"
-./scripts/Set-GitHubBranchProtection.ps1
-```
-
-Вариант с обязательными pull requests:
-
-```powershell
-$env:GITHUB_TOKEN = "<token-with-repository-admin-permission>"
-./scripts/Set-GitHubBranchProtection.ps1 -RequirePullRequest
-```
-
-Скрипт вызывает GitHub REST API и применяет обязательные checks:
-
-- `backend-verify`
-- `web-verify`
-- `android-verify`
-
-## Настроить защиту production environment
-
-GitHub environment `production` тоже нужно настроить в GitHub settings:
-
-- требовать ручное approval перед deployment;
-- хранить production secrets в environment `production`, когда это возможно;
-- не раскрывать production secrets для pull request workflows.
-
-Deploy workflow уже содержит `environment: production`, поэтому GitHub сможет применять approvals после настройки environment rule.
-
-## Production secrets
-
-Обязательные secrets:
-
-- `YC_SERVICE_ACCOUNT_KEY_JSON`
-- `YC_CLOUD_ID`
-- `YC_FOLDER_ID`
-- `YC_PROD_REGISTRY_ID`
-- `YC_PROD_BACKEND_INSTANCE_ID`
-- `ROCKETFLOW_PROD_DB_URL`
-- `ROCKETFLOW_PROD_DB_USERNAME`
-- `ROCKETFLOW_PROD_DB_PASSWORD`
-
-Опциональные secrets:
-
-- `ROCKETFLOW_PROD_FCM_CREDENTIALS_JSON`
-
-Рекомендуемые variables:
-
-- `ROCKETFLOW_PROD_ALLOWED_ORIGINS`
-- `ROCKETFLOW_PROD_ALLOWED_ORIGIN_PATTERNS`
-- `ROCKETFLOW_PROD_HEALTH_URL`
-- `ROCKETFLOW_PROD_NOTIFICATIONS_SCHEDULER_ENABLED`
-- `ROCKETFLOW_PROD_NOTIFICATIONS_FCM_ENABLED`
-- `ROCKETFLOW_PROD_FCM_PROJECT_ID`
-
-## Нормальный promotion flow
-
-1. Запушить код в feature branch.
-2. Открыть pull request в `master`.
-3. Дождаться `backend-verify`, `web-verify` и `android-verify`.
-4. Merge делать только после зеленых обязательных checks.
-5. Вручную запустить `Деплой backend в Yandex Cloud Prod`.
-6. Подтвердить зеленый production health check.
+1. Работать в `MVP2`.
+2. Открыть pull request из `MVP2` в `release_1`.
+3. Дождаться зелёных checks: `backend-verify`, `web-verify`, `android-verify`.
+4. Делать merge только после зелёных checks.
+5. После merge GitHub запускает deploy на HexCore.
+6. Workflow выкладывает backend jar и web build.
+7. Workflow проверяет `http://45.10.110.42/api/health` и доступность web root.
 
 ## Текущие ограничения
 
-- Web и Android gates пока являются build-only, а не runtime certification на устройстве/в браузере.
-- Terraform validation все еще требует локальную или CI-установку Terraform.
-- Production HTTPS в этом baseline еще не настроен.
-- Горизонтальное масштабирование backend остается заблокированным, пока scheduler и уведомления не сертифицированы для нескольких инстансов.
+- GitHub secrets и branch protection являются настройками GitHub, а не файлами репозитория.
+- HTTPS ещё не настроен, потому что домен пока не привязан.
+- Android APK для пользователя собирается локально или отдельным release workflow, которого пока нет.

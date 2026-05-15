@@ -6,8 +6,6 @@ import type {
   TaskRecurrenceDraft,
   TaskRecurrenceDto,
   TaskRecurrenceUpsertPayload,
-  TaskReminderDraft,
-  TaskReminderDto,
   TaskStatus,
   TaskTimeAnchor,
   TaskType,
@@ -28,7 +26,6 @@ export interface TaskEditorDraft {
   plannedTime: string;
   dueTime: string;
   recurrence: TaskRecurrenceDraft;
-  reminders: TaskReminderDraft[];
 }
 
 export function toDateTimeInputValue(value: string | null) {
@@ -124,19 +121,6 @@ function detectAnchor(plannedTime: string | null, dueTime: string | null, startA
   return 'planned';
 }
 
-function createReminderClientId(index: number) {
-  return `reminder-${index + 1}`;
-}
-
-export function createDefaultReminderDraft(index: number): TaskReminderDraft {
-  return {
-    clientId: createReminderClientId(index),
-    mode: 'before_planned_time',
-    offsetMinutes: '30',
-    active: true,
-  };
-}
-
 export function createDefaultRecurrenceDraft(plannedTime: string | null, dueTime: string | null): TaskRecurrenceDraft {
   return {
     enabled: false,
@@ -165,19 +149,6 @@ export function toTaskRecurrenceDraft(task: TaskDto | null): TaskRecurrenceDraft
   };
 }
 
-export function toTaskReminderDrafts(task: TaskDto | null): TaskReminderDraft[] {
-  if (!task || task.reminders.length === 0) {
-    return [];
-  }
-
-  return task.reminders.map((reminder, index) => ({
-    clientId: reminder.id || createReminderClientId(index),
-    mode: reminder.mode,
-    offsetMinutes: String(reminder.offsetMinutes),
-    active: reminder.active,
-  }));
-}
-
 export function toTaskEditorDraft(task: TaskDto | null): TaskEditorDraft {
   return {
     title: task?.title ?? '',
@@ -188,7 +159,6 @@ export function toTaskEditorDraft(task: TaskDto | null): TaskEditorDraft {
     plannedTime: toDateTimeInputValue(task?.plannedTime ?? null),
     dueTime: toDateTimeInputValue(task?.dueTime ?? null),
     recurrence: toTaskRecurrenceDraft(task),
-    reminders: toTaskReminderDrafts(task),
   };
 }
 
@@ -233,16 +203,6 @@ export function toTaskRecurrenceUpsertPayload(draft: TaskEditorDraft): TaskRecur
   };
 }
 
-export function toTaskRemindersReplacePayload(draft: TaskEditorDraft) {
-  return {
-    reminders: draft.reminders.map((reminder) => ({
-      mode: reminder.mode,
-      offsetMinutes: Number(reminder.offsetMinutes),
-      active: reminder.active,
-    })),
-  };
-}
-
 function formatWeekdays(daysOfWeek: DayOfWeek[], locale: 'ru' | 'en') {
   if (daysOfWeek.length === 0) {
     return locale === 'ru' ? 'дни не выбраны' : 'no weekdays selected';
@@ -280,20 +240,4 @@ export function describeRecurrence(recurrence: TaskRecurrenceDto | null, locale:
   return locale === 'ru'
     ? `Ежемесячно: день ${recurrence.dayOfMonth ?? '?'}, каждые ${recurrence.interval}, старт ${start}, ${end}`
     : `Monthly: day ${recurrence.dayOfMonth ?? '?'}, every ${recurrence.interval}, starts ${start}, ${end}`;
-}
-
-export function describeReminders(reminders: TaskReminderDto[], locale: 'ru' | 'en') {
-  if (reminders.length === 0) {
-    return locale === 'ru' ? 'Не настроены' : 'Not configured';
-  }
-
-  return reminders.map((reminder) => {
-    const modeLabel = reminder.mode === 'before_due_time'
-      ? (locale === 'ru' ? 'до срока' : 'before due time')
-      : (locale === 'ru' ? 'до плана' : 'before planned time');
-    const activeLabel = reminder.active ? '' : locale === 'ru' ? ' (приостановлено)' : ' (paused)';
-    return locale === 'ru'
-      ? `${reminder.offsetMinutes} мин ${modeLabel}${activeLabel}`
-      : `${reminder.offsetMinutes} min ${modeLabel}${activeLabel}`;
-  }).join('; ');
 }

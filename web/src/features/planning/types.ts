@@ -2,7 +2,6 @@ export type TaskType = 'green' | 'red';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
 export type DayOfWeek = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
 export type TaskRecurrenceMode = 'daily' | 'weekly' | 'monthly';
-export type TaskReminderMode = 'before_planned_time' | 'before_due_time';
 export type TaskTimeAnchor = 'planned' | 'due';
 
 export interface FolderDto {
@@ -34,13 +33,6 @@ export interface TaskTagDto {
   color: string;
 }
 
-export interface TaskReminderDto {
-  id: string;
-  mode: TaskReminderMode;
-  offsetMinutes: number;
-  active: boolean;
-}
-
 export interface TaskRecurrenceDto {
   mode: TaskRecurrenceMode;
   interval: number;
@@ -69,7 +61,6 @@ export interface TaskDto {
   version: number;
   tags: TaskTagDto[];
   recurrence: TaskRecurrenceDto | null;
-  reminders: TaskReminderDto[];
   createdAt: string;
   updatedAt: string;
 }
@@ -111,16 +102,6 @@ export interface TaskRecurrenceUpsertPayload {
   active: boolean;
 }
 
-export interface TaskReminderUpsertPayload {
-  mode: TaskReminderMode;
-  offsetMinutes: number;
-  active: boolean;
-}
-
-export interface TaskRemindersReplacePayload {
-  reminders: TaskReminderUpsertPayload[];
-}
-
 export interface TaskRecurrenceDraft {
   enabled: boolean;
   active: boolean;
@@ -129,13 +110,6 @@ export interface TaskRecurrenceDraft {
   anchor: TaskTimeAnchor;
   daysOfWeek: DayOfWeek[];
   endAt: string;
-}
-
-export interface TaskReminderDraft {
-  clientId: string;
-  mode: TaskReminderMode;
-  offsetMinutes: string;
-  active: boolean;
 }
 
 export interface ApiErrorDetail {

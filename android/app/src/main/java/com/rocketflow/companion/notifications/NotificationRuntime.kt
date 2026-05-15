@@ -28,7 +28,7 @@ class NotificationRuntime(private val context: Context) {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "RocketFlow task reminders",
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Reminder notifications for RocketFlow companion tasks."
         }
@@ -78,6 +78,9 @@ class NotificationRuntime(private val context: Context) {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .build()
 
@@ -87,6 +90,6 @@ class NotificationRuntime(private val context: Context) {
 
     companion object {
         const val REQUEST_CODE = 4312
-        const val CHANNEL_ID = "rocketflow.task.reminders"
+        const val CHANNEL_ID = "rocketflow.task.alarms"
     }
 }

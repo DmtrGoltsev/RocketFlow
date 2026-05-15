@@ -228,7 +228,7 @@ class NotificationDeliveryIntegrationTest {
     }
 
     @Test
-    void sharedTaskReminderTargetsOwnerDeviceOnlyAndDoesNotDuplicate() throws Exception {
+    void serverSideTaskReminderEndpointIsDisabledAndNoDeliveryRuns() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
         Session collaborator = registerAndLogin("collaborator@example.com", "Collaborator");
 
@@ -261,7 +261,8 @@ class NotificationDeliveryIntegrationTest {
                                   ]
                                 }
                                 """))
-                .andExpect(status().isOk());
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.error.code").value("reminders_not_supported"));
 
         String invitationId = read(mockMvc.perform(post("/api/tasks/" + taskId + "/share")
                         .header("Authorization", "Bearer " + owner.accessToken())
@@ -280,34 +281,26 @@ class NotificationDeliveryIntegrationTest {
                         .header("Authorization", "Bearer " + collaborator.accessToken()))
                 .andExpect(status().isOk());
 
-        String ownerDeviceId = read(registerDevice(owner.accessToken(), "owner-token", "Owner Pixel"), "/id");
+        registerDevice(owner.accessToken(), "owner-token", "Owner Pixel");
         registerDevice(collaborator.accessToken(), "collab-token", "Collaborator Pixel");
 
         NotificationDeliveryService.DeliveryRunSummary summary =
                 notificationDeliveryService.processDueReminders(Instant.parse("2026-05-01T09:00:00Z"));
-        assertEquals(1, summary.sent());
+        assertEquals(0, summary.sent());
         assertEquals(0, summary.failed());
+        assertEquals(0, summary.skipped());
 
         List<NotificationDelivery> deliveries = notificationDeliveryRepository.findAllByOrderByCreatedAtAsc();
-        assertEquals(1, deliveries.size());
-        assertEquals("sent", deliveries.getFirst().getStatus());
-        assertEquals(UUID.fromString(taskId), deliveries.getFirst().getTaskId());
-        assertEquals(UUID.fromString(ownerDeviceId), deliveries.getFirst().getDeviceRegistrationId());
-
-        assertEquals(1, testFcmSender.sentMessages.size());
-        SentMessage sentMessage = testFcmSender.sentMessages.getFirst();
-        assertEquals("owner-token", sentMessage.pushToken());
-        assertEquals("task_reminder", sentMessage.payload().data().get("type"));
-        assertEquals(taskId, sentMessage.payload().data().get("taskId"));
+        assertEquals(0, deliveries.size());
+        assertEquals(0, testFcmSender.sentMessages.size());
 
         notificationDeliveryService.processDueReminders(Instant.parse("2026-05-01T09:00:00Z"));
-        assertEquals(1, notificationDeliveryRepository.findAllByOrderByCreatedAtAsc().size());
-        assertEquals(1, testFcmSender.sentMessages.size());
-        assertFalse(testFcmSender.sentMessages.stream().anyMatch(message -> "collab-token".equals(message.pushToken())));
+        assertEquals(0, notificationDeliveryRepository.findAllByOrderByCreatedAtAsc().size());
+        assertEquals(0, testFcmSender.sentMessages.size());
     }
 
     @Test
-    void failedDeliveryIsLoggedWithProviderResponse() throws Exception {
+    void disabledServerSideTaskReminderEndpointDoesNotCreateFailedDeliveries() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
         String folderId = createFolder(owner.accessToken());
         String goalId = read(createGoal(owner.accessToken(), folderId, "Ops", "Delivery checks"), "/id");
@@ -338,7 +331,8 @@ class NotificationDeliveryIntegrationTest {
                                   ]
                                 }
                                 """))
-                .andExpect(status().isOk());
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.error.code").value("reminders_not_supported"));
 
         registerDevice(owner.accessToken(), "broken-token", "Broken Pixel");
         testFcmSender.failToken("broken-token");
@@ -346,13 +340,12 @@ class NotificationDeliveryIntegrationTest {
         NotificationDeliveryService.DeliveryRunSummary summary =
                 notificationDeliveryService.processDueReminders(Instant.parse("2026-05-01T10:00:00Z"));
         assertEquals(0, summary.sent());
-        assertEquals(1, summary.failed());
+        assertEquals(0, summary.failed());
+        assertEquals(0, summary.skipped());
 
         List<NotificationDelivery> deliveries = notificationDeliveryRepository.findAllByOrderByCreatedAtAsc();
-        assertEquals(1, deliveries.size());
-        assertEquals("failed", deliveries.getFirst().getStatus());
-        assertEquals(Instant.parse("2026-05-01T10:00:00Z"), deliveries.getFirst().getAttemptedAt());
-        assertEquals("simulated_failure", deliveries.getFirst().getProviderResponse());
+        assertEquals(0, deliveries.size());
+        assertEquals(0, testFcmSender.sentMessages.size());
     }
 
     private String registerDevice(String accessToken, String pushToken, String deviceName) throws Exception {

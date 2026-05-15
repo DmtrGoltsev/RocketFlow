@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.rocketflow.accounts.CurrentUserService;
 import com.rocketflow.calendar.TaskScheduleService;
+import com.rocketflow.common.ApiException;
 
 import jakarta.validation.Valid;
 
@@ -82,7 +83,12 @@ public class TaskController {
             @PathVariable String taskId,
             @Valid @RequestBody ReplaceRemindersRequest request
     ) {
-        return taskService.replaceReminders(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(taskId), request);
+        taskService.requireTaskOwner(UUID.fromString(taskId), currentUserService.requireAuthenticatedUser().userId());
+        throw new ApiException(
+                HttpStatus.GONE,
+                "reminders_not_supported",
+                "Task reminder schedules are local Android device settings; the backend stores only task deadlines."
+        );
     }
 
     @PostMapping("/tasks/{taskId}/move")

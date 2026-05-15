@@ -41,5 +41,5 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Run Android build-only assembleDebug gate
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Run Android unit, build and lint gate
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --no-daemon

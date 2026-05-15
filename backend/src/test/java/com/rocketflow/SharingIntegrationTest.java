@@ -299,7 +299,8 @@ class SharingIntegrationTest {
                                   ]
                                 }
                                 """))
-                .andExpect(status().isOk());
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.error.code").value("reminders_not_supported"));
 
         String collaboratorCreatedTaskId = read(mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
                         .header("Authorization", "Bearer " + collaborator.accessToken())
@@ -341,7 +342,7 @@ class SharingIntegrationTest {
                 .andExpect(jsonPath("$.tasks[0].shared").value(true))
                 .andExpect(jsonPath("$.tasks[0].creatorEmail").value("owner@example.com"))
                 .andExpect(jsonPath("$.tasks[0].recurrence.mode").value("weekly"))
-                .andExpect(jsonPath("$.tasks[0].reminders[0].mode").value("before_planned_time"))
+                .andExpect(jsonPath("$.tasks[0].reminders").doesNotExist())
                 .andExpect(jsonPath("$.createTaskGoalIds[0]").value(goalId));
     }
 

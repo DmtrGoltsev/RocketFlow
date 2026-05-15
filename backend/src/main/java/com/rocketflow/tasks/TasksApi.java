@@ -13,6 +13,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 public final class TasksApi {
 
     private TasksApi() {
@@ -58,6 +60,7 @@ public final class TasksApi {
             long version,
             List<TagDto> tags,
             RecurrenceDto recurrence,
+            @JsonIgnore
             List<ReminderDto> reminders,
             Instant createdAt,
             Instant updatedAt

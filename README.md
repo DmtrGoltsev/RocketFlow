@@ -56,7 +56,6 @@ Current verification status:
 - backend `NotificationDeliveryIntegrationTest` is green after the logical-device upsert repair on `2026-04-27`
 - backend container baseline now exists via `backend/Dockerfile` and `backend/.dockerignore`
 - local `rocketflow-backend:latest` build is proven, and the backend container reaches `/actuator/health = UP` against a temporary `postgres:16` smoke runtime
-- backend publish destination is now fixed to `GHCR`, and `.github/workflows/backend-image-publish.yml` prepares a manual `ghcr.io/<owner>/rocketflow-backend` publish path
 - local end-to-end notification runtime proof `reminder -> push -> tap -> task open` is green on the owned backend + emulator path from `docs/50-notification-runtime-clean-pass.md`
 - GitHub Actions `backend-verify` now runs backend tests, backend image build, and a temporary `postgres:16`-backed container health smoke
 - GitHub Actions `web-verify` and `android-verify` exist as repository gates
@@ -76,7 +75,7 @@ Current notification/runtime status:
 - repo-backed owned-runtime startup now has a canonical entrypoint in `scripts/Start-NotificationSmokeBackend.ps1`
 - repo-backed smoke-task provisioning and backend outcome capture now have a canonical helper in `scripts/Invoke-NotificationSmokeTask.ps1`
 - repo-backed backend container smoke now also has a canonical helper in `scripts/Invoke-BackendDockerRuntimeSmoke.ps1`, reused by CI/publish automation
-- Production baseline для Yandex Cloud описан в `docs/57-yandex-cloud-prod-infra.md`
+- Production baseline для HexCore описан в `docs/60-hexcore-prod-runbook.md`
 - GitHub CI/CD policy и обязательные branch protection checks описаны в `docs/58-github-cicd-policy.md`
 
 Known readiness limits:
