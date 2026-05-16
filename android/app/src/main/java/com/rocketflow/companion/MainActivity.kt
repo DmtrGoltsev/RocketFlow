@@ -109,6 +109,10 @@ class MainActivity : Activity() {
         const val INK = "#171713"
     }
 
+    private object AuthRules {
+        const val MIN_PASSWORD_LENGTH = 8
+    }
+
     private enum class Screen {
         Auth,
         Planner,
@@ -206,6 +210,9 @@ class MainActivity : Activity() {
         val signedOut: String,
         val signInAgain: String,
         val requestFailed: String,
+        val invalidCredentials: String,
+        val passwordTooShort: String,
+        val emailAlreadyExists: String,
         val loading: String,
         val noGoalYet: String,
         val noTaskYet: String,
@@ -474,6 +481,11 @@ class MainActivity : Activity() {
                 val displayName = name.text.toString().trim().ifBlank { "RocketFlow" }
                 if (registerEmail.isBlank() || registerPassword.isBlank()) {
                     message = c.signInAgain
+                    render()
+                    return@setPositiveButton
+                }
+                if (registerPassword.length < AuthRules.MIN_PASSWORD_LENGTH) {
+                    message = c.passwordTooShort
                     render()
                     return@setPositiveButton
                 }
@@ -4108,14 +4120,40 @@ class MainActivity : Activity() {
     }
 
     private fun humanError(error: Exception): String {
-        if (isTerminalSessionFailure(error)) return copy().signInAgain
         return when (error) {
-            is ApiException -> when (error.status) {
-                401 -> copy().signInAgain
-                else -> copy().requestFailed
+            is ApiException -> {
+                localizedApiError(error)
+                    ?: if (isTerminalSessionFailure(error)) {
+                        copy().signInAgain
+                    } else {
+                        when (error.status) {
+                            401 -> copy().signInAgain
+                            else -> copy().requestFailed
+                        }
+                    }
             }
             else -> humanText(error.message)
         }
+    }
+
+    private fun localizedApiError(error: ApiException): String? {
+        val c = copy()
+        if (
+            error.code == "authentication_failed" &&
+            "email or password" in error.message.lowercase(Locale.ROOT)
+        ) {
+            return c.invalidCredentials
+        }
+        if (error.code == "validation_error") {
+            val passwordError = error.fieldErrors["password"].orEmpty().lowercase(Locale.ROOT)
+            if ("8" in passwordError || "size" in passwordError) {
+                return c.passwordTooShort
+            }
+        }
+        if (error.status == 409 && "email" in error.message.lowercase(Locale.ROOT)) {
+            return c.emailAlreadyExists
+        }
+        return null
     }
 
     private fun humanText(raw: String?): String {
@@ -4315,6 +4353,9 @@ class MainActivity : Activity() {
                 signedOut = "Signed out",
                 signInAgain = "Sign in again to continue.",
                 requestFailed = "Request failed.",
+                invalidCredentials = "Invalid email or password.",
+                passwordTooShort = "Password must be at least 8 characters.",
+                emailAlreadyExists = "An account with this email already exists.",
                 loading = "Loading...",
                 noGoalYet = "No goals yet",
                 noTaskYet = "No tasks yet",
@@ -4469,6 +4510,9 @@ class MainActivity : Activity() {
                 signedOut = "Сессия завершена",
                 signInAgain = "Войдите снова, чтобы продолжить.",
                 requestFailed = "Запрос не выполнен.",
+                invalidCredentials = "\u041d\u0435\u0432\u0435\u0440\u043d\u044b\u0439 email \u0438\u043b\u0438 \u043f\u0430\u0440\u043e\u043b\u044c.",
+                passwordTooShort = "\u041f\u0430\u0440\u043e\u043b\u044c \u0434\u043e\u043b\u0436\u0435\u043d \u0431\u044b\u0442\u044c \u043d\u0435 \u043a\u043e\u0440\u043e\u0447\u0435 8 \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432.",
+                emailAlreadyExists = "\u0410\u043a\u043a\u0430\u0443\u043d\u0442 \u0441 \u0442\u0430\u043a\u0438\u043c email \u0443\u0436\u0435 \u0435\u0441\u0442\u044c.",
                 loading = "Загрузка...",
                 noGoalYet = "Целей пока нет",
                 noTaskYet = "Задач пока нет",
