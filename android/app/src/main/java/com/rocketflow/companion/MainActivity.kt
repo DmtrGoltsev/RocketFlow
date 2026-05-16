@@ -24,6 +24,7 @@ import android.text.TextUtils
 import android.text.method.HideReturnsTransformationMethod
 import android.text.method.TransformationMethod
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -463,7 +464,7 @@ class MainActivity : Activity() {
         val email = dialogInput(
             c.email,
             emailInput?.text?.toString().orEmpty(),
-            inputTypeOverride = stableTextInputType(),
+            inputTypeOverride = emailInputType(),
             imeOptionsOverride = EditorInfo.IME_ACTION_NEXT
         )
         val password = dialogInput(c.password, "", isPassword = true)
@@ -670,7 +671,7 @@ class MainActivity : Activity() {
             setText(emailDraft)
             styleInput()
             applyInputOptions(
-                inputType = stableTextInputType(),
+                inputType = emailInputType(),
                 imeOptions = EditorInfo.IME_ACTION_NEXT
             )
             setSelection(text?.length ?: 0)
@@ -1811,7 +1812,7 @@ class MainActivity : Activity() {
         val input = dialogInput(
             hint = if (byEmail) c.email else c.userIdField,
             value = "",
-            inputTypeOverride = stableTextInputType(),
+            inputTypeOverride = if (byEmail) emailInputType() else stableTextInputType(),
             imeOptionsOverride = EditorInfo.IME_ACTION_DONE
         )
 
@@ -2013,7 +2014,7 @@ class MainActivity : Activity() {
         val input = dialogInput(
             c.tokenField,
             "",
-            inputTypeOverride = stableTextInputType()
+            inputTypeOverride = codeInputType()
         )
         AlertDialog.Builder(this)
             .setTitle(c.acceptLink)
@@ -2286,7 +2287,7 @@ class MainActivity : Activity() {
         val colorInput = dialogInput(
             c.colorField,
             "#2F6B57",
-            inputTypeOverride = stableTextInputType()
+            inputTypeOverride = codeInputType()
         )
         val beforeIds = taskTags.map { it.id }.toSet()
         AlertDialog.Builder(this)
@@ -3269,37 +3270,57 @@ class MainActivity : Activity() {
 
     private fun dateTimeField(label: String, initialIso: String?): DateTimeField {
         var value = parseInstant(initialIso)?.atZone(zone)?.toLocalDateTime()
-        lateinit var pickerButton: Button
-        lateinit var clearButton: Button
+        val c = copy()
+        lateinit var pickerLabel: TextView
+        lateinit var clearButton: ImageButton
 
         fun buttonText(): String {
-            val formatted = value?.let { formatDateTime(it.atZone(zone).toInstant().toString()) } ?: copy().noDate
+            val formatted = value?.let { formatDateTime(it.atZone(zone).toInstant().toString()) } ?: c.noDate
             return "$label: $formatted"
         }
 
         fun updateButtons() {
-            pickerButton.text = buttonText()
-            clearButton.visibility = if (value == null) View.GONE else View.VISIBLE
+            pickerLabel.text = buttonText()
+            clearButton.visibility = if (value == null) View.INVISIBLE else View.VISIBLE
+            clearButton.isEnabled = value != null
         }
 
         val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            pickerButton = textButton(buttonText(), quiet = true) {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(48)
+            ).apply { topMargin = dp(10) }
+            pickerLabel = TextView(context).apply {
+                text = buttonText()
+                textSize = 14.5f
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                setTextColor(color(Ui.TEXT))
+                background = roundedDrawable("#00FFFFFF", strokeColorHex = Ui.HAIRLINE, radiusDp = 8)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            }
+            setOnClickListener {
+                hideKeyboardAndClearFocus()
                 pickDateTime(value ?: LocalDateTime.now(zone).plusHours(1).withMinute(0).withSecond(0).withNano(0)) {
                     value = it
                     updateButtons()
                 }
             }
-            addView(pickerButton)
-            clearButton = textButton(copy().clearDate, quiet = true) {
+            addView(pickerLabel)
+            clearButton = iconButton(R.drawable.ic_delete, c.clearDate) {
+                hideKeyboardAndClearFocus()
                 value = null
                 updateButtons()
             }.apply {
-                visibility = if (value == null) View.GONE else View.VISIBLE
+                setColorFilter(color(Ui.DANGER))
+                visibility = if (value == null) View.INVISIBLE else View.VISIBLE
+                isEnabled = value != null
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(38)
-                ).apply { topMargin = dp(4) }
+                    dp(44),
+                    dp(44)
+                ).apply { leftMargin = dp(6) }
             }
             addView(clearButton)
         }
@@ -3374,14 +3395,19 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun dialogForm(vararg inputs: View): LinearLayout {
-        return LinearLayout(this).apply {
+    private fun dialogForm(vararg inputs: View): ScrollView {
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
             inputs.forEach { input ->
                 (input.parent as? ViewGroup)?.removeView(input)
                 addView(input)
             }
+        }
+        return ScrollView(this).apply {
+            isFillViewport = false
+            addView(content)
+            hideKeyboardWhenTouchingOutsideInputs()
         }
     }
 
@@ -3505,6 +3531,16 @@ class MainActivity : Activity() {
 
     private fun stableTextInputType(): Int {
         return InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+            InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+    }
+
+    private fun emailInputType(): Int {
+        return InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+    }
+
+    private fun codeInputType(): Int {
+        return InputType.TYPE_CLASS_TEXT or
             InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
             InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
     }
@@ -3527,6 +3563,22 @@ class MainActivity : Activity() {
             LocaleList(Locale("ru", "RU"), Locale.US)
         }
         showSoftInputOnFocus = true
+    }
+
+    private fun View.hideKeyboardWhenTouchingOutsideInputs() {
+        setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_DOWN) {
+                val focused = currentFocus
+                if (focused is EditText) {
+                    val focusedBounds = Rect()
+                    focused.getGlobalVisibleRect(focusedBounds)
+                    if (!focusedBounds.contains(event.rawX.toInt(), event.rawY.toInt())) {
+                        hideKeyboardAndClearFocus(focused)
+                    }
+                }
+            }
+            false
+        }
     }
 
     private fun focusDialogInput(dialog: AlertDialog, input: EditText) {
@@ -3660,6 +3712,16 @@ class MainActivity : Activity() {
         }
         getSystemService(InputMethodManager::class.java)
             ?.showSoftInput(view, InputMethodManager.SHOW_FORCED)
+    }
+
+    private fun hideKeyboardAndClearFocus(view: View? = currentFocus) {
+        val focused = view ?: window.decorView
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            focused.windowInsetsController?.hide(WindowInsets.Type.ime())
+        }
+        getSystemService(InputMethodManager::class.java)
+            ?.hideSoftInputFromWindow(focused.windowToken, 0)
+        focused.clearFocus()
     }
 
     private fun filteredFolders(): List<PlanningFolder> {
@@ -4061,7 +4123,13 @@ class MainActivity : Activity() {
     }
 
     private fun shareLinkText(token: String): String {
-        return "${BuildConfig.ROCKETFLOW_API_BASE_URL.trimEnd('/')}/shares/links/$token"
+        return "${rocketFlowWebBaseUrl()}/app/sharing?token=${Uri.encode(token)}"
+    }
+
+    private fun rocketFlowWebBaseUrl(): String {
+        return BuildConfig.ROCKETFLOW_API_BASE_URL
+            .trimEnd('/')
+            .removeSuffix("/api")
     }
 
     private fun copyToClipboard(label: String, value: String) {

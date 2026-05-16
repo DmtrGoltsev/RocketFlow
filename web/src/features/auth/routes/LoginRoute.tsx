@@ -51,6 +51,14 @@ function resolveNoticeMessage(
   return null;
 }
 
+function resolveNextPath(raw: string | null) {
+  return raw?.startsWith('/') && !raw.startsWith('//') ? raw : '/app';
+}
+
+function authRouteWithNext(path: string, nextPath: string) {
+  return nextPath === '/app' ? path : `${path}?next=${encodeURIComponent(nextPath)}`;
+}
+
 export function LoginRoute() {
   const { t } = useI18n();
   const { status, login, notice, clearNotice } = useAuth();
@@ -64,6 +72,7 @@ export function LoginRoute() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const nextPath = resolveNextPath(searchParams.get('next'));
 
   useEffect(() => {
     return () => {
@@ -72,7 +81,6 @@ export function LoginRoute() {
   }, [clearNotice]);
 
   if (status === 'authenticated') {
-    const nextPath = searchParams.get('next') ?? '/app';
     return <Navigate to={nextPath} replace />;
   }
 
@@ -93,7 +101,7 @@ export function LoginRoute() {
 
     try {
       const nextSession = await login(formState);
-      navigate(searchParams.get('next') ?? '/app', {
+      navigate(nextPath, {
         replace: true,
         state: {
           from: location.pathname,
@@ -119,7 +127,7 @@ export function LoginRoute() {
         subtitle={t('auth.login.subtitle')}
         alternatePrompt={t('auth.login.alternatePrompt')}
         alternateAction={t('auth.login.alternateAction')}
-        alternateTo="/auth/register"
+        alternateTo={authRouteWithNext('/auth/register', nextPath)}
       >
         <form className="stack" onSubmit={handleSubmit}>
           <label className="field">

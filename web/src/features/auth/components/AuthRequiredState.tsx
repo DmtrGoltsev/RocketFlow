@@ -5,9 +5,11 @@ import { useI18n } from '../../../i18n';
 
 interface AuthRequiredStateProps {
   sessionEnded?: boolean;
+  loginTo?: string;
+  registerTo?: string;
 }
 
-export function AuthRequiredState({ sessionEnded = false }: AuthRequiredStateProps) {
+export function AuthRequiredState({ sessionEnded = false, loginTo = '/auth/login', registerTo = '/auth/register' }: AuthRequiredStateProps) {
   const { t } = useI18n();
 
   return (
@@ -24,11 +26,11 @@ export function AuthRequiredState({ sessionEnded = false }: AuthRequiredStatePro
         </p>
       </div>
       <div className="entry-actions">
-        <Link className="button button--primary" to="/auth/login">
+        <Link className="button button--primary" to={loginTo}>
           {t('app.signIn')}
         </Link>
-        <Link className="button button--ghost" to="/">
-          {t('routes.home.label')}
+        <Link className="button button--ghost" to={registerTo}>
+          {t('auth.login.alternateAction')}
         </Link>
       </div>
     </section>

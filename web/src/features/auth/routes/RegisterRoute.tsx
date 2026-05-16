@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useI18n } from '../../../i18n';
 import { AuthCard } from '../components/AuthCard';
@@ -40,10 +40,19 @@ function validateForm(state: RegisterFormState, t: ReturnType<typeof useI18n>['t
   return nextErrors;
 }
 
+function resolveNextPath(raw: string | null) {
+  return raw?.startsWith('/') && !raw.startsWith('//') ? raw : '/app';
+}
+
+function authRouteWithNext(path: string, nextPath: string) {
+  return nextPath === '/app' ? path : `${path}?next=${encodeURIComponent(nextPath)}`;
+}
+
 export function RegisterRoute() {
   const { t, locale, setLocale } = useI18n();
   const { status, register } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [formState, setFormState] = useState<RegisterFormState>({
     email: '',
     password: '',
@@ -54,9 +63,10 @@ export function RegisterRoute() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const nextPath = resolveNextPath(searchParams.get('next'));
 
   if (status === 'authenticated') {
-    return <Navigate to="/app" replace />;
+    return <Navigate to={nextPath} replace />;
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -75,7 +85,7 @@ export function RegisterRoute() {
     try {
       const nextSession = await register(formState);
       setLocale(nextSession.user.language);
-      navigate('/app', { replace: true });
+      navigate(nextPath, { replace: true });
     } catch (error) {
       const mapped = mapAuthErrorMessage(error, t);
       setFieldErrors(mapped.fieldErrors);
@@ -94,7 +104,7 @@ export function RegisterRoute() {
         subtitle={t('auth.register.subtitle')}
         alternatePrompt={t('auth.register.alternatePrompt')}
         alternateAction={t('auth.register.alternateAction')}
-        alternateTo="/auth/login"
+        alternateTo={authRouteWithNext('/auth/login', nextPath)}
       >
         <form className="stack" onSubmit={handleSubmit}>
           <label className="field">

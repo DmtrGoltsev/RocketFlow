@@ -4,6 +4,8 @@ import com.rocketflow.companion.auth.AuthRepository
 import com.rocketflow.companion.auth.AuthSession
 import com.rocketflow.companion.auth.SessionBoundResult
 import com.rocketflow.companion.network.ApiException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -14,6 +16,12 @@ class PlanningRepository(
 ) {
 
     suspend fun syncAndLoad(session: AuthSession): PlanningLoadResult {
+        return syncMutex.withLock {
+            syncAndLoadLocked(session)
+        }
+    }
+
+    private suspend fun syncAndLoadLocked(session: AuthSession): PlanningLoadResult {
         var activeSession = session
         var offline = false
         var lastSyncError: String? = null
@@ -39,62 +47,60 @@ class PlanningRepository(
 
     suspend fun createFolder(session: AuthSession, draft: FolderDraft): PlanningLoadResult {
         localStore.createFolder(session.user.id, draft)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun updateFolder(session: AuthSession, folder: PlanningFolder, draft: FolderDraft): PlanningLoadResult {
         localStore.updateFolder(session.user.id, folder, draft)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun deleteFolder(session: AuthSession, folder: PlanningFolder): PlanningLoadResult {
         localStore.deleteFolder(session.user.id, folder)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun createGoal(session: AuthSession, folderId: String, draft: GoalDraft): PlanningLoadResult {
         localStore.createGoal(session.user.id, folderId, draft)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun updateGoal(session: AuthSession, goal: PlanningGoal, draft: GoalDraft): PlanningLoadResult {
         localStore.updateGoal(session.user.id, goal, draft)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun deleteGoal(session: AuthSession, goal: PlanningGoal): PlanningLoadResult {
         localStore.deleteGoal(session.user.id, goal)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun createTask(session: AuthSession, goalId: String, draft: TaskDraft): PlanningLoadResult {
         localStore.createTask(session.user.id, goalId, draft)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun createTag(session: AuthSession, draft: TaskTagDraft): PlanningLoadResult {
         localStore.createTag(session.user.id, draft)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun updateTask(session: AuthSession, task: PlanningTask, draft: TaskDraft): PlanningLoadResult {
         localStore.updateTask(session.user.id, task, draft)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun deleteTask(session: AuthSession, task: PlanningTask): PlanningLoadResult {
         localStore.deleteTask(session.user.id, task)
-        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        return syncAndLoad(session)
+        return syncAfterLocalChange(session)
+    }
+
+    private suspend fun syncAfterLocalChange(session: AuthSession): PlanningLoadResult {
+        val result = syncAndLoad(session)
+        if (result.snapshot.offline || result.snapshot.pendingCount > 0) {
+            syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
+        }
+        return result
     }
 
     suspend fun quickRescheduleTask(
@@ -675,6 +681,10 @@ class PlanningRepository(
             .putNullable("endAt", recurrence.nullableText("endAt"))
             .put("active", recurrence.optBoolean("active", true))
             .toString()
+    }
+
+    companion object {
+        private val syncMutex = Mutex()
     }
 
 }
