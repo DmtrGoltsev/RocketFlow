@@ -1,8 +1,17 @@
 import type {
   FolderDto,
+  FolderNoteDto,
+  FolderNoteItemCreatePayload,
+  FolderNoteItemDto,
+  FolderNoteItemUpdatePayload,
+  FolderNoteUpsertPayload,
   FolderUpsertPayload,
   GoalDto,
   GoalUpsertPayload,
+  IdeaDto,
+  IdeaNoteCreatePayload,
+  IdeaNoteDto,
+  IdeaUpsertPayload,
   PlanningApiErrorPayload,
   TaskDto,
   TaskRecurrenceUpsertPayload,
@@ -198,6 +207,131 @@ export async function updateTask(
 
 export async function deleteTask(authorizedFetch: AuthorizedFetch, taskId: string) {
   return requestJson<void>(authorizedFetch, `/tasks/${taskId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function listIdeas(authorizedFetch: AuthorizedFetch, folderId: string) {
+  const response = await requestJson<ListResponse<IdeaDto>>(authorizedFetch, `/folders/${folderId}/ideas`, {
+    method: 'GET',
+  });
+
+  return response.items;
+}
+
+export async function createIdea(
+  authorizedFetch: AuthorizedFetch,
+  folderId: string,
+  payload: IdeaUpsertPayload,
+) {
+  return requestJson<IdeaDto>(authorizedFetch, `/folders/${folderId}/ideas`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getIdea(authorizedFetch: AuthorizedFetch, ideaId: string) {
+  return requestJson<IdeaDto>(authorizedFetch, `/ideas/${ideaId}`, {
+    method: 'GET',
+  });
+}
+
+export async function updateIdea(
+  authorizedFetch: AuthorizedFetch,
+  ideaId: string,
+  payload: IdeaUpsertPayload,
+) {
+  return requestJson<IdeaDto>(authorizedFetch, `/ideas/${ideaId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteIdea(authorizedFetch: AuthorizedFetch, ideaId: string) {
+  return requestJson<void>(authorizedFetch, `/ideas/${ideaId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function listIdeaNotes(authorizedFetch: AuthorizedFetch, ideaId: string) {
+  const response = await requestJson<ListResponse<IdeaNoteDto>>(authorizedFetch, `/ideas/${ideaId}/notes`, {
+    method: 'GET',
+  });
+
+  return response.items;
+}
+
+export async function createIdeaNote(
+  authorizedFetch: AuthorizedFetch,
+  ideaId: string,
+  payload: IdeaNoteCreatePayload,
+) {
+  return requestJson<IdeaNoteDto>(authorizedFetch, `/ideas/${ideaId}/notes`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listFolderNotes(authorizedFetch: AuthorizedFetch, folderId: string) {
+  const response = await requestJson<ListResponse<FolderNoteDto>>(authorizedFetch, `/folders/${folderId}/notes`, {
+    method: 'GET',
+  });
+
+  return response.items;
+}
+
+export async function createFolderNote(
+  authorizedFetch: AuthorizedFetch,
+  folderId: string,
+  payload: FolderNoteUpsertPayload,
+) {
+  return requestJson<FolderNoteDto>(authorizedFetch, `/folders/${folderId}/notes`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateFolderNote(
+  authorizedFetch: AuthorizedFetch,
+  noteId: string,
+  payload: FolderNoteUpsertPayload,
+) {
+  return requestJson<FolderNoteDto>(authorizedFetch, `/folder-notes/${noteId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteFolderNote(authorizedFetch: AuthorizedFetch, noteId: string) {
+  return requestJson<void>(authorizedFetch, `/folder-notes/${noteId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function createFolderNoteItem(
+  authorizedFetch: AuthorizedFetch,
+  noteId: string,
+  payload: FolderNoteItemCreatePayload,
+) {
+  return requestJson<FolderNoteItemDto>(authorizedFetch, `/folder-notes/${noteId}/items`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateFolderNoteItem(
+  authorizedFetch: AuthorizedFetch,
+  itemId: string,
+  payload: FolderNoteItemUpdatePayload,
+) {
+  return requestJson<FolderNoteItemDto>(authorizedFetch, `/folder-note-items/${itemId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteFolderNoteItem(authorizedFetch: AuthorizedFetch, itemId: string) {
+  return requestJson<void>(authorizedFetch, `/folder-note-items/${itemId}`, {
     method: 'DELETE',
   });
 }

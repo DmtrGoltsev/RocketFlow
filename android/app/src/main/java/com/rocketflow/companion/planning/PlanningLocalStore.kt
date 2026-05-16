@@ -90,6 +90,10 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             """.trimIndent()
         )
         createTaskTagsTable(db)
+        createIdeasTable(db)
+        createIdeaNotesTable(db)
+        createFolderNotesTable(db)
+        createFolderNoteItemsTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -113,6 +117,12 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 addColumnIfMissing(db, TABLE_TASKS, "creator_email", "TEXT")
                 addColumnIfMissing(db, TABLE_TASKS, "creator_name", "TEXT")
             }
+            if (oldVersion < 6) {
+                createIdeasTable(db)
+                createIdeaNotesTable(db)
+                createFolderNotesTable(db)
+                createFolderNoteItemsTable(db)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -127,6 +137,10 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             addColumnIfMissing(db, TABLE_TASKS, "creator_user_id", "TEXT")
             addColumnIfMissing(db, TABLE_TASKS, "creator_email", "TEXT")
             addColumnIfMissing(db, TABLE_TASKS, "creator_name", "TEXT")
+            createIdeasTable(db)
+            createIdeaNotesTable(db)
+            createFolderNotesTable(db)
+            createFolderNoteItemsTable(db)
         }
     }
 
@@ -135,13 +149,22 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         val folders = queryFolders(db, userId, includeDeleted = false)
         val allGoals = queryGoals(db, userId, includeDeleted = false)
         val allTasks = queryTasks(db, userId, includeDeleted = false)
+        val allIdeas = queryIdeas(db, userId, includeDeleted = false)
+        val ideaNotes = queryIdeaNotes(db, userId)
+        val allFolderNotes = queryFolderNotes(db, userId, includeDeleted = false)
         return PlanningSnapshot(
             folders = folders.filter { !it.shared && !it.archived },
             goals = allGoals.filter { !it.shared && !it.archived },
             tasks = allTasks.filter { !it.shared && !it.archived },
+            ideas = allIdeas.filter { !it.shared && !it.archived },
+            ideaNotes = ideaNotes.filter { note -> allIdeas.any { !it.shared && it.id == note.ideaId } },
+            folderNotes = allFolderNotes.filter { !it.shared && !it.archived },
             sharedFolders = folders.filter { it.shared && !it.archived },
             sharedGoals = allGoals.filter { it.shared && !it.archived },
             sharedTasks = allTasks.filter { it.shared && !it.archived },
+            sharedIdeas = allIdeas.filter { it.shared && !it.archived },
+            sharedIdeaNotes = ideaNotes.filter { note -> allIdeas.any { it.shared && it.id == note.ideaId } },
+            sharedFolderNotes = allFolderNotes.filter { it.shared && !it.archived },
             taskTags = queryTaskTags(db, userId, includeDeleted = false),
             pendingCount = countPending(userId),
             offline = offline,
@@ -230,6 +253,8 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (folder.syncState == SyncState.PendingCreate) {
                 db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folder.id))
                 db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
+                db.delete(TABLE_IDEAS, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
+                db.delete(TABLE_FOLDER_NOTES, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
                 db.delete(TABLE_FOLDERS, "user_id = ? AND id = ?", arrayOf(userId, folder.id))
             } else {
                 markFolderTreeDeleted(db, userId, folder.id)
@@ -441,6 +466,82 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         return queryTaskTags(readableDatabase, userId, includeDeleted = true).filter { it.syncState.isPending() }
     }
 
+    fun findIdea(userId: String, ideaId: String): PlanningIdea? {
+        return readableDatabase.query(
+            TABLE_IDEAS,
+            null,
+            "user_id = ? AND id = ? AND locally_deleted = 0",
+            arrayOf(userId, ideaId),
+            null,
+            null,
+            null
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.toIdea() else null
+        }
+    }
+
+    fun upsertRemoteIdeas(userId: String, ideas: List<PlanningIdea>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            ideas.forEach { idea ->
+                db.insertWithOnConflict(
+                    TABLE_IDEAS,
+                    null,
+                    ideaValues(userId, idea.copy(syncState = SyncState.Synced, lastError = null), null, false),
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun upsertRemoteIdeaNotes(userId: String, notes: List<IdeaNote>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            notes.forEach { note ->
+                db.insertWithOnConflict(
+                    TABLE_IDEA_NOTES,
+                    null,
+                    ideaNoteValues(userId, note),
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun upsertRemoteFolderNotes(userId: String, notes: List<FolderNote>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            notes.forEach { note ->
+                db.insertWithOnConflict(
+                    TABLE_FOLDER_NOTES,
+                    null,
+                    folderNoteValues(userId, note.copy(syncState = SyncState.Synced, lastError = null), null, false),
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+                note.items.forEach { item ->
+                    db.insertWithOnConflict(
+                        TABLE_FOLDER_NOTE_ITEMS,
+                        null,
+                        folderNoteItemValues(userId, item),
+                        SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun upsertRemoteTaskTags(userId: String, tags: List<TaskTag>) {
         val db = writableDatabase
         db.beginTransaction()
@@ -532,7 +633,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         userId: String,
         folders: List<PlanningFolder>,
         goals: List<PlanningGoal>,
-        tasks: List<PlanningTask>
+        tasks: List<PlanningTask>,
+        ideas: List<PlanningIdea> = emptyList(),
+        folderNotes: List<FolderNote> = emptyList()
     ) {
         val db = writableDatabase
         db.beginTransaction()
@@ -540,6 +643,8 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             removeMissingSharedRows(db, TABLE_TASKS, userId, tasks.map { it.id })
             removeMissingSharedRows(db, TABLE_GOALS, userId, goals.map { it.id })
             removeMissingSharedRows(db, TABLE_FOLDERS, userId, folders.map { it.id })
+            removeMissingSharedRows(db, TABLE_IDEAS, userId, ideas.map { it.id })
+            removeMissingSharedRows(db, TABLE_FOLDER_NOTES, userId, folderNotes.map { it.id })
 
             folders.forEach { folder ->
                 if (!hasLocalPending(db, TABLE_FOLDERS, userId, folder.id)) {
@@ -567,6 +672,30 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                         TABLE_TASKS,
                         null,
                         taskValues(userId, task.copy(shared = true, syncState = SyncState.Synced, lastError = null), null, false),
+                        SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
+            }
+            ideas.forEach { idea ->
+                db.insertWithOnConflict(
+                    TABLE_IDEAS,
+                    null,
+                    ideaValues(userId, idea.copy(shared = true, syncState = SyncState.Synced, lastError = null), null, false),
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+            }
+            folderNotes.forEach { note ->
+                db.insertWithOnConflict(
+                    TABLE_FOLDER_NOTES,
+                    null,
+                    folderNoteValues(userId, note.copy(shared = true, syncState = SyncState.Synced, lastError = null), null, false),
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+                note.items.forEach { item ->
+                    db.insertWithOnConflict(
+                        TABLE_FOLDER_NOTE_ITEMS,
+                        null,
+                        folderNoteItemValues(userId, item),
                         SQLiteDatabase.CONFLICT_REPLACE
                     )
                 }
@@ -667,6 +796,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         try {
             db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folderId))
             db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
+            db.delete(TABLE_IDEAS, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
+            db.delete(TABLE_FOLDER_NOTE_ITEMS, "user_id = ? AND note_id IN (SELECT id FROM folder_notes WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folderId))
+            db.delete(TABLE_FOLDER_NOTES, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
             db.delete(TABLE_FOLDERS, "user_id = ? AND id = ?", arrayOf(userId, folderId))
             db.setTransactionSuccessful()
         } finally {
@@ -756,6 +888,79 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    private fun queryIdeas(db: SQLiteDatabase, userId: String, includeDeleted: Boolean): List<PlanningIdea> {
+        return db.query(
+            TABLE_IDEAS,
+            null,
+            if (includeDeleted) "user_id = ?" else "user_id = ? AND locally_deleted = 0",
+            arrayOf(userId),
+            null,
+            null,
+            "created_at ASC"
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(cursor.toIdea())
+                }
+            }
+        }
+    }
+
+    private fun queryIdeaNotes(db: SQLiteDatabase, userId: String): List<IdeaNote> {
+        return db.query(
+            TABLE_IDEA_NOTES,
+            null,
+            "user_id = ?",
+            arrayOf(userId),
+            null,
+            null,
+            "created_at ASC"
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(cursor.toIdeaNote())
+                }
+            }
+        }
+    }
+
+    private fun queryFolderNotes(db: SQLiteDatabase, userId: String, includeDeleted: Boolean): List<FolderNote> {
+        val items = queryFolderNoteItems(db, userId).groupBy { it.noteId }
+        return db.query(
+            TABLE_FOLDER_NOTES,
+            null,
+            if (includeDeleted) "user_id = ?" else "user_id = ? AND locally_deleted = 0",
+            arrayOf(userId),
+            null,
+            null,
+            "created_at ASC"
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(cursor.toFolderNote(items[cursor.string("id")].orEmpty()))
+                }
+            }
+        }
+    }
+
+    private fun queryFolderNoteItems(db: SQLiteDatabase, userId: String): List<FolderNoteItem> {
+        return db.query(
+            TABLE_FOLDER_NOTE_ITEMS,
+            null,
+            "user_id = ?",
+            arrayOf(userId),
+            null,
+            null,
+            "display_order ASC, created_at ASC"
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(cursor.toFolderNoteItem())
+                }
+            }
+        }
+    }
+
     private fun queryTaskTags(db: SQLiteDatabase, userId: String, includeDeleted: Boolean): List<TaskTag> {
         return db.query(
             TABLE_TASK_TAGS,
@@ -803,6 +1008,18 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             pendingDeleteValues(),
             "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ? AND shared = 0) AND shared = 0",
             arrayOf(userId, userId, folderId)
+        )
+        db.update(
+            TABLE_IDEAS,
+            pendingDeleteValues(),
+            "user_id = ? AND folder_id = ? AND shared = 0",
+            arrayOf(userId, folderId)
+        )
+        db.update(
+            TABLE_FOLDER_NOTES,
+            pendingDeleteValues(),
+            "user_id = ? AND folder_id = ? AND shared = 0",
+            arrayOf(userId, folderId)
         )
     }
 
@@ -993,6 +1210,80 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    private fun ideaValues(
+        userId: String,
+        idea: PlanningIdea,
+        pendingAction: String?,
+        locallyDeleted: Boolean
+    ): ContentValues {
+        return ContentValues().apply {
+            put("user_id", userId)
+            put("id", idea.id)
+            put("folder_id", idea.folderId)
+            put("title", idea.title)
+            put("body", idea.body)
+            put("archived", idea.archived.toInt())
+            put("shared", idea.shared.toInt())
+            put("version", idea.version)
+            put("created_at", idea.createdAt)
+            put("updated_at", idea.updatedAt)
+            put("pending_action", pendingAction)
+            put("last_error", idea.lastError)
+            put("locally_deleted", locallyDeleted.toInt())
+        }
+    }
+
+    private fun ideaNoteValues(userId: String, note: IdeaNote): ContentValues {
+        return ContentValues().apply {
+            put("user_id", userId)
+            put("id", note.id)
+            put("idea_id", note.ideaId)
+            put("body", note.body)
+            put("author_user_id", note.authorUserId)
+            put("author_email", note.authorEmail)
+            put("author_name", note.authorName)
+            put("created_at", note.createdAt)
+        }
+    }
+
+    private fun folderNoteValues(
+        userId: String,
+        note: FolderNote,
+        pendingAction: String?,
+        locallyDeleted: Boolean
+    ): ContentValues {
+        return ContentValues().apply {
+            put("user_id", userId)
+            put("id", note.id)
+            put("folder_id", note.folderId)
+            put("title", note.title)
+            put("body", note.body)
+            put("kind", note.kind)
+            put("archived", note.archived.toInt())
+            put("shared", note.shared.toInt())
+            put("version", note.version)
+            put("created_at", note.createdAt)
+            put("updated_at", note.updatedAt)
+            put("pending_action", pendingAction)
+            put("last_error", note.lastError)
+            put("locally_deleted", locallyDeleted.toInt())
+        }
+    }
+
+    private fun folderNoteItemValues(userId: String, item: FolderNoteItem): ContentValues {
+        return ContentValues().apply {
+            put("user_id", userId)
+            put("id", item.id)
+            put("note_id", item.noteId)
+            put("body", item.body)
+            put("checked", item.checked.toInt())
+            put("display_order", item.displayOrder)
+            put("version", item.version)
+            put("created_at", item.createdAt)
+            put("updated_at", item.updatedAt)
+        }
+    }
+
     private fun Cursor.toFolder(): PlanningFolder {
         return PlanningFolder(
             id = string("id"),
@@ -1060,6 +1351,65 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             updatedAt = string("updated_at"),
             syncState = syncState(stringOrNull("pending_action")),
             lastError = stringOrNull("last_error")
+        )
+    }
+
+    private fun Cursor.toIdea(): PlanningIdea {
+        return PlanningIdea(
+            id = string("id"),
+            folderId = string("folder_id"),
+            title = string("title"),
+            body = string("body"),
+            archived = boolean("archived"),
+            shared = boolean("shared"),
+            version = long("version"),
+            createdAt = string("created_at"),
+            updatedAt = string("updated_at"),
+            syncState = syncState(stringOrNull("pending_action")),
+            lastError = stringOrNull("last_error")
+        )
+    }
+
+    private fun Cursor.toIdeaNote(): IdeaNote {
+        return IdeaNote(
+            id = string("id"),
+            ideaId = string("idea_id"),
+            body = string("body"),
+            authorUserId = optionalStringOrNull("author_user_id"),
+            authorEmail = optionalStringOrNull("author_email"),
+            authorName = optionalStringOrNull("author_name"),
+            createdAt = string("created_at")
+        )
+    }
+
+    private fun Cursor.toFolderNote(items: List<FolderNoteItem>): FolderNote {
+        return FolderNote(
+            id = string("id"),
+            folderId = string("folder_id"),
+            title = string("title"),
+            body = string("body"),
+            kind = string("kind"),
+            archived = boolean("archived"),
+            shared = boolean("shared"),
+            version = long("version"),
+            items = items,
+            createdAt = string("created_at"),
+            updatedAt = string("updated_at"),
+            syncState = syncState(stringOrNull("pending_action")),
+            lastError = stringOrNull("last_error")
+        )
+    }
+
+    private fun Cursor.toFolderNoteItem(): FolderNoteItem {
+        return FolderNoteItem(
+            id = string("id"),
+            noteId = string("note_id"),
+            body = string("body"),
+            checked = boolean("checked"),
+            displayOrder = int("display_order"),
+            version = long("version"),
+            createdAt = string("created_at"),
+            updatedAt = string("updated_at")
         )
     }
 
@@ -1156,6 +1506,90 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
+    private fun createIdeasTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS ideas (
+                user_id TEXT NOT NULL,
+                id TEXT NOT NULL,
+                folder_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                archived INTEGER NOT NULL,
+                shared INTEGER NOT NULL,
+                version INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                pending_action TEXT,
+                last_error TEXT,
+                locally_deleted INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, id)
+            )
+            """.trimIndent()
+        )
+    }
+
+    private fun createIdeaNotesTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS idea_notes (
+                user_id TEXT NOT NULL,
+                id TEXT NOT NULL,
+                idea_id TEXT NOT NULL,
+                body TEXT NOT NULL,
+                author_user_id TEXT,
+                author_email TEXT,
+                author_name TEXT,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, id)
+            )
+            """.trimIndent()
+        )
+    }
+
+    private fun createFolderNotesTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS folder_notes (
+                user_id TEXT NOT NULL,
+                id TEXT NOT NULL,
+                folder_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                archived INTEGER NOT NULL,
+                shared INTEGER NOT NULL,
+                version INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                pending_action TEXT,
+                last_error TEXT,
+                locally_deleted INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, id)
+            )
+            """.trimIndent()
+        )
+    }
+
+    private fun createFolderNoteItemsTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS folder_note_items (
+                user_id TEXT NOT NULL,
+                id TEXT NOT NULL,
+                note_id TEXT NOT NULL,
+                body TEXT NOT NULL,
+                checked INTEGER NOT NULL,
+                display_order INTEGER NOT NULL,
+                version INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, id)
+            )
+            """.trimIndent()
+        )
+    }
+
     private fun parseStringArray(raw: String): List<String> {
         return try {
             val json = JSONArray(raw)
@@ -1167,12 +1601,16 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 5
+        private const val DATABASE_VERSION = 6
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"
         const val TABLE_TASKS = "tasks"
         const val TABLE_TASK_TAGS = "task_tags"
+        const val TABLE_IDEAS = "ideas"
+        const val TABLE_IDEA_NOTES = "idea_notes"
+        const val TABLE_FOLDER_NOTES = "folder_notes"
+        const val TABLE_FOLDER_NOTE_ITEMS = "folder_note_items"
 
         private const val ACTION_CREATE = "create"
         private const val ACTION_UPDATE = "update"

@@ -62,6 +62,57 @@ data class PlanningTask(
     val lastError: String?
 )
 
+data class PlanningIdea(
+    val id: String,
+    val folderId: String,
+    val title: String,
+    val body: String,
+    val archived: Boolean,
+    val shared: Boolean,
+    val version: Long,
+    val createdAt: String,
+    val updatedAt: String,
+    val syncState: SyncState,
+    val lastError: String?
+)
+
+data class IdeaNote(
+    val id: String,
+    val ideaId: String,
+    val body: String,
+    val authorUserId: String?,
+    val authorEmail: String?,
+    val authorName: String?,
+    val createdAt: String
+)
+
+data class FolderNote(
+    val id: String,
+    val folderId: String,
+    val title: String,
+    val body: String,
+    val kind: String,
+    val archived: Boolean,
+    val shared: Boolean,
+    val version: Long,
+    val items: List<FolderNoteItem>,
+    val createdAt: String,
+    val updatedAt: String,
+    val syncState: SyncState,
+    val lastError: String?
+)
+
+data class FolderNoteItem(
+    val id: String,
+    val noteId: String,
+    val body: String,
+    val checked: Boolean,
+    val displayOrder: Int,
+    val version: Long,
+    val createdAt: String,
+    val updatedAt: String
+)
+
 data class TaskTag(
     val id: String,
     val name: String,
@@ -74,9 +125,15 @@ data class PlanningSnapshot(
     val folders: List<PlanningFolder>,
     val goals: List<PlanningGoal>,
     val tasks: List<PlanningTask>,
+    val ideas: List<PlanningIdea>,
+    val ideaNotes: List<IdeaNote>,
+    val folderNotes: List<FolderNote>,
     val sharedFolders: List<PlanningFolder>,
     val sharedGoals: List<PlanningGoal>,
     val sharedTasks: List<PlanningTask>,
+    val sharedIdeas: List<PlanningIdea>,
+    val sharedIdeaNotes: List<IdeaNote>,
+    val sharedFolderNotes: List<FolderNote>,
     val taskTags: List<TaskTag>,
     val pendingCount: Int,
     val offline: Boolean,
@@ -115,6 +172,26 @@ data class TaskDraft(
     val tagIds: List<String>? = null,
     val recurrenceJson: String? = null,
     val remindersJson: String? = null
+)
+
+data class IdeaDraft(
+    val title: String,
+    val body: String
+)
+
+data class IdeaNoteDraft(
+    val body: String
+)
+
+data class FolderNoteDraft(
+    val title: String,
+    val body: String,
+    val kind: String = "note"
+)
+
+data class FolderNoteItemDraft(
+    val body: String,
+    val checked: Boolean = false
 )
 
 data class TaskTagDraft(

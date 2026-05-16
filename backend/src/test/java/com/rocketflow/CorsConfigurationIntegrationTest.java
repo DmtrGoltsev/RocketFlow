@@ -17,6 +17,10 @@ import com.rocketflow.auth.UserCredentialRepository;
 import com.rocketflow.calendar.TaskRescheduleEventRepository;
 import com.rocketflow.folders.FolderRepository;
 import com.rocketflow.goals.GoalRepository;
+import com.rocketflow.ideas.FolderNoteItemRepository;
+import com.rocketflow.ideas.FolderNoteRepository;
+import com.rocketflow.ideas.IdeaNoteRepository;
+import com.rocketflow.ideas.IdeaRepository;
 import com.rocketflow.notifications.DeviceRegistrationRepository;
 import com.rocketflow.notifications.NotificationDeliveryRepository;
 import com.rocketflow.notifications.ReminderNotificationRuleRepository;
@@ -63,6 +67,18 @@ class CorsConfigurationIntegrationTest {
 
     @MockitoBean
     private GoalRepository goalRepository;
+
+    @MockitoBean
+    private IdeaRepository ideaRepository;
+
+    @MockitoBean
+    private IdeaNoteRepository ideaNoteRepository;
+
+    @MockitoBean
+    private FolderNoteRepository folderNoteRepository;
+
+    @MockitoBean
+    private FolderNoteItemRepository folderNoteItemRepository;
 
     @MockitoBean
     private ShareInvitationRepository shareInvitationRepository;

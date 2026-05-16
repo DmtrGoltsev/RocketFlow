@@ -55,9 +55,17 @@ import com.rocketflow.companion.notifications.PushTokenSnapshot
 import com.rocketflow.companion.notifications.TaskReminderRepeat
 import com.rocketflow.companion.notifications.TaskReminderSetting
 import com.rocketflow.companion.planning.FolderDraft
+import com.rocketflow.companion.planning.FolderNote
+import com.rocketflow.companion.planning.FolderNoteDraft
+import com.rocketflow.companion.planning.FolderNoteItem
+import com.rocketflow.companion.planning.FolderNoteItemDraft
 import com.rocketflow.companion.planning.GoalDraft
+import com.rocketflow.companion.planning.IdeaDraft
+import com.rocketflow.companion.planning.IdeaNote
+import com.rocketflow.companion.planning.IdeaNoteDraft
 import com.rocketflow.companion.planning.PlanningFolder
 import com.rocketflow.companion.planning.PlanningGoal
+import com.rocketflow.companion.planning.PlanningIdea
 import com.rocketflow.companion.planning.PlanningLoadResult
 import com.rocketflow.companion.planning.PlanningLocalStore
 import com.rocketflow.companion.planning.PlanningSnapshot
@@ -118,7 +126,29 @@ class MainActivity : Activity() {
         Auth,
         Planner,
         Detail,
+        IdeaDetail,
         Settings
+    }
+
+    private enum class TextInputPurpose {
+        Text,
+        Notes,
+        Email,
+        Password,
+        Code,
+        Search,
+        Number,
+        Name,
+        Username
+    }
+
+    private object AutofillHints {
+        const val CODE = "oneTimeCode"
+        const val NOTE = "note"
+        const val NUMBER = "number"
+        const val SEARCH = "search"
+        const val TEXT = "text"
+        const val TITLE = "title"
     }
 
     private data class Copy(
@@ -134,10 +164,19 @@ class MainActivity : Activity() {
         val folder: String,
         val goal: String,
         val task: String,
+        val idea: String = "Idea",
+        val folderNote: String = "Folder note",
+        val list: String = "List",
         val create: String,
         val newFolder: String,
         val newGoal: String,
         val newTask: String,
+        val newIdea: String = "New idea",
+        val newFolderNote: String = "New folder note",
+        val newList: String = "New list",
+        val addNote: String = "Add note",
+        val addItem: String = "Add item",
+        val ideaHistory: String = "History",
         val edit: String,
         val delete: String,
         val cancel: String,
@@ -316,9 +355,15 @@ class MainActivity : Activity() {
     private var folders: List<PlanningFolder> = emptyList()
     private var goals: List<PlanningGoal> = emptyList()
     private var tasks: List<PlanningTask> = emptyList()
+    private var ideas: List<PlanningIdea> = emptyList()
+    private var ideaNotes: List<IdeaNote> = emptyList()
+    private var folderNotes: List<FolderNote> = emptyList()
     private var sharedFolders: List<PlanningFolder> = emptyList()
     private var sharedGoals: List<PlanningGoal> = emptyList()
     private var sharedTasks: List<PlanningTask> = emptyList()
+    private var sharedIdeas: List<PlanningIdea> = emptyList()
+    private var sharedIdeaNotes: List<IdeaNote> = emptyList()
+    private var sharedFolderNotes: List<FolderNote> = emptyList()
     private var taskTags: List<TaskTag> = emptyList()
     private var planningOffline = false
     private var planningPendingCount = 0
@@ -328,6 +373,8 @@ class MainActivity : Activity() {
     private var selectedGoalId: String? = null
     private var selectedTaskId: String? = null
     private var selectedTaskDetail: PlanningTask? = null
+    private var selectedIdeaId: String? = null
+    private var selectedIdeaDetail: PlanningIdea? = null
     private var pendingTaskOpenId: String? = null
 
     private val collapsedFolderIds = mutableSetOf<String>()
@@ -386,7 +433,7 @@ class MainActivity : Activity() {
 
     override fun onBackPressed() {
         when (currentScreen) {
-            Screen.Detail, Screen.Settings -> {
+            Screen.Detail, Screen.IdeaDetail, Screen.Settings -> {
                 currentScreen = Screen.Planner
                 render()
             }
@@ -464,12 +511,13 @@ class MainActivity : Activity() {
         val email = dialogInput(
             c.email,
             emailInput?.text?.toString().orEmpty(),
+            inputPurpose = TextInputPurpose.Email,
             inputTypeOverride = emailInputType(),
             imeOptionsOverride = EditorInfo.IME_ACTION_NEXT
         )
-        val password = dialogInput(c.password, "", isPassword = true)
+        val password = dialogInput(c.password, "", inputPurpose = TextInputPurpose.Password, isPassword = true)
         val passwordRow = passwordInputRow(password, initialVisible = false)
-        val name = dialogInput(c.displayName, "")
+        val name = dialogInput(c.displayName, "", inputPurpose = TextInputPurpose.Name)
         val form = dialogForm(email, passwordRow, name)
 
         val dialog = AlertDialog.Builder(this)
@@ -531,9 +579,15 @@ class MainActivity : Activity() {
         folders = snapshot.folders
         goals = snapshot.goals
         tasks = snapshot.tasks
+        ideas = snapshot.ideas
+        ideaNotes = snapshot.ideaNotes
+        folderNotes = snapshot.folderNotes
         sharedFolders = snapshot.sharedFolders
         sharedGoals = snapshot.sharedGoals
         sharedTasks = snapshot.sharedTasks
+        sharedIdeas = snapshot.sharedIdeas
+        sharedIdeaNotes = snapshot.sharedIdeaNotes
+        sharedFolderNotes = snapshot.sharedFolderNotes
         taskTags = snapshot.taskTags
         planningOffline = snapshot.offline
         planningPendingCount = snapshot.pendingCount
@@ -548,15 +602,23 @@ class MainActivity : Activity() {
 
         selectedTaskId = selectedTaskId?.takeIf { id -> allTasks().any { it.id == id } }
         selectedTaskDetail = selectedTaskId?.let(::findTask)
+        selectedIdeaId = selectedIdeaId?.takeIf { id -> allIdeas().any { it.id == id } }
+        selectedIdeaDetail = selectedIdeaId?.let(::findIdea)
     }
 
     private fun clearPlannerState() {
         folders = emptyList()
         goals = emptyList()
         tasks = emptyList()
+        ideas = emptyList()
+        ideaNotes = emptyList()
+        folderNotes = emptyList()
         sharedFolders = emptyList()
         sharedGoals = emptyList()
         sharedTasks = emptyList()
+        sharedIdeas = emptyList()
+        sharedIdeaNotes = emptyList()
+        sharedFolderNotes = emptyList()
         taskTags = emptyList()
         planningOffline = false
         planningPendingCount = 0
@@ -565,6 +627,8 @@ class MainActivity : Activity() {
         selectedGoalId = null
         selectedTaskId = null
         selectedTaskDetail = null
+        selectedIdeaId = null
+        selectedIdeaDetail = null
         collapsedFolderIds.clear()
         collapsedGoalIds.clear()
         searchQuery = ""
@@ -626,6 +690,7 @@ class MainActivity : Activity() {
         when (currentScreen) {
             Screen.Auth, Screen.Planner -> renderPlanner()
             Screen.Detail -> renderDetail()
+            Screen.IdeaDetail -> renderIdeaDetail()
             Screen.Settings -> renderSettings(session)
         }
     }
@@ -672,7 +737,8 @@ class MainActivity : Activity() {
             styleInput()
             applyInputOptions(
                 inputType = emailInputType(),
-                imeOptions = EditorInfo.IME_ACTION_NEXT
+                imeOptions = EditorInfo.IME_ACTION_NEXT,
+                inputPurpose = TextInputPurpose.Email
             )
             setSelection(text?.length ?: 0)
             keepDraftUpdated { emailDraft = it }
@@ -683,7 +749,7 @@ class MainActivity : Activity() {
             setText(passwordDraft)
             imeOptions = EditorInfo.IME_ACTION_DONE
             styleInput()
-            applyPasswordVisibility(passwordVisible)
+            applyPasswordVisibility(passwordVisible, autofillPurpose = TextInputPurpose.Password)
             keepDraftUpdated { passwordDraft = it }
             openKeyboardOnUserFocus()
         }
@@ -785,7 +851,11 @@ class MainActivity : Activity() {
         val hasVisibleRows = ownFolders.isNotEmpty() ||
             sharedFolderList.isNotEmpty() ||
             looseSharedGoals.isNotEmpty() ||
-            looseSharedTasks.isNotEmpty()
+            looseSharedTasks.isNotEmpty() ||
+            filteredIdeas().isNotEmpty() ||
+            filteredFolderNotes().isNotEmpty() ||
+            filteredSharedIdeas().isNotEmpty() ||
+            filteredSharedFolderNotes().isNotEmpty()
 
         if (!hasVisibleRows) {
             list.addView(emptyPlannerView())
@@ -837,10 +907,20 @@ class MainActivity : Activity() {
         if (folder.id in collapsedFolderIds) return
 
         val folderGoals = goalsForFolder(folder.id, includeShared = folder.shared)
-        if (folderGoals.isEmpty()) {
+        val folderIdeas = ideasForFolder(folder.id, includeShared = folder.shared)
+        val notes = folderNotesForFolder(folder.id, includeShared = folder.shared)
+        if (folderGoals.isEmpty() && folderIdeas.isEmpty() && notes.isEmpty()) {
             parent.addView(hintRow(copy().noGoalYet, indentLevel = 1))
             parent.addView(rowDivider(indentLevel = 1))
         } else {
+            notes.forEach { note ->
+                parent.addView(folderNoteRow(note, indentLevel = 1))
+                parent.addView(rowDivider(indentLevel = 1))
+            }
+            folderIdeas.forEach { idea ->
+                parent.addView(ideaRow(idea, indentLevel = 1))
+                parent.addView(rowDivider(indentLevel = 1))
+            }
             folderGoals.forEach { goal -> renderGoal(parent, goal, shared = folder.shared || goal.shared) }
         }
     }
@@ -950,6 +1030,73 @@ class MainActivity : Activity() {
         shell.addView(
             ScrollView(this).apply {
                 addView(content)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f
+                )
+            }
+        )
+        setContentView(shell)
+    }
+
+    private fun renderIdeaDetail() {
+        val c = copy()
+        val idea = selectedIdeaDetail ?: selectedIdeaId?.let(::findIdea)
+        selectedIdeaDetail = idea
+        val shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(Ui.CANVAS))
+        }
+        shell.addView(appBar(title = idea?.title ?: c.idea, showBack = true, mode = Screen.IdeaDetail))
+        shell.addView(divider())
+        messageLine(inset = true)?.let { shell.addView(it) }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(32))
+        }
+
+        if (idea == null) {
+            content.addView(emptyDetailView())
+        } else {
+            content.addView(
+                TextView(this).apply {
+                    text = idea.title
+                    textSize = 22f
+                    setTextColor(color(Ui.TEXT))
+                    setTypeface(typeface, Typeface.BOLD)
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    includeFontPadding = false
+                    setPadding(0, dp(4), 0, dp(12))
+                }
+            )
+            content.addView(pathLine(ideaPath(idea)))
+            content.addView(sectionLabel(c.notes))
+            content.addView(
+                TextView(this).apply {
+                    text = idea.body.ifBlank { c.noDate }
+                    textSize = 15f
+                    setTextColor(color(if (idea.body.isBlank()) Ui.MUTED else Ui.TEXT))
+                    setLineSpacing(dp(2).toFloat(), 1f)
+                    setPadding(0, dp(8), 0, dp(16))
+                }
+            )
+            content.addView(textButton(c.addNote, primary = true) { showIdeaNoteDialog(idea) })
+            content.addView(sectionLabel(c.ideaHistory))
+            val notes = ideaNotesForIdea(idea.id)
+            if (notes.isEmpty()) {
+                content.addView(hintRow(c.nothingHere, indentLevel = 0))
+            } else {
+                notes.forEach { note -> content.addView(ideaHistoryRow(note)) }
+            }
+        }
+
+        shell.addView(
+            ScrollView(this).apply {
+                addView(content)
+                setBackgroundColor(color(Ui.CANVAS))
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
@@ -1085,6 +1232,7 @@ class MainActivity : Activity() {
         val amountInput = dialogInput(
             c.decayAmount,
             policy.decayAmount.toString(),
+            inputPurpose = TextInputPurpose.Number,
             inputTypeOverride = InputType.TYPE_CLASS_NUMBER
         )
         AlertDialog.Builder(this)
@@ -1256,6 +1404,11 @@ class MainActivity : Activity() {
                         }
                     }
                 }
+                Screen.IdeaDetail -> {
+                    selectedIdeaDetail?.let { idea ->
+                        addView(iconButton(R.drawable.ic_add, c.addNote) { showIdeaNoteDialog(idea) })
+                    }
+                }
                 Screen.Settings -> Unit
                 Screen.Auth -> Unit
             }
@@ -1267,6 +1420,8 @@ class MainActivity : Activity() {
         val folderGoals = goalsForFolder(folder.id, includeShared = folder.shared)
         val totalTasks = folderGoals.sumOf { tasksForGoal(it.id, includeShared = folder.shared || it.shared).size }
         val doneTasks = folderGoals.sumOf { goal -> tasksForGoal(goal.id, includeShared = folder.shared || goal.shared).count { isDone(it) } }
+        val ideaCount = ideasForFolder(folder.id, includeShared = folder.shared).size
+        val noteCount = folderNotesForFolder(folder.id, includeShared = folder.shared).size
         return hierarchyContainer(indentLevel = 0, heightDp = 56, selected = false).apply {
             addView(
                 iconButton(
@@ -1284,10 +1439,16 @@ class MainActivity : Activity() {
                     selectedGoalId = null
                     selectedTaskId = null
                     selectedTaskDetail = null
+                    selectedIdeaId = null
+                    selectedIdeaDetail = null
                     render()
                 }
             })
-            addView(counterText(if (totalTasks == 0) "0" else "$doneTasks/$totalTasks"))
+            addView(counterText(listOfNotNull(
+                if (totalTasks == 0) "0" else "$doneTasks/$totalTasks",
+                ideaCount.takeIf { it > 0 }?.let { "${c.idea}:$it" },
+                noteCount.takeIf { it > 0 }?.let { "${c.notes}:$it" }
+            ).joinToString(" ")))
             if (!folder.shared) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showFolderActions(folder) })
             }
@@ -1315,6 +1476,8 @@ class MainActivity : Activity() {
                     selectedFolderId = goal.folderId.takeIf { it.isNotBlank() } ?: selectedFolderId
                     selectedTaskId = null
                     selectedTaskDetail = null
+                    selectedIdeaId = null
+                    selectedIdeaDetail = null
                     render()
                 }
             })
@@ -1345,6 +1508,50 @@ class MainActivity : Activity() {
             if (!task.shared) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
             }
+        }
+    }
+
+    private fun ideaRow(idea: PlanningIdea, indentLevel: Int): View {
+        val c = copy()
+        return hierarchyContainer(indentLevel = indentLevel, heightDp = 48, selected = idea.id == selectedIdeaId).apply {
+            addView(iconView(R.drawable.ic_radio_button_unchecked, sizeDp = 24, tint = Ui.INFO))
+            addView(markerDot(Ui.INFO, c.idea, sizeDp = 7))
+            addView(rowText(idea.title, c.idea, weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD).apply {
+                setOnClickListener { openIdeaDetail(idea.id) }
+            })
+            addView(counterText(ideaNotesForIdea(idea.id).size.toString()))
+        }
+    }
+
+    private fun folderNoteRow(note: FolderNote, indentLevel: Int): View {
+        val c = copy()
+        val subtitle = if (note.kind == "list") "${c.list}: ${note.items.count { it.checked }}/${note.items.size}" else note.body
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(hierarchyContainer(indentLevel = indentLevel, heightDp = 48, selected = false).apply {
+                addView(iconView(R.drawable.ic_content_copy, sizeDp = 24, tint = Ui.AMBER))
+                addView(rowText(note.title, subtitle, weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD))
+                if (note.kind == "list") {
+                    addView(iconButton(R.drawable.ic_add, c.addItem) { showFolderNoteItemDialog(note) })
+                }
+            })
+            if (note.kind == "list") {
+                note.items.take(4).forEach { item -> addView(folderNoteItemRow(item, indentLevel + 1)) }
+            }
+        }
+    }
+
+    private fun folderNoteItemRow(item: FolderNoteItem, indentLevel: Int): View {
+        return hierarchyContainer(indentLevel = indentLevel, heightDp = 38, selected = false).apply {
+            addView(
+                iconButton(
+                    if (item.checked) R.drawable.ic_check_circle else R.drawable.ic_radio_button_unchecked,
+                    item.body
+                ) {
+                    toggleFolderNoteItem(item)
+                }
+            )
+            addView(rowText(item.body, "", weight = 1f, titleSize = 14f, titleStyle = Typeface.NORMAL))
         }
     }
 
@@ -1470,6 +1677,30 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun ideaHistoryRow(note: IdeaNote): LinearLayout {
+        val author = note.authorName ?: note.authorEmail ?: copy().creator
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(10), 0, dp(10))
+            addView(
+                TextView(context).apply {
+                    text = "$author - ${formatDateTime(note.createdAt)}"
+                    textSize = 12.5f
+                    setTextColor(color(Ui.MUTED))
+                }
+            )
+            addView(
+                TextView(context).apply {
+                    text = note.body
+                    textSize = 15f
+                    setTextColor(color(Ui.TEXT))
+                    setLineSpacing(dp(2).toFloat(), 1f)
+                    setPadding(0, dp(4), 0, 0)
+                }
+            )
+        }
+    }
+
     private fun emptyPlannerView(): LinearLayout {
         val c = copy()
         return LinearLayout(this).apply {
@@ -1541,6 +1772,18 @@ class MainActivity : Activity() {
         dialogContent.addView(createOption(R.drawable.ic_radio_button_unchecked, c.task) {
             dialog.dismiss()
             showTaskTargetDialog()
+        })
+        dialogContent.addView(createOption(R.drawable.ic_radio_button_unchecked, c.idea) {
+            dialog.dismiss()
+            showIdeaFolderDialog()
+        })
+        dialogContent.addView(createOption(R.drawable.ic_content_copy, c.folderNote) {
+            dialog.dismiss()
+            showFolderNoteFolderDialog(kind = "note")
+        })
+        dialogContent.addView(createOption(R.drawable.ic_check_circle, c.list) {
+            dialog.dismiss()
+            showFolderNoteFolderDialog(kind = "list")
         })
         dialog.show()
     }
@@ -1812,7 +2055,8 @@ class MainActivity : Activity() {
         val input = dialogInput(
             hint = if (byEmail) c.email else c.userIdField,
             value = "",
-            inputTypeOverride = if (byEmail) emailInputType() else stableTextInputType(),
+            inputPurpose = if (byEmail) TextInputPurpose.Email else TextInputPurpose.Username,
+            inputTypeOverride = if (byEmail) emailInputType() else usernameInputType(),
             imeOptionsOverride = EditorInfo.IME_ACTION_DONE
         )
 
@@ -2014,6 +2258,7 @@ class MainActivity : Activity() {
         val input = dialogInput(
             c.tokenField,
             "",
+            inputPurpose = TextInputPurpose.Code,
             inputTypeOverride = codeInputType()
         )
         AlertDialog.Builder(this)
@@ -2136,6 +2381,7 @@ class MainActivity : Activity() {
         val priorityInput = dialogInput(
             c.priorityField,
             (task?.priority ?: 5).toString(),
+            inputPurpose = TextInputPurpose.Number,
             inputTypeOverride = InputType.TYPE_CLASS_NUMBER
         )
         val plannedField = dateTimeField(c.plannedField, task?.plannedTime)
@@ -2180,6 +2426,97 @@ class MainActivity : Activity() {
             }
             .show()
         focusDialogInput(dialog, titleInput)
+    }
+
+    private fun showIdeaDialog(folderId: String) {
+        val c = copy()
+        val folder = folders.firstOrNull { it.id == folderId } ?: sharedFolders.firstOrNull { it.id == folderId }
+        val titleInput = dialogInput(c.titleField, "", inputPurpose = TextInputPurpose.Name)
+        val notesInput = dialogInput(c.notesField, "", multiline = true, inputPurpose = TextInputPurpose.Notes)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(c.newIdea)
+            .setView(dialogForm(dialogContextLine(c.folder, folder?.name ?: c.folder), titleInput, notesInput))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val draft = IdeaDraft(
+                    title = titleInput.text.toString().trim(),
+                    body = notesInput.text.toString().trim()
+                )
+                if (draft.title.isBlank()) {
+                    message = c.titleRequired
+                    render()
+                    return@setPositiveButton
+                }
+                saveIdea(folderId, draft)
+            }
+            .show()
+        focusDialogInput(dialog, titleInput)
+    }
+
+    private fun showIdeaNoteDialog(idea: PlanningIdea) {
+        val c = copy()
+        val input = dialogInput(c.notesField, "", multiline = true, inputPurpose = TextInputPurpose.Notes)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(c.addNote)
+            .setView(dialogForm(input))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val draft = IdeaNoteDraft(input.text.toString().trim())
+                if (draft.body.isBlank()) {
+                    message = c.notesField
+                    render()
+                    return@setPositiveButton
+                }
+                saveIdeaNote(idea, draft)
+            }
+            .show()
+        focusDialogInput(dialog, input)
+    }
+
+    private fun showFolderNoteDialog(folderId: String, kind: String) {
+        val c = copy()
+        val folder = folders.firstOrNull { it.id == folderId } ?: sharedFolders.firstOrNull { it.id == folderId }
+        val titleInput = dialogInput(c.titleField, "", inputPurpose = TextInputPurpose.Name)
+        val notesInput = dialogInput(c.notesField, "", multiline = true, inputPurpose = TextInputPurpose.Notes)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (kind == "list") c.newList else c.newFolderNote)
+            .setView(dialogForm(dialogContextLine(c.folder, folder?.name ?: c.folder), titleInput, notesInput))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val draft = FolderNoteDraft(
+                    title = titleInput.text.toString().trim(),
+                    body = notesInput.text.toString().trim(),
+                    kind = kind
+                )
+                if (draft.title.isBlank()) {
+                    message = c.titleRequired
+                    render()
+                    return@setPositiveButton
+                }
+                saveFolderNote(folderId, draft)
+            }
+            .show()
+        focusDialogInput(dialog, titleInput)
+    }
+
+    private fun showFolderNoteItemDialog(note: FolderNote) {
+        val c = copy()
+        val input = dialogInput(c.addItem, "", inputPurpose = TextInputPurpose.Text)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(c.addItem)
+            .setView(dialogForm(input))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val draft = FolderNoteItemDraft(input.text.toString().trim())
+                if (draft.body.isBlank()) {
+                    message = c.titleRequired
+                    render()
+                    return@setPositiveButton
+                }
+                saveFolderNoteItem(note, draft)
+            }
+            .show()
+        focusDialogInput(dialog, input)
     }
 
     private fun showStatusDialog(task: PlanningTask) {
@@ -2287,6 +2624,7 @@ class MainActivity : Activity() {
         val colorInput = dialogInput(
             c.colorField,
             "#2F6B57",
+            inputPurpose = TextInputPurpose.Code,
             inputTypeOverride = codeInputType()
         )
         val beforeIds = taskTags.map { it.id }.toSet()
@@ -2574,6 +2912,98 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun saveIdea(folderId: String, draft: IdeaDraft) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = planningRepository.createIdea(session, folderId, draft)
+                applyPlanningResult(result)
+                val savedIdea = result.snapshot.ideas.firstOrNull { it.folderId == folderId && it.title == draft.title }
+                    ?: result.snapshot.sharedIdeas.firstOrNull { it.folderId == folderId && it.title == draft.title }
+                selectedFolderId = folderId
+                selectedGoalId = null
+                selectedTaskId = null
+                selectedTaskDetail = null
+                selectedIdeaId = savedIdea?.id
+                selectedIdeaDetail = savedIdea
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun saveIdeaNote(idea: PlanningIdea, draft: IdeaNoteDraft) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = planningRepository.createIdeaNote(session, idea.id, draft)
+                applyPlanningResult(result)
+                selectedIdeaId = idea.id
+                selectedIdeaDetail = findIdea(idea.id)
+                currentScreen = Screen.IdeaDetail
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun saveFolderNote(folderId: String, draft: FolderNoteDraft) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = planningRepository.createFolderNote(session, folderId, draft)
+                applyPlanningResult(result)
+                selectedFolderId = folderId
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun saveFolderNoteItem(note: FolderNote, draft: FolderNoteItemDraft) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = planningRepository.createFolderNoteItem(session, note.id, draft)
+                applyPlanningResult(result)
+                selectedFolderId = note.folderId
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun toggleFolderNoteItem(item: FolderNoteItem) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                applyPlanningResult(planningRepository.updateFolderNoteItem(session, item, checked = !item.checked))
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
     private fun deleteFolder(folder: PlanningFolder) {
         val session = currentSession ?: return
         setBusy(true)
@@ -2848,7 +3278,8 @@ class MainActivity : Activity() {
         val input = dialogInput(
             c.searchHint,
             searchQuery,
-            inputTypeOverride = stableTextInputType(),
+            inputPurpose = TextInputPurpose.Search,
+            inputTypeOverride = searchInputType(),
             imeOptionsOverride = EditorInfo.IME_ACTION_SEARCH
         )
         AlertDialog.Builder(this)
@@ -3355,6 +3786,7 @@ class MainActivity : Activity() {
         hint: String,
         value: String,
         multiline: Boolean = false,
+        inputPurpose: TextInputPurpose = if (multiline) TextInputPurpose.Notes else TextInputPurpose.Text,
         isPassword: Boolean = false,
         inputTypeOverride: Int? = null,
         imeOptionsOverride: Int? = null
@@ -3364,8 +3796,8 @@ class MainActivity : Activity() {
             setText(value)
             styleInput()
             val resolvedInputType = inputTypeOverride ?: when {
-                isPassword -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                else -> stableTextInputType()
+                isPassword -> inputTypeForPurpose(TextInputPurpose.Password)
+                else -> inputTypeForPurpose(inputPurpose)
             }
             val resolvedImeOptions = imeOptionsOverride
                 ?: if (multiline) {
@@ -3376,7 +3808,8 @@ class MainActivity : Activity() {
             applyInputOptions(
                 inputType = resolvedInputType,
                 imeOptions = resolvedImeOptions,
-                singleLine = !multiline
+                singleLine = !multiline,
+                inputPurpose = inputPurpose
             )
             if (multiline) {
                 gravity = Gravity.TOP or Gravity.START
@@ -3389,9 +3822,31 @@ class MainActivity : Activity() {
                 ).apply { topMargin = dp(10) }
             }
             if (isPassword) {
-                applyPasswordVisibility(visible = false)
+                applyPasswordVisibility(visible = false, autofillPurpose = TextInputPurpose.Password)
             }
             openKeyboardOnUserFocus()
+        }
+    }
+
+    private fun openIdeaDetail(ideaId: String) {
+        val session = currentSession ?: return
+        selectedIdeaId = ideaId
+        selectedIdeaDetail = findIdea(ideaId)
+        selectedTaskId = null
+        selectedTaskDetail = null
+        currentScreen = Screen.IdeaDetail
+        render()
+
+        scope.launch {
+            try {
+                val result = planningRepository.getIdea(session, ideaId)
+                currentSession = result.first
+                selectedIdeaDetail = result.second
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                render()
+            }
         }
     }
 
@@ -3531,8 +3986,13 @@ class MainActivity : Activity() {
 
     private fun stableTextInputType(): Int {
         return InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_VARIATION_NORMAL or
             InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
             InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+    }
+
+    private fun notesInputType(): Int {
+        return stableTextInputType() or InputType.TYPE_TEXT_FLAG_MULTI_LINE
     }
 
     private fun emailInputType(): Int {
@@ -3540,12 +4000,39 @@ class MainActivity : Activity() {
     }
 
     private fun codeInputType(): Int {
-        return InputType.TYPE_CLASS_TEXT or
-            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
-            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        return InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_NORMAL
     }
 
-    private fun EditText.applyInputOptions(inputType: Int, imeOptions: Int, singleLine: Boolean = true) {
+    private fun searchInputType(): Int {
+        return InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_VARIATION_NORMAL or
+            InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+    }
+
+    private fun usernameInputType(): Int {
+        return InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_NORMAL
+    }
+
+    private fun inputTypeForPurpose(purpose: TextInputPurpose): Int {
+        return when (purpose) {
+            TextInputPurpose.Text, TextInputPurpose.Name -> stableTextInputType()
+            TextInputPurpose.Notes -> notesInputType()
+            TextInputPurpose.Email -> emailInputType()
+            TextInputPurpose.Password -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            TextInputPurpose.Code -> codeInputType()
+            TextInputPurpose.Search -> searchInputType()
+            TextInputPurpose.Number -> InputType.TYPE_CLASS_NUMBER
+            TextInputPurpose.Username -> usernameInputType()
+        }
+    }
+
+    private fun EditText.applyInputOptions(
+        inputType: Int,
+        imeOptions: Int,
+        singleLine: Boolean = true,
+        inputPurpose: TextInputPurpose = TextInputPurpose.Text
+    ) {
+        this.inputType = inputType
         if (singleLine) {
             setSingleLine(true)
             maxLines = 1
@@ -3555,14 +4042,34 @@ class MainActivity : Activity() {
             isSingleLine = false
             setHorizontallyScrolling(false)
         }
-        setRawInputType(inputType)
         this.imeOptions = imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         imeHintLocales = if (currentLanguage == "en") {
             LocaleList(Locale.US, Locale("ru", "RU"))
         } else {
             LocaleList(Locale("ru", "RU"), Locale.US)
         }
+        applyAutofill(inputPurpose)
         showSoftInputOnFocus = true
+    }
+
+    private fun EditText.applyAutofill(inputPurpose: TextInputPurpose) {
+        importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+        setAutofillHints(*autofillHintsFor(inputPurpose, hint?.toString().orEmpty()))
+    }
+
+    private fun autofillHintsFor(inputPurpose: TextInputPurpose, fieldHint: String): Array<String> {
+        val hints = when (inputPurpose) {
+            TextInputPurpose.Text -> listOf(AutofillHints.TEXT, AutofillHints.TITLE, fieldHint)
+            TextInputPurpose.Notes -> listOf(AutofillHints.NOTE, fieldHint)
+            TextInputPurpose.Email -> listOf(View.AUTOFILL_HINT_EMAIL_ADDRESS, View.AUTOFILL_HINT_USERNAME, fieldHint)
+            TextInputPurpose.Password -> listOf(View.AUTOFILL_HINT_PASSWORD)
+            TextInputPurpose.Code -> listOf(AutofillHints.CODE, fieldHint)
+            TextInputPurpose.Search -> listOf(AutofillHints.SEARCH, fieldHint)
+            TextInputPurpose.Number -> listOf(AutofillHints.NUMBER, fieldHint)
+            TextInputPurpose.Name -> listOf(View.AUTOFILL_HINT_NAME, fieldHint)
+            TextInputPurpose.Username -> listOf(View.AUTOFILL_HINT_USERNAME, fieldHint)
+        }
+        return hints.map { it.trim() }.filter { it.isNotEmpty() }.distinct().toTypedArray()
     }
 
     private fun View.hideKeyboardWhenTouchingOutsideInputs() {
@@ -3603,7 +4110,11 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun EditText.applyPasswordVisibility(visible: Boolean, cursorPosition: Int? = null) {
+    private fun EditText.applyPasswordVisibility(
+        visible: Boolean,
+        cursorPosition: Int? = null,
+        autofillPurpose: TextInputPurpose = TextInputPurpose.Password
+    ) {
         val cursor = cursorPosition?.takeIf { it >= 0 } ?: (text?.length ?: 0)
         val preservedImeOptions = imeOptions.takeIf { it != EditorInfo.IME_NULL } ?: EditorInfo.IME_ACTION_DONE
         applyInputOptions(
@@ -3612,7 +4123,8 @@ class MainActivity : Activity() {
             } else {
                 InputType.TYPE_TEXT_VARIATION_PASSWORD
             },
-            imeOptions = preservedImeOptions
+            imeOptions = preservedImeOptions,
+            inputPurpose = autofillPurpose
         )
         transformationMethod = if (visible) {
             HideReturnsTransformationMethod.getInstance()
@@ -3729,6 +4241,8 @@ class MainActivity : Activity() {
         if (query.isBlank()) return folders
         return folders.filter { folder ->
             folder.name.lowercase(Locale.ROOT).contains(query) ||
+                ideasForFolder(folder.id).any { it.title.lowercase(Locale.ROOT).contains(query) } ||
+                folderNotesForFolder(folder.id).any { it.title.lowercase(Locale.ROOT).contains(query) } ||
                 goalsForFolder(folder.id).any { goal ->
                     goal.name.lowercase(Locale.ROOT).contains(query) ||
                         tasksForGoal(goal.id).any { it.title.lowercase(Locale.ROOT).contains(query) }
@@ -3741,6 +4255,8 @@ class MainActivity : Activity() {
         if (query.isBlank()) return sharedFolders
         return sharedFolders.filter { folder ->
             folder.name.lowercase(Locale.ROOT).contains(query) ||
+                ideasForFolder(folder.id, includeShared = true).any { it.title.lowercase(Locale.ROOT).contains(query) } ||
+                folderNotesForFolder(folder.id, includeShared = true).any { it.title.lowercase(Locale.ROOT).contains(query) } ||
                 goalsForFolder(folder.id, includeShared = true).any { goal ->
                     goal.name.lowercase(Locale.ROOT).contains(query) ||
                         tasksForGoal(goal.id, includeShared = true).any { it.title.lowercase(Locale.ROOT).contains(query) }
@@ -3763,6 +4279,30 @@ class MainActivity : Activity() {
         return sharedTasks.filter { it.title.lowercase(Locale.ROOT).contains(query) }
     }
 
+    private fun filteredIdeas(): List<PlanningIdea> {
+        val query = searchQuery.trim().lowercase(Locale.ROOT)
+        if (query.isBlank()) return ideas
+        return ideas.filter { it.title.lowercase(Locale.ROOT).contains(query) || it.body.lowercase(Locale.ROOT).contains(query) }
+    }
+
+    private fun filteredSharedIdeas(): List<PlanningIdea> {
+        val query = searchQuery.trim().lowercase(Locale.ROOT)
+        if (query.isBlank()) return sharedIdeas
+        return sharedIdeas.filter { it.title.lowercase(Locale.ROOT).contains(query) || it.body.lowercase(Locale.ROOT).contains(query) }
+    }
+
+    private fun filteredFolderNotes(): List<FolderNote> {
+        val query = searchQuery.trim().lowercase(Locale.ROOT)
+        if (query.isBlank()) return folderNotes
+        return folderNotes.filter { it.title.lowercase(Locale.ROOT).contains(query) || it.body.lowercase(Locale.ROOT).contains(query) }
+    }
+
+    private fun filteredSharedFolderNotes(): List<FolderNote> {
+        val query = searchQuery.trim().lowercase(Locale.ROOT)
+        if (query.isBlank()) return sharedFolderNotes
+        return sharedFolderNotes.filter { it.title.lowercase(Locale.ROOT).contains(query) || it.body.lowercase(Locale.ROOT).contains(query) }
+    }
+
     private fun goalsForFolder(folderId: String, includeShared: Boolean = false): List<PlanningGoal> {
         val own = goals.filter { it.folderId == folderId }
         return if (includeShared) own + sharedGoals.filter { it.folderId == folderId } else own
@@ -3773,11 +4313,32 @@ class MainActivity : Activity() {
         return if (includeShared) own + sharedTasks.filter { it.goalId == goalId } else own
     }
 
+    private fun ideasForFolder(folderId: String, includeShared: Boolean = false): List<PlanningIdea> {
+        val own = ideas.filter { it.folderId == folderId }
+        return if (includeShared) own + sharedIdeas.filter { it.folderId == folderId } else own
+    }
+
+    private fun folderNotesForFolder(folderId: String, includeShared: Boolean = false): List<FolderNote> {
+        val own = folderNotes.filter { it.folderId == folderId }
+        return if (includeShared) own + sharedFolderNotes.filter { it.folderId == folderId } else own
+    }
+
+    private fun ideaNotesForIdea(ideaId: String): List<IdeaNote> {
+        return (ideaNotes + sharedIdeaNotes).filter { it.ideaId == ideaId }
+    }
+
     private fun allTasks(): List<PlanningTask> = tasks + sharedTasks
+
+    private fun allIdeas(): List<PlanningIdea> = ideas + sharedIdeas
 
     private fun findTask(taskId: String?): PlanningTask? {
         if (taskId == null) return null
         return allTasks().firstOrNull { it.id == taskId }
+    }
+
+    private fun findIdea(ideaId: String?): PlanningIdea? {
+        if (ideaId == null) return null
+        return allIdeas().firstOrNull { it.id == ideaId }
     }
 
     private fun isDone(task: PlanningTask): Boolean = task.status == "done"
@@ -3912,6 +4473,64 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun showIdeaFolderDialog() {
+        val c = copy()
+        val availableFolders = folders + sharedFolders
+        if (availableFolders.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle(c.newIdea)
+                .setMessage(c.folderFirst)
+                .setNegativeButton(c.cancel, null)
+                .setPositiveButton(c.newFolder) { _, _ -> window.decorView.post { showFolderDialog(null) } }
+                .show()
+            return
+        }
+
+        lateinit var dialog: AlertDialog
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            addView(sheetHeader(c.newIdea))
+            addView(dialogContextLine(c.folder, c.folderFirst))
+        }
+        availableFolders.forEach { folder ->
+            content.addView(selectionOption(R.drawable.ic_folder, folder.name, folder.description) {
+                dialog.dismiss()
+                selectedFolderId = folder.id
+                window.decorView.postDelayed({ showIdeaDialog(folder.id) }, 120)
+            })
+        }
+        dialog = AlertDialog.Builder(this).setView(content).create()
+        dialog.show()
+    }
+
+    private fun showFolderNoteFolderDialog(kind: String) {
+        val c = copy()
+        val availableFolders = folders + sharedFolders
+        if (availableFolders.isEmpty()) {
+            message = c.folderFirst
+            render()
+            return
+        }
+
+        lateinit var dialog: AlertDialog
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            addView(sheetHeader(if (kind == "list") c.newList else c.newFolderNote))
+            addView(dialogContextLine(c.folder, c.folderFirst))
+        }
+        availableFolders.forEach { folder ->
+            content.addView(selectionOption(R.drawable.ic_folder, folder.name, folder.description) {
+                dialog.dismiss()
+                selectedFolderId = folder.id
+                window.decorView.postDelayed({ showFolderNoteDialog(folder.id, kind) }, 120)
+            })
+        }
+        dialog = AlertDialog.Builder(this).setView(content).create()
+        dialog.show()
+    }
+
     private fun weekdaySummary(days: JSONArray?): String {
         if (days == null || days.length() == 0) return copy().noDate
         return (0 until days.length()).joinToString(", ") { index ->
@@ -3994,6 +4613,11 @@ class MainActivity : Activity() {
         val goal = goals.firstOrNull { it.id == task.goalId } ?: sharedGoals.firstOrNull { it.id == task.goalId }
         val folder = goal?.let { g -> folders.firstOrNull { it.id == g.folderId } ?: sharedFolders.firstOrNull { it.id == g.folderId } }
         return listOfNotNull(folder?.name, goal?.name).joinToString(" / ").ifBlank { copy().plan }
+    }
+
+    private fun ideaPath(idea: PlanningIdea): String {
+        val folder = folders.firstOrNull { it.id == idea.folderId } ?: sharedFolders.firstOrNull { it.id == idea.folderId }
+        return listOfNotNull(folder?.name, copy().idea).joinToString(" / ").ifBlank { copy().plan }
     }
 
     private fun PlanningTask.creatorLabel(): String? {

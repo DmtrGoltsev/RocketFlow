@@ -65,6 +65,66 @@ export interface TaskDto {
   updatedAt: string;
 }
 
+export interface IdeaDto {
+  id: string;
+  folderId: string;
+  title: string;
+  body: string;
+  status: string;
+  displayOrder: number;
+  archived: boolean;
+  shared: boolean;
+  creatorUserId: string | null;
+  creatorEmail: string | null;
+  creatorName: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IdeaNoteDto {
+  id: string;
+  ideaId: string;
+  eventType: string;
+  authorUserId: string | null;
+  authorEmail: string | null;
+  authorName: string | null;
+  body: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export type FolderNoteKind = 'note' | 'list';
+
+export interface FolderNoteItemDto {
+  id: string;
+  folderNoteId: string;
+  text: string;
+  checked: boolean;
+  displayOrder: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FolderNoteDto {
+  id: string;
+  folderId: string;
+  kind: FolderNoteKind;
+  title: string;
+  body: string;
+  displayOrder: number;
+  archived: boolean;
+  shared: boolean;
+  authorUserId: string | null;
+  authorEmail: string | null;
+  authorName: string | null;
+  version: number;
+  items: FolderNoteItemDto[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface FolderUpsertPayload {
   name: string;
   description: string;
@@ -90,6 +150,42 @@ export interface TaskUpsertPayload {
   dueTime: string | null;
   archived?: boolean;
   version?: number;
+}
+
+export interface IdeaUpsertPayload {
+  title: string;
+  body: string;
+  status?: string;
+  displayOrder?: number;
+  archived?: boolean;
+  version?: number;
+}
+
+export interface IdeaNoteCreatePayload {
+  eventType: string;
+  body: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FolderNoteUpsertPayload {
+  title: string;
+  body: string;
+  kind?: FolderNoteKind;
+  displayOrder?: number;
+  archived?: boolean;
+  version?: number;
+}
+
+export interface FolderNoteItemCreatePayload {
+  text: string;
+  checked?: boolean;
+}
+
+export interface FolderNoteItemUpdatePayload {
+  text: string;
+  checked: boolean;
+  displayOrder: number;
+  version: number;
 }
 
 export interface TaskRecurrenceUpsertPayload {

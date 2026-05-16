@@ -80,6 +80,90 @@ class PlanningRepository(
         return syncAfterLocalChange(session)
     }
 
+    suspend fun createIdea(session: AuthSession, folderId: String, draft: IdeaDraft): PlanningLoadResult {
+        val result = authRepository.authorizedPost(
+            session,
+            "/folders/$folderId/ideas",
+            JSONObject()
+                .put("title", draft.title)
+                .put("body", draft.body)
+        )
+        val idea = result.value.toIdea(shared = isSharedFolder(result.session.user.id, folderId))
+        localStore.upsertRemoteIdeas(result.session.user.id, listOf(idea))
+        val refreshed = pullRemote(result.session)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun createIdeaNote(session: AuthSession, ideaId: String, draft: IdeaNoteDraft): PlanningLoadResult {
+        val result = authRepository.authorizedPost(
+            session,
+            "/ideas/$ideaId/notes",
+            JSONObject()
+                .put("eventType", "note")
+                .put("body", draft.body)
+                .put("metadata", JSONObject())
+        )
+        localStore.upsertRemoteIdeaNotes(result.session.user.id, listOf(result.value.toIdeaNote(ideaId)))
+        val refreshed = pullRemote(result.session)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun createFolderNote(session: AuthSession, folderId: String, draft: FolderNoteDraft): PlanningLoadResult {
+        val result = authRepository.authorizedPost(
+            session,
+            "/folders/$folderId/notes",
+            JSONObject()
+                .put("title", draft.title)
+                .put("body", draft.body)
+                .put("kind", draft.kind)
+        )
+        val note = result.value.toFolderNote(shared = isSharedFolder(result.session.user.id, folderId))
+        localStore.upsertRemoteFolderNotes(result.session.user.id, listOf(note))
+        val refreshed = pullRemote(result.session)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun createFolderNoteItem(session: AuthSession, noteId: String, draft: FolderNoteItemDraft): PlanningLoadResult {
+        val result = authRepository.authorizedPost(
+            session,
+            "/folder-notes/$noteId/items",
+            JSONObject()
+                .put("text", draft.body)
+                .put("checked", draft.checked)
+        )
+        val refreshed = pullRemote(result.session)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun updateFolderNoteItem(session: AuthSession, item: FolderNoteItem, checked: Boolean): PlanningLoadResult {
+        val result = authRepository.authorizedPatch(
+            session,
+            "/folder-note-items/${item.id}",
+            JSONObject()
+                .put("text", item.body)
+                .put("checked", checked)
+                .put("displayOrder", item.displayOrder)
+                .put("version", item.version)
+        )
+        val refreshed = pullRemote(result.session)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
     suspend fun createTag(session: AuthSession, draft: TaskTagDraft): PlanningLoadResult {
         localStore.createTag(session.user.id, draft)
         return syncAfterLocalChange(session)
@@ -136,6 +220,24 @@ class PlanningRepository(
             session to localStore.findTask(session.user.id, taskId)
         } catch (_: Exception) {
             session to localStore.findTask(session.user.id, taskId)
+        }
+    }
+
+    suspend fun getIdea(session: AuthSession, ideaId: String): Pair<AuthSession, PlanningIdea?> {
+        localStore.findIdea(session.user.id, ideaId)?.let { return session to it }
+
+        return try {
+            val result = authRepository.authorizedGet(session, "/ideas/$ideaId")
+            val idea = result.value.toIdea(shared = result.value.optBoolean("shared", false))
+            localStore.upsertRemoteIdeas(result.session.user.id, listOf(idea))
+            result.session to idea
+        } catch (error: ApiException) {
+            if (error.status == 401) {
+                throw error
+            }
+            session to localStore.findIdea(session.user.id, ideaId)
+        } catch (_: Exception) {
+            session to localStore.findIdea(session.user.id, ideaId)
         }
     }
 
@@ -407,11 +509,28 @@ class PlanningRepository(
 
         val allGoals = mutableListOf<PlanningGoal>()
         val allTasks = mutableListOf<PlanningTask>()
+        val allIdeas = mutableListOf<PlanningIdea>()
+        val allIdeaNotes = mutableListOf<IdeaNote>()
+        val allFolderNotes = mutableListOf<FolderNote>()
         folders.filterNot { it.archived }.forEach { folder ->
             val goalsResult = syncGet(activeSession, "/folders/${folder.id}/goals")
             activeSession = goalsResult.session
             val goals = goalsResult.value.getJSONArray("items").toGoals(shared = false)
             allGoals += goals
+
+            val ideasResult = syncOptionalItems(activeSession, "/folders/${folder.id}/ideas")
+            activeSession = ideasResult.first
+            val ideas = ideasResult.second.toIdeas(shared = false)
+            allIdeas += ideas
+            ideas.filterNot { it.archived }.forEach { idea ->
+                val notesResult = syncOptionalItems(activeSession, "/ideas/${idea.id}/notes")
+                activeSession = notesResult.first
+                allIdeaNotes += notesResult.second.toIdeaNotes(idea.id)
+            }
+
+            val folderNotesResult = syncOptionalItems(activeSession, "/folders/${folder.id}/notes")
+            activeSession = folderNotesResult.first
+            allFolderNotes += folderNotesResult.second.toFolderNotes(shared = false)
 
             goals.filterNot { it.archived }.forEach { goal ->
                 val tasksResult = syncGet(activeSession, "/goals/${goal.id}/tasks")
@@ -421,6 +540,9 @@ class PlanningRepository(
         }
         localStore.upsertRemoteGoals(userId, allGoals)
         localStore.upsertRemoteTasks(userId, allTasks)
+        localStore.upsertRemoteIdeas(userId, allIdeas)
+        localStore.upsertRemoteIdeaNotes(userId, allIdeaNotes)
+        localStore.upsertRemoteFolderNotes(userId, allFolderNotes)
 
         val sharedResult = syncGet(activeSession, "/shares/resources")
         activeSession = sharedResult.session
@@ -451,6 +573,27 @@ class PlanningRepository(
             tasks = sharedTasks
         )
 
+        val sharedIdeas = mutableListOf<PlanningIdea>()
+        val sharedIdeaNotes = mutableListOf<IdeaNote>()
+        val sharedFolderNotes = mutableListOf<FolderNote>()
+        sharedFolders.distinctBy { it.id }.filterNot { it.archived }.forEach { folder ->
+            val ideasResult = syncOptionalItems(activeSession, "/folders/${folder.id}/ideas")
+            activeSession = ideasResult.first
+            val ideas = ideasResult.second.toIdeas(shared = true)
+            sharedIdeas += ideas
+            ideas.filterNot { it.archived }.forEach { idea ->
+                val notesResult = syncOptionalItems(activeSession, "/ideas/${idea.id}/notes")
+                activeSession = notesResult.first
+                sharedIdeaNotes += notesResult.second.toIdeaNotes(idea.id)
+            }
+            val folderNotesResult = syncOptionalItems(activeSession, "/folders/${folder.id}/notes")
+            activeSession = folderNotesResult.first
+            sharedFolderNotes += folderNotesResult.second.toFolderNotes(shared = true)
+        }
+        localStore.upsertRemoteIdeas(userId, sharedIdeas.distinctBy { it.id })
+        localStore.upsertRemoteIdeaNotes(userId, sharedIdeaNotes.distinctBy { it.id })
+        localStore.upsertRemoteFolderNotes(userId, sharedFolderNotes.distinctBy { it.id })
+
         return activeSession
     }
 
@@ -459,6 +602,20 @@ class PlanningRepository(
             authRepository.authorizedGet(session, path)
         } catch (error: ApiException) {
             throw error.withSyncContext("GET", path)
+        }
+    }
+
+    private suspend fun syncOptionalItems(session: AuthSession, path: String): Pair<AuthSession, JSONArray> {
+        return try {
+            val result = authRepository.authorizedGet(session, path)
+            result.session to result.value.optJSONArray("items").orEmptyArray()
+        } catch (error: ApiException) {
+            if (error.status == 401) {
+                throw error
+            }
+            session to JSONArray()
+        } catch (_: Exception) {
+            session to JSONArray()
         }
     }
 
@@ -512,6 +669,22 @@ class PlanningRepository(
 
     private fun JSONArray.toTasks(shared: Boolean): List<PlanningTask> {
         return List(length()) { index -> getJSONObject(index).toTask(shared = shared) }
+    }
+
+    private fun JSONArray.toIdeas(shared: Boolean): List<PlanningIdea> {
+        return List(length()) { index -> getJSONObject(index).toIdea(shared = shared) }
+    }
+
+    private fun JSONArray.toIdeaNotes(ideaId: String): List<IdeaNote> {
+        return List(length()) { index -> getJSONObject(index).toIdeaNote(ideaId) }
+    }
+
+    private fun JSONArray.toFolderNotes(shared: Boolean): List<FolderNote> {
+        return List(length()) { index -> getJSONObject(index).toFolderNote(shared = shared) }
+    }
+
+    private fun JSONArray.toFolderNoteItems(noteId: String): List<FolderNoteItem> {
+        return List(length()) { index -> getJSONObject(index).toFolderNoteItem(noteId) }
     }
 
     private fun JSONArray.toTaskTags(): List<TaskTag> {
@@ -581,6 +754,67 @@ class PlanningRepository(
             updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },
             syncState = SyncState.Synced,
             lastError = null
+        )
+    }
+
+    private fun JSONObject.toIdea(shared: Boolean): PlanningIdea {
+        return PlanningIdea(
+            id = getString("id"),
+            folderId = text("folderId").ifBlank { optJSONObject("folder")?.text("id").orEmpty() },
+            title = text("title").ifBlank { text("name") },
+            body = text("body").ifBlank { text("description") },
+            archived = optBoolean("archived", false),
+            shared = shared,
+            version = optLong("version", 0),
+            createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
+            updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },
+            syncState = SyncState.Synced,
+            lastError = null
+        )
+    }
+
+    private fun JSONObject.toIdeaNote(ideaIdFallback: String): IdeaNote {
+        val author = optJSONObject("author")
+        return IdeaNote(
+            id = getString("id"),
+            ideaId = text("ideaId").ifBlank { ideaIdFallback },
+            body = text("body"),
+            authorUserId = nullableText("authorUserId") ?: author?.nullableText("id"),
+            authorEmail = nullableText("authorEmail") ?: author?.nullableText("email"),
+            authorName = nullableText("authorName") ?: author?.nullableText("displayName") ?: author?.nullableText("name"),
+            createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() }
+        )
+    }
+
+    private fun JSONObject.toFolderNote(shared: Boolean): FolderNote {
+        val id = getString("id")
+        return FolderNote(
+            id = id,
+            folderId = text("folderId").ifBlank { optJSONObject("folder")?.text("id").orEmpty() },
+            title = text("title"),
+            body = text("body"),
+            kind = text("kind").ifBlank { if (optJSONArray("items") != null) "list" else "note" },
+            archived = optBoolean("archived", false),
+            shared = shared,
+            version = optLong("version", 0),
+            items = (optJSONArray("items") ?: JSONArray()).toFolderNoteItems(id),
+            createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
+            updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },
+            syncState = SyncState.Synced,
+            lastError = null
+        )
+    }
+
+    private fun JSONObject.toFolderNoteItem(noteIdFallback: String): FolderNoteItem {
+        return FolderNoteItem(
+            id = getString("id"),
+            noteId = text("folderNoteId").ifBlank { text("noteId").ifBlank { noteIdFallback } },
+            body = text("text").ifBlank { text("body") },
+            checked = optBoolean("checked", false),
+            displayOrder = optInt("displayOrder", 0),
+            version = optLong("version", 0),
+            createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
+            updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() }
         )
     }
 
@@ -681,6 +915,12 @@ class PlanningRepository(
             .putNullable("endAt", recurrence.nullableText("endAt"))
             .put("active", recurrence.optBoolean("active", true))
             .toString()
+    }
+
+    private fun isSharedFolder(userId: String, folderId: String): Boolean {
+        return localStore.snapshot(userId, offline = false, lastSyncError = null)
+            .sharedFolders
+            .any { it.id == folderId }
     }
 
     companion object {

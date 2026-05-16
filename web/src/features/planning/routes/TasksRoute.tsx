@@ -7,6 +7,8 @@ import {
   Cloud,
   Folder,
   Flag,
+  Lightbulb,
+  ListChecks,
   MoreHorizontal,
   PanelRightClose,
   Pencil,
@@ -24,24 +26,38 @@ import { useAuth } from '../../auth';
 import { useI18n } from '../../../i18n';
 import {
   createFolder,
+  createFolderNote,
+  createFolderNoteItem,
   createGoal,
+  createIdea,
+  createIdeaNote,
   createTask,
+  deleteIdea,
   deleteTask,
+  listFolderNotes,
   listFolders,
   listGoals,
+  listIdeaNotes,
+  listIdeas,
   listTasks,
+  updateFolderNote,
+  updateFolderNoteItem,
+  updateIdea,
   updateTask,
 } from '../planning-api';
 import { getSharedResources } from '../../advanced/advanced-api';
 import { usePlanningCopy } from '../planning-copy';
 import { mapPlanningError } from '../planning-errors';
 import { formatDateTime, fromDateTimeInputValue, toDateTimeInputValue } from '../planning-utils';
-import type { FolderDto, GoalDto, TaskDto, TaskStatus, TaskType } from '../types';
+import type { FolderDto, FolderNoteDto, GoalDto, IdeaDto, IdeaNoteDto, TaskDto, TaskStatus, TaskType } from '../types';
 import type { SharedResourcesResponse } from '../../advanced/types';
 
 type PlanFolder = FolderDto & { shared?: boolean };
 type GoalsByFolder = Record<string, GoalDto[]>;
 type TasksByGoal = Record<string, TaskDto[]>;
+type IdeasByFolder = Record<string, IdeaDto[]>;
+type FolderNotesByFolder = Record<string, FolderNoteDto[]>;
+type IdeaNotesByIdea = Record<string, IdeaNoteDto[]>;
 
 interface VisibleGoal {
   goal: GoalDto;
@@ -52,14 +68,20 @@ interface VisibleGoal {
 interface VisibleFolder {
   folder: PlanFolder;
   goals: VisibleGoal[];
+  ideas: IdeaDto[];
+  folderNotes: FolderNoteDto[];
   allGoals: GoalDto[];
   allTasks: TaskDto[];
+  allIdeas: IdeaDto[];
+  allFolderNotes: FolderNoteDto[];
 }
 
 interface Selection {
   folderId: string | null;
   goalId: string | null;
   taskId: string | null;
+  ideaId: string | null;
+  folderNoteId: string | null;
 }
 
 interface TaskDraft {
@@ -70,6 +92,16 @@ interface TaskDraft {
   priority: string;
   plannedTime: string;
   dueTime: string;
+}
+
+interface IdeaDraft {
+  title: string;
+  description: string;
+}
+
+interface FolderNoteDraft {
+  title: string;
+  body: string;
 }
 
 type MarkerTone = 'green' | 'red' | 'blue' | 'amber' | 'gray';
@@ -83,6 +115,13 @@ function toDraft(task: TaskDto | null): TaskDraft {
     priority: String(task?.priority ?? 2),
     plannedTime: toDateTimeInputValue(task?.plannedTime ?? null),
     dueTime: toDateTimeInputValue(task?.dueTime ?? null),
+  };
+}
+
+function toIdeaDraft(idea: IdeaDto | null): IdeaDraft {
+  return {
+    title: idea?.title ?? '',
+    description: idea?.body ?? '',
   };
 }
 
@@ -209,6 +248,24 @@ function groupTasksByGoal(tasks: TaskDto[]) {
   }, {});
 }
 
+function groupIdeasByFolder(ideas: IdeaDto[]) {
+  return ideas.reduce<IdeasByFolder>((groups, idea) => {
+    groups[idea.folderId] = [...(groups[idea.folderId] ?? []), idea];
+    return groups;
+  }, {});
+}
+
+function groupFolderNotesByFolder(notes: FolderNoteDto[]) {
+  return notes.reduce<FolderNotesByFolder>((groups, note) => {
+    groups[note.folderId] = [...(groups[note.folderId] ?? []), note];
+    return groups;
+  }, {});
+}
+
+function describeIdeaAuthor(note: IdeaNoteDto) {
+  return note.authorName || note.authorEmail || note.authorUserId || null;
+}
+
 function usePlanCopy() {
   const { locale } = useI18n();
 
@@ -217,6 +274,12 @@ function usePlanCopy() {
     folder: locale === 'ru' ? 'Папка' : 'Folder',
     goal: locale === 'ru' ? 'Цель' : 'Goal',
     task: locale === 'ru' ? 'Задача' : 'Task',
+    idea: locale === 'ru' ? 'Идея' : 'Idea',
+    folderNote: locale === 'ru' ? 'Заметка папки' : 'Folder note',
+    folderList: locale === 'ru' ? 'Список папки' : 'Folder list',
+    ideas: locale === 'ru' ? 'Идеи' : 'Ideas',
+    folderNotes: locale === 'ru' ? 'Заметки и списки папки' : 'Folder notes and lists',
+    ideaHistory: locale === 'ru' ? 'История мыслей' : 'Thought history',
     search: locale === 'ru' ? 'Поиск' : 'Search',
     searchPlaceholder: locale === 'ru' ? 'Найти в плане' : 'Search plan',
     closeSearch: locale === 'ru' ? 'Закрыть поиск' : 'Close search',
@@ -229,6 +292,9 @@ function usePlanCopy() {
     newFolder: locale === 'ru' ? 'Новая папка' : 'New folder',
     newGoal: locale === 'ru' ? 'Новая цель' : 'New goal',
     newTask: locale === 'ru' ? 'Новая задача' : 'New task',
+    newIdea: locale === 'ru' ? 'Новая идея' : 'New idea',
+    newFolderNote: locale === 'ru' ? 'Новая заметка' : 'New note',
+    newFolderList: locale === 'ru' ? 'Новый список' : 'New list',
     addGoal: locale === 'ru' ? 'Добавьте цель' : 'Add a goal',
     addTask: locale === 'ru' ? 'Добавьте задачу' : 'Add a task',
     emptyTitle: locale === 'ru' ? 'Пока пусто' : 'Nothing here yet',
@@ -236,6 +302,7 @@ function usePlanCopy() {
       ? 'Создайте папку, затем добавьте цель и задачи.'
       : 'Create a folder, then add a goal and tasks.',
     selectTask: locale === 'ru' ? 'Выберите задачу' : 'Select a task',
+    selectItem: locale === 'ru' ? 'Выберите задачу, идею или папку' : 'Select a task, idea, or folder',
     path: locale === 'ru' ? 'Путь' : 'Path',
     notes: locale === 'ru' ? 'Заметки' : 'Notes',
     details: locale === 'ru' ? 'Сведения' : 'Details',
@@ -247,6 +314,7 @@ function usePlanCopy() {
     creator: locale === 'ru' ? 'Создатель' : 'Creator',
     archive: locale === 'ru' ? 'В архив' : 'Archive',
     archiveConfirm: locale === 'ru' ? 'Переместить задачу в архив?' : 'Archive this task?',
+    archiveIdeaConfirm: locale === 'ru' ? 'Удалить идею?' : 'Delete this idea?',
     synced: locale === 'ru' ? 'Синхронизировано' : 'Synced',
     savedOffline: locale === 'ru' ? 'Сохранено офлайн' : 'Saved offline',
     save: locale === 'ru' ? 'Сохранить' : 'Save',
@@ -256,6 +324,13 @@ function usePlanCopy() {
     folderName: locale === 'ru' ? 'Запуск продукта' : 'Product launch',
     goalName: locale === 'ru' ? 'Мягкий релиз' : 'Soft release',
     taskName: locale === 'ru' ? 'Подготовить страницу входа' : 'Prepare the sign-in screen',
+    ideaName: locale === 'ru' ? 'Новая идея' : 'New idea',
+    folderNoteName: locale === 'ru' ? 'Общая заметка' : 'Shared note',
+    folderListName: locale === 'ru' ? 'Новый список' : 'New list',
+    notePlaceholder: locale === 'ru' ? 'Запишите мысль или контекст' : 'Write a thought or context',
+    listItemPlaceholder: locale === 'ru' ? 'Новый пункт списка' : 'New list item',
+    addNote: locale === 'ru' ? 'Добавить заметку' : 'Add note',
+    addListItem: locale === 'ru' ? 'Добавить пункт' : 'Add item',
     notesText: locale === 'ru'
       ? 'Уточнить тексты, состояния ошибок и первый пустой экран.'
       : 'Review copy, error states, and the first empty screen.',
@@ -270,8 +345,17 @@ export function TasksRoute() {
   const [folders, setFolders] = useState<PlanFolder[]>([]);
   const [goalsByFolder, setGoalsByFolder] = useState<GoalsByFolder>({});
   const [tasksByGoal, setTasksByGoal] = useState<TasksByGoal>({});
+  const [ideasByFolder, setIdeasByFolder] = useState<IdeasByFolder>({});
+  const [folderNotesByFolder, setFolderNotesByFolder] = useState<FolderNotesByFolder>({});
+  const [ideaNotesByIdea, setIdeaNotesByIdea] = useState<IdeaNotesByIdea>({});
   const [createTaskGoalIds, setCreateTaskGoalIds] = useState<Set<string>>(() => new Set());
-  const [selection, setSelection] = useState<Selection>({ folderId: null, goalId: null, taskId: null });
+  const [selection, setSelection] = useState<Selection>({
+    folderId: null,
+    goalId: null,
+    taskId: null,
+    ideaId: null,
+    folderNoteId: null,
+  });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -280,12 +364,21 @@ export function TasksRoute() {
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [ideaDraft, setIdeaDraft] = useState<IdeaDraft>(() => toIdeaDraft(null));
+  const [ideaNoteDraft, setIdeaNoteDraft] = useState('');
+  const [folderNoteDraft, setFolderNoteDraft] = useState<FolderNoteDraft>({ title: '', body: '' });
+  const [folderNoteItemDraft, setFolderNoteItemDraft] = useState('');
 
   const goals = useMemo(() => Object.values(goalsByFolder).flat(), [goalsByFolder]);
   const tasks = useMemo(() => Object.values(tasksByGoal).flat(), [tasksByGoal]);
+  const ideas = useMemo(() => Object.values(ideasByFolder).flat(), [ideasByFolder]);
+  const folderNotes = useMemo(() => Object.values(folderNotesByFolder).flat(), [folderNotesByFolder]);
   const selectedFolder = folders.find((folder) => folder.id === selection.folderId) ?? null;
   const selectedGoal = goals.find((goal) => goal.id === selection.goalId) ?? null;
   const selectedTask = tasks.find((task) => task.id === selection.taskId) ?? null;
+  const selectedIdea = ideas.find((idea) => idea.id === selection.ideaId) ?? null;
+  const selectedFolderNote = folderNotes.find((note) => note.id === selection.folderNoteId) ?? null;
+  const selectedIdeaNotes = selectedIdea ? ideaNotesByIdea[selectedIdea.id] ?? [] : [];
   const [draft, setDraft] = useState<TaskDraft>(() => toDraft(null));
   const taskCreationGoal = goals.find((goal) => goal.id === createTaskGoalId) ?? null;
   const taskCreationFolder = taskCreationGoal
@@ -299,16 +392,41 @@ export function TasksRoute() {
   const selectedCreator = !isCreatingTask && selectedTask ? describeCreator(selectedTask) : null;
   const canArchiveSelectedTask = !isCreatingTask && selectedTask ? !selectedTask.shared : false;
   const canEditSelectedTaskFields = isCreatingTask || (selectedTask ? !selectedTask.shared : false);
+  const canEditSelectedIdea = selectedIdea ? !selectedIdea.shared : false;
   const canCreateGoalInFolder = (folder: PlanFolder | null) => Boolean(folder && !folder.shared);
   const canCreateTaskInGoal = (goal: GoalDto | null) => Boolean(goal && (!goal.shared || createTaskGoalIds.has(goal.id)));
+  const canCreateFolderResource = (folder: PlanFolder | null) => Boolean(folder && !folder.shared);
   const visiblePlanTree = useMemo<VisibleFolder[]>(() => {
     return folders
       .map((folder) => {
         const allGoals = goalsByFolder[folder.id] ?? [];
+        const allIdeas = ideasByFolder[folder.id] ?? [];
+        const allFolderNotes = folderNotesByFolder[folder.id] ?? [];
         const folderMatches = isSearching && (
           matchesQuery(folder.name, normalizedSearch, locale) ||
           matchesQuery(folder.description, normalizedSearch, locale)
         );
+        const visibleIdeas = allIdeas.filter((idea) => {
+          if (!isSearching || folderMatches) {
+            return true;
+          }
+
+          return (
+            matchesQuery(idea.title, normalizedSearch, locale) ||
+            matchesQuery(idea.body, normalizedSearch, locale)
+          );
+        });
+        const visibleFolderNotes = allFolderNotes.filter((note) => {
+          if (!isSearching || folderMatches) {
+            return true;
+          }
+
+          return (
+            matchesQuery(note.title, normalizedSearch, locale) ||
+            matchesQuery(note.body, normalizedSearch, locale) ||
+            note.items.some((item) => matchesQuery(item.text, normalizedSearch, locale))
+          );
+        });
         const visibleGoals = allGoals
           .map((goal) => {
             const allTasks = tasksByGoal[goal.id] ?? [];
@@ -345,14 +463,35 @@ export function TasksRoute() {
         return {
           folder,
           goals: visibleGoals,
+          ideas: visibleIdeas,
+          folderNotes: visibleFolderNotes,
           allGoals,
           allTasks,
+          allIdeas,
+          allFolderNotes,
           matches: folderMatches,
         };
       })
-      .filter((folder) => !isSearching || folder.matches || folder.goals.length > 0)
+      .filter((folder) => (
+        !isSearching ||
+        folder.matches ||
+        folder.goals.length > 0 ||
+        folder.ideas.length > 0 ||
+        folder.folderNotes.length > 0
+      ))
       .map(({ matches, ...folder }) => folder);
-  }, [folders, goalsByFolder, isSearching, locale, normalizedSearch, planningCopy.enums.taskStatus, planningCopy.enums.taskType, tasksByGoal]);
+  }, [
+    folderNotesByFolder,
+    folders,
+    goalsByFolder,
+    ideasByFolder,
+    isSearching,
+    locale,
+    normalizedSearch,
+    planningCopy.enums.taskStatus,
+    planningCopy.enums.taskType,
+    tasksByGoal,
+  ]);
   const rowCopy = {
     complete: locale === 'ru' ? 'Отметить выполненной' : 'Mark complete',
     reopen: locale === 'ru' ? 'Вернуть в работу' : 'Mark active',
@@ -365,6 +504,19 @@ export function TasksRoute() {
       setDraft(toDraft(selectedTask));
     }
   }, [isCreatingTask, selectedTask?.id]);
+
+  useEffect(() => {
+    setIdeaDraft(toIdeaDraft(selectedIdea));
+    setIdeaNoteDraft('');
+  }, [selectedIdea?.id]);
+
+  useEffect(() => {
+    setFolderNoteDraft({
+      title: selectedFolderNote?.title ?? '',
+      body: selectedFolderNote?.body ?? '',
+    });
+    setFolderNoteItemDraft('');
+  }, [selectedFolderNote?.id]);
 
   async function loadPlan(preferred: Partial<Selection> = {}) {
     setLoading(true);
@@ -392,10 +544,28 @@ export function TasksRoute() {
         ownedFolders.map((folder) => ({ ...folder, shared: false })),
         (sharedResources.folders ?? []).map((folder) => ({ ...folder, shared: true })),
       );
+      const [nextIdeaEntries, nextFolderNoteEntries] = await Promise.all([
+        Promise.all(
+          nextFolders.map(async (folder) => [
+            folder.id,
+            await listIdeas(authorizedFetch, folder.id).catch(() => []),
+          ] as const),
+        ),
+        Promise.all(
+          nextFolders.map(async (folder) => [
+            folder.id,
+            await listFolderNotes(authorizedFetch, folder.id).catch(() => []),
+          ] as const),
+        ),
+      ]);
       const nextGoals = mergeById(ownedGoals, sharedResources.goals ?? []);
       const nextTasks = mergeById(ownedTasks, sharedResources.tasks ?? []);
+      const nextIdeas = nextIdeaEntries.flatMap(([, folderIdeas]) => folderIdeas);
+      const nextFolderNotes = nextFolderNoteEntries.flatMap(([, notes]) => notes);
       const nextGoalsByFolder = groupGoalsByFolder(nextGoals);
       const nextTasksByGoal = groupTasksByGoal(nextTasks);
+      const nextIdeasByFolder = groupIdeasByFolder(nextIdeas);
+      const nextFolderNotesByFolder = groupFolderNotesByFolder(nextFolderNotes);
 
       const nextFolderId = preferred.folderId ?? selection.folderId ?? nextFolders[0]?.id ?? null;
       const nextGoalId =
@@ -410,18 +580,33 @@ export function TasksRoute() {
         (nextGoalId ? nextTasksByGoal[nextGoalId]?.[0]?.id : null) ??
         nextTasks[0]?.id ??
         null;
+      const nextIdeaId = preferred.ideaId ?? (preferred.taskId !== undefined ? null : selection.ideaId) ?? null;
+      const nextFolderNoteId = preferred.folderNoteId ?? (
+        preferred.taskId !== undefined || preferred.ideaId !== undefined ? null : selection.folderNoteId
+      ) ?? null;
 
       setFolders(nextFolders);
       setGoalsByFolder(nextGoalsByFolder);
       setTasksByGoal(nextTasksByGoal);
+      setIdeasByFolder(nextIdeasByFolder);
+      setFolderNotesByFolder(nextFolderNotesByFolder);
       setCreateTaskGoalIds(new Set(sharedResources.createTaskGoalIds ?? []));
-      setSelection({ folderId: nextFolderId, goalId: nextGoalId, taskId: nextTaskId });
+      setSelection({
+        folderId: nextFolderId,
+        goalId: nextGoalId,
+        taskId: preferred.ideaId !== undefined || preferred.folderNoteId !== undefined ? null : nextTaskId,
+        ideaId: nextIdeaId,
+        folderNoteId: nextFolderNoteId,
+      });
     } catch (error) {
       const mapped = mapPlanningError(error, planningCopy);
       setLoadError(mapped.message);
       setFolders([]);
       setGoalsByFolder({});
       setTasksByGoal({});
+      setIdeasByFolder({});
+      setFolderNotesByFolder({});
+      setIdeaNotesByIdea({});
       setCreateTaskGoalIds(new Set());
     } finally {
       setLoading(false);
@@ -431,6 +616,20 @@ export function TasksRoute() {
   useEffect(() => {
     void loadPlan();
   }, []);
+
+  useEffect(() => {
+    if (!selectedIdea || ideaNotesByIdea[selectedIdea.id]) {
+      return;
+    }
+
+    void listIdeaNotes(authorizedFetch, selectedIdea.id)
+      .then((notes) => {
+        setIdeaNotesByIdea((current) => ({ ...current, [selectedIdea.id]: notes }));
+      })
+      .catch(() => {
+        setIdeaNotesByIdea((current) => ({ ...current, [selectedIdea.id]: [] }));
+      });
+  }, [authorizedFetch, ideaNotesByIdea, selectedIdea]);
 
   async function handleCreateFolder() {
     setSaving(true);
@@ -470,9 +669,207 @@ export function TasksRoute() {
     }
 
     setCreateTaskGoalId(goalId);
-    setSelection({ folderId: targetGoal.folderId, goalId, taskId: null });
+    setSelection({ folderId: targetGoal.folderId, goalId, taskId: null, ideaId: null, folderNoteId: null });
     setDraft(toDraft(null));
     setIsPanelOpen(true);
+  }
+
+  async function handleCreateIdea(folderId = selection.folderId) {
+    const targetFolder = folders.find((folder) => folder.id === folderId) ?? null;
+    if (!folderId || !canCreateFolderResource(targetFolder)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const idea = await createIdea(authorizedFetch, folderId, {
+        title: copy.ideaName,
+        body: '',
+      });
+
+      setIdeasByFolder((current) => ({
+        ...current,
+        [folderId]: [...(current[folderId] ?? []), idea],
+      }));
+      setSelection({ folderId, goalId: null, taskId: null, ideaId: idea.id, folderNoteId: null });
+      setIsPanelOpen(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveIdea() {
+    if (!selectedIdea || !canEditSelectedIdea || !ideaDraft.title.trim()) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const updated = await updateIdea(authorizedFetch, selectedIdea.id, {
+        title: ideaDraft.title.trim(),
+        body: ideaDraft.description.trim(),
+        status: selectedIdea.status,
+        displayOrder: selectedIdea.displayOrder,
+        archived: selectedIdea.archived,
+        version: selectedIdea.version,
+      });
+
+      setIdeasByFolder((current) => ({
+        ...current,
+        [updated.folderId]: (current[updated.folderId] ?? []).map((idea) => (idea.id === updated.id ? updated : idea)),
+      }));
+      setSelection({ folderId: updated.folderId, goalId: null, taskId: null, ideaId: updated.id, folderNoteId: null });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleArchiveIdea() {
+    if (!selectedIdea || selectedIdea.shared || !window.confirm(copy.archiveIdeaConfirm)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await deleteIdea(authorizedFetch, selectedIdea.id);
+      const nextIdeas = (ideasByFolder[selectedIdea.folderId] ?? []).filter((idea) => idea.id !== selectedIdea.id);
+      setIdeasByFolder((current) => ({
+        ...current,
+        [selectedIdea.folderId]: nextIdeas,
+      }));
+      setSelection({
+        folderId: selectedIdea.folderId,
+        goalId: null,
+        taskId: null,
+        ideaId: nextIdeas[0]?.id ?? null,
+        folderNoteId: null,
+      });
+      if (nextIdeas.length === 0) {
+        setIsPanelOpen(false);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCreateIdeaNote() {
+    if (!selectedIdea || !ideaNoteDraft.trim()) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const note = await createIdeaNote(authorizedFetch, selectedIdea.id, {
+        eventType: 'note',
+        body: ideaNoteDraft.trim(),
+        metadata: {},
+      });
+      setIdeaNotesByIdea((current) => ({
+        ...current,
+        [selectedIdea.id]: [...(current[selectedIdea.id] ?? []), note],
+      }));
+      setIdeaNoteDraft('');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCreateFolderNote(kind: FolderNoteDto['kind']) {
+    if (!selectedFolder || !canCreateFolderResource(selectedFolder)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const note = await createFolderNote(authorizedFetch, selectedFolder.id, {
+        title: kind === 'list' ? copy.folderListName : copy.folderNoteName,
+        body: '',
+        kind,
+      });
+      setFolderNotesByFolder((current) => ({
+        ...current,
+        [selectedFolder.id]: [...(current[selectedFolder.id] ?? []), note],
+      }));
+      setSelection({ folderId: selectedFolder.id, goalId: null, taskId: null, ideaId: null, folderNoteId: note.id });
+      setFolderNoteDraft({ title: note.title, body: note.body });
+      setIsPanelOpen(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveFolderNote() {
+    if (!selectedFolderNote || !folderNoteDraft.title.trim()) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const updated = await updateFolderNote(authorizedFetch, selectedFolderNote.id, {
+        title: folderNoteDraft.title.trim(),
+        body: folderNoteDraft.body.trim(),
+        displayOrder: selectedFolderNote.displayOrder,
+        archived: selectedFolderNote.archived,
+        version: selectedFolderNote.version,
+      });
+      setFolderNotesByFolder((current) => ({
+        ...current,
+        [updated.folderId]: (current[updated.folderId] ?? []).map((note) => (note.id === updated.id ? updated : note)),
+      }));
+      setSelection({ folderId: updated.folderId, goalId: null, taskId: null, ideaId: null, folderNoteId: updated.id });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAddFolderNoteItem(note: FolderNoteDto) {
+    if (!folderNoteItemDraft.trim()) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const item = await createFolderNoteItem(authorizedFetch, note.id, {
+        text: folderNoteItemDraft.trim(),
+        checked: false,
+      });
+      setFolderNotesByFolder((current) => ({
+        ...current,
+        [note.folderId]: (current[note.folderId] ?? []).map((folderNote) => (
+          folderNote.id === note.id ? { ...folderNote, items: [...folderNote.items, item] } : folderNote
+        )),
+      }));
+      setFolderNoteItemDraft('');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleToggleFolderNoteItem(note: FolderNoteDto, itemId: string) {
+    const item = note.items.find((candidate) => candidate.id === itemId);
+    if (!item) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const updated = await updateFolderNoteItem(authorizedFetch, item.id, {
+        text: item.text,
+        checked: !item.checked,
+        displayOrder: item.displayOrder,
+        version: item.version,
+      });
+      setFolderNotesByFolder((current) => ({
+        ...current,
+        [note.folderId]: (current[note.folderId] ?? []).map((folderNote) => (
+          folderNote.id === note.id
+            ? { ...folderNote, items: folderNote.items.map((candidate) => (candidate.id === updated.id ? updated : candidate)) }
+            : folderNote
+        )),
+      }));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleSaveTask() {
@@ -525,7 +922,7 @@ export function TasksRoute() {
         ...current,
         [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) => (task.id === updated.id ? updated : task)),
       }));
-      setSelection((current) => ({ ...current, taskId: updated.id }));
+      setSelection((current) => ({ ...current, taskId: updated.id, ideaId: null, folderNoteId: null }));
     } finally {
       setSaving(false);
     }
@@ -555,7 +952,7 @@ export function TasksRoute() {
         ...current,
         [goal.id]: (current[goal.id] ?? []).map((item) => (item.id === updated.id ? updated : item)),
       }));
-      setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: updated.id });
+      setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: updated.id, ideaId: null, folderNoteId: null });
     } finally {
       setSaving(false);
     }
@@ -576,7 +973,7 @@ export function TasksRoute() {
         ...current,
         [goal.id]: (current[goal.id] ?? []).filter((item) => item.id !== task.id),
       }));
-      setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: nextTaskId });
+      setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: nextTaskId, ideaId: null, folderNoteId: null });
       if (!nextTaskId) {
         setIsPanelOpen(false);
       }
@@ -687,6 +1084,18 @@ export function TasksRoute() {
                     <Circle aria-hidden="true" size={16} strokeWidth={1.75} />
                     <span>{copy.task}</span>
                   </button>
+                  <button type="button" role="menuitem" disabled={!canCreateFolderResource(selectedFolder)} onClick={() => { setIsCreateMenuOpen(false); void handleCreateIdea(); }}>
+                    <Lightbulb aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.idea}</span>
+                  </button>
+                  <button type="button" role="menuitem" disabled={!canCreateFolderResource(selectedFolder)} onClick={() => { setIsCreateMenuOpen(false); void handleCreateFolderNote('note'); }}>
+                    <StickyNote aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.folderNote}</span>
+                  </button>
+                  <button type="button" role="menuitem" disabled={!canCreateFolderResource(selectedFolder)} onClick={() => { setIsCreateMenuOpen(false); void handleCreateFolderNote('list'); }}>
+                    <ListChecks aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.folderList}</span>
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -709,7 +1118,16 @@ export function TasksRoute() {
           </div>
         ) : (
           <div className="plan-tree" role="tree" aria-label={copy.plan}>
-            {visiblePlanTree.map(({ folder, goals: folderGoals, allGoals, allTasks: folderTasks }, index) => {
+            {visiblePlanTree.map(({
+              folder,
+              goals: folderGoals,
+              ideas: folderIdeas,
+              folderNotes: visibleFolderNotes,
+              allGoals,
+              allTasks: folderTasks,
+              allIdeas,
+              allFolderNotes,
+            }, index) => {
               const firstGoal = allGoals[0] ?? null;
               const startsSharedSection = folder.shared && !visiblePlanTree[index - 1]?.folder.shared;
 
@@ -720,10 +1138,11 @@ export function TasksRoute() {
                   ) : null}
                   <button
                     type="button"
-                    className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.taskId ? ' is-selected' : ''}`}
+                    className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.taskId && !selection.ideaId && !selection.folderNoteId ? ' is-selected' : ''}`}
                     onClick={() => {
                       setCreateTaskGoalId(null);
-                      setSelection({ folderId: folder.id, goalId: firstGoal?.id ?? null, taskId: null });
+                      setSelection({ folderId: folder.id, goalId: firstGoal?.id ?? null, taskId: null, ideaId: null, folderNoteId: null });
+                      setIsPanelOpen(true);
                     }}
                     role="treeitem"
                     aria-expanded="true"
@@ -731,7 +1150,7 @@ export function TasksRoute() {
                     <ChevronDown aria-hidden="true" size={16} strokeWidth={1.75} />
                     <Folder aria-hidden="true" size={18} strokeWidth={1.75} />
                     <span className="plan-row__title">{folder.name}</span>
-                    <span className="plan-row__meta">{folderTasks.length ? progress(folderTasks) : '0'}</span>
+                    <span className="plan-row__meta">{folderTasks.length ? progress(folderTasks) : `${allIdeas.length}/${allFolderNotes.length}`}</span>
                     {folder.shared ? <span className="plan-row__shared">{copy.sharedResource}</span> : null}
                     <span className="plan-row__actions">
                       {!folder.shared ? (
@@ -752,15 +1171,58 @@ export function TasksRoute() {
                     </button>
                   ) : null}
 
+                  {folderIdeas.map((idea) => (
+                    <button
+                      type="button"
+                      key={idea.id}
+                      className={`plan-row plan-row--task${selection.ideaId === idea.id ? ' is-selected' : ''}`}
+                      style={{ marginLeft: 30, borderLeft: '3px solid #2563eb' }}
+                      onClick={() => {
+                        setCreateTaskGoalId(null);
+                        setSelection({ folderId: folder.id, goalId: null, taskId: null, ideaId: idea.id, folderNoteId: null });
+                        setIsPanelOpen(true);
+                      }}
+                      role="treeitem"
+                    >
+                      <Lightbulb aria-hidden="true" size={16} strokeWidth={1.75} />
+                      <span className="marker-dot marker-dot--blue" aria-hidden="true" />
+                      <span className="plan-row__title">{idea.title}</span>
+                      <span className="plan-row__meta">{copy.idea}</span>
+                    </button>
+                  ))}
+
+                  {visibleFolderNotes.map((note) => (
+                    <button
+                      type="button"
+                      key={note.id}
+                      className={`plan-row plan-row--task${selection.folderNoteId === note.id ? ' is-selected' : ''}`}
+                      style={{ marginLeft: 30, borderLeft: '3px solid #94a3b8' }}
+                      onClick={() => {
+                        setCreateTaskGoalId(null);
+                        setSelection({ folderId: folder.id, goalId: null, taskId: null, ideaId: null, folderNoteId: note.id });
+                        setIsPanelOpen(true);
+                      }}
+                      role="treeitem"
+                    >
+                      {note.kind === 'list' ? (
+                        <ListChecks aria-hidden="true" size={16} strokeWidth={1.75} />
+                      ) : (
+                        <StickyNote aria-hidden="true" size={16} strokeWidth={1.75} />
+                      )}
+                      <span className="plan-row__title">{note.title}</span>
+                      <span className="plan-row__meta">{note.kind === 'list' ? note.items.length : copy.folderNote}</span>
+                    </button>
+                  ))}
+
                   {folderGoals.map(({ goal, tasks: goalTasks, allTasks: allGoalTasks }) => {
                     return (
                       <div className="plan-tree__group" key={goal.id}>
                         <button
                           type="button"
-                          className={`plan-row plan-row--goal${selection.goalId === goal.id && !selection.taskId ? ' is-selected' : ''}`}
+                          className={`plan-row plan-row--goal${selection.goalId === goal.id && !selection.taskId && !selection.ideaId && !selection.folderNoteId ? ' is-selected' : ''}`}
                           onClick={() => {
                             setCreateTaskGoalId(null);
-                            setSelection({ folderId: folder.id, goalId: goal.id, taskId: allGoalTasks[0]?.id ?? null });
+                            setSelection({ folderId: folder.id, goalId: goal.id, taskId: allGoalTasks[0]?.id ?? null, ideaId: null, folderNoteId: null });
                           }}
                           role="treeitem"
                           aria-expanded="true"
@@ -828,7 +1290,7 @@ export function TasksRoute() {
                                 className="plan-row__content"
                                 onClick={() => {
                                   setCreateTaskGoalId(null);
-                                  setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id });
+                                  setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id, ideaId: null, folderNoteId: null });
                                   setIsPanelOpen(true);
                                 }}
                               >
@@ -857,7 +1319,7 @@ export function TasksRoute() {
                                   title={rowCopy.editTask}
                                   onClick={() => {
                                     setCreateTaskGoalId(null);
-                                    setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id });
+                                    setSelection({ folderId: folder.id, goalId: goal.id, taskId: task.id, ideaId: null, folderNoteId: null });
                                     setIsPanelOpen(true);
                                   }}
                                 >
@@ -890,7 +1352,186 @@ export function TasksRoute() {
       </section>
 
       <aside className={`detail-panel${isPanelOpen ? ' is-open' : ''}`}>
-        {(isCreatingTask || selectedTask) && panelGoal && panelFolder ? (
+        {selectedIdea && selectedFolder ? (
+          <>
+            <header className="detail-panel__header">
+              <div>
+                <h2>{selectedIdea.title}</h2>
+                <div className="detail-panel__badges" aria-label={copy.details}>
+                  <span className="meta-chip">
+                    <Lightbulb aria-hidden="true" size={14} strokeWidth={1.75} />
+                    {copy.idea}
+                  </span>
+                  {selectedIdea.shared ? <span className="meta-chip">{copy.sharedResource}</span> : null}
+                </div>
+              </div>
+              <div className="cluster" style={{ justifyContent: 'flex-end' }}>
+                {canEditSelectedIdea ? (
+                  <button className="icon-button" type="button" aria-label={copy.archive} title={copy.archive} disabled={saving} onClick={() => void handleArchiveIdea()}>
+                    <Archive aria-hidden="true" size={18} strokeWidth={1.75} />
+                  </button>
+                ) : null}
+                <button className="icon-button" type="button" aria-label={copy.collapse} title={copy.collapse} onClick={() => setIsPanelOpen(false)}>
+                  <PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} />
+                </button>
+              </div>
+            </header>
+
+            <div className="detail-panel__body">
+              <div className="detail-section">
+                <div className="detail-label">{copy.path}</div>
+                <div className="breadcrumb">
+                  <Folder aria-hidden="true" size={15} strokeWidth={1.75} />
+                  <span>{selectedFolder.name}</span>
+                </div>
+              </div>
+
+              <details className="detail-disclosure" open>
+                <summary>{copy.details}</summary>
+                <div className="detail-editor">
+                  <label className="field detail-grid__wide">
+                    <span>{copy.idea}</span>
+                    <input className="field__control" disabled={!canEditSelectedIdea} value={ideaDraft.title} onChange={(event) => setIdeaDraft((current) => ({ ...current, title: event.target.value }))} />
+                  </label>
+                  <label className="field detail-grid__wide">
+                    <span>{copy.notes}</span>
+                    <textarea className="field__control field__control--area" disabled={!canEditSelectedIdea} value={ideaDraft.description} onChange={(event) => setIdeaDraft((current) => ({ ...current, description: event.target.value }))} />
+                  </label>
+                  <div className="cluster detail-grid__wide">
+                    <button className="button button--primary" type="button" disabled={saving || !canEditSelectedIdea} onClick={() => void handleSaveIdea()}>
+                      <Save aria-hidden="true" size={16} strokeWidth={1.75} />
+                      <span>{copy.save}</span>
+                    </button>
+                  </div>
+                </div>
+              </details>
+
+              <details className="detail-disclosure" open>
+                <summary>{copy.ideaHistory}</summary>
+                <div className="detail-section">
+                  <label className="field">
+                    <span>{copy.addNote}</span>
+                    <textarea className="field__control field__control--area" placeholder={copy.notePlaceholder} value={ideaNoteDraft} onChange={(event) => setIdeaNoteDraft(event.target.value)} />
+                  </label>
+                  <button className="button button--primary" type="button" disabled={saving || !ideaNoteDraft.trim()} onClick={() => void handleCreateIdeaNote()}>
+                    <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.addNote}</span>
+                  </button>
+                </div>
+                <dl>
+                  {selectedIdeaNotes.map((note) => (
+                    <div key={note.id}>
+                      <dt>{describeIdeaAuthor(note) ?? copy.creator}</dt>
+                      <dd>{formatDateTime(note.createdAt, locale)} · {note.body}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </details>
+            </div>
+          </>
+        ) : selectedFolderNote && selectedFolder ? (
+          <>
+            <header className="detail-panel__header">
+              <div>
+                <h2>{selectedFolderNote.title}</h2>
+                <div className="detail-panel__badges" aria-label={copy.details}>
+                  <span className="meta-chip">
+                    {selectedFolderNote.kind === 'list' ? <ListChecks aria-hidden="true" size={14} strokeWidth={1.75} /> : <StickyNote aria-hidden="true" size={14} strokeWidth={1.75} />}
+                    {selectedFolderNote.kind === 'list' ? copy.folderList : copy.folderNote}
+                  </span>
+                </div>
+              </div>
+              <button className="icon-button" type="button" aria-label={copy.collapse} title={copy.collapse} onClick={() => setIsPanelOpen(false)}>
+                <PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} />
+              </button>
+            </header>
+
+            <div className="detail-panel__body">
+              <div className="detail-section">
+                <div className="detail-label">{copy.path}</div>
+                <div className="breadcrumb">
+                  <Folder aria-hidden="true" size={15} strokeWidth={1.75} />
+                  <span>{selectedFolder.name}</span>
+                </div>
+              </div>
+              <details className="detail-disclosure" open>
+                <summary>{copy.details}</summary>
+                <div className="detail-editor">
+                  <label className="field detail-grid__wide">
+                    <span>{copy.folderNote}</span>
+                    <input className="field__control" value={folderNoteDraft.title} onChange={(event) => setFolderNoteDraft((current) => ({ ...current, title: event.target.value }))} />
+                  </label>
+                  <label className="field detail-grid__wide">
+                    <span>{copy.notes}</span>
+                    <textarea className="field__control field__control--area" value={folderNoteDraft.body} onChange={(event) => setFolderNoteDraft((current) => ({ ...current, body: event.target.value }))} />
+                  </label>
+                  <div className="cluster detail-grid__wide">
+                    <button className="button button--primary" type="button" disabled={saving} onClick={() => void handleSaveFolderNote()}>
+                      <Save aria-hidden="true" size={16} strokeWidth={1.75} />
+                      <span>{copy.save}</span>
+                    </button>
+                  </div>
+                </div>
+              </details>
+
+              {selectedFolderNote.kind === 'list' ? (
+                <details className="detail-disclosure" open>
+                  <summary>{copy.folderList}</summary>
+                  <div className="detail-section">
+                    {selectedFolderNote.items.map((item) => (
+                      <label className="breadcrumb" key={item.id} style={{ cursor: 'pointer' }}>
+                        <input type="checkbox" checked={item.checked} disabled={saving} onChange={() => void handleToggleFolderNoteItem(selectedFolderNote, item.id)} />
+                        <span style={{ textDecoration: item.checked ? 'line-through' : 'none' }}>{item.text}</span>
+                      </label>
+                    ))}
+                    <label className="field">
+                      <span>{copy.addListItem}</span>
+                      <input className="field__control" placeholder={copy.listItemPlaceholder} value={folderNoteItemDraft} onChange={(event) => setFolderNoteItemDraft(event.target.value)} />
+                    </label>
+                    <button className="button button--primary" type="button" disabled={saving || !folderNoteItemDraft.trim()} onClick={() => void handleAddFolderNoteItem(selectedFolderNote)}>
+                      <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
+                      <span>{copy.addListItem}</span>
+                    </button>
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          </>
+        ) : !isCreatingTask && !selectedTask && selectedFolder ? (
+          <>
+            <header className="detail-panel__header">
+              <div>
+                <h2>{selectedFolder.name}</h2>
+                <div className="detail-panel__badges" aria-label={copy.details}>
+                  <span className="meta-chip">{copy.ideas}: {(ideasByFolder[selectedFolder.id] ?? []).length}</span>
+                  <span className="meta-chip">{copy.folderNotes}: {(folderNotesByFolder[selectedFolder.id] ?? []).length}</span>
+                </div>
+              </div>
+              <button className="icon-button" type="button" aria-label={copy.collapse} title={copy.collapse} onClick={() => setIsPanelOpen(false)}>
+                <PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} />
+              </button>
+            </header>
+            <div className="detail-panel__body">
+              <div className="detail-section">
+                <div className="detail-label">{copy.folderNotes}</div>
+                <div className="cluster">
+                  <button className="button button--primary" type="button" disabled={saving || !canCreateFolderResource(selectedFolder)} onClick={() => void handleCreateIdea(selectedFolder.id)}>
+                    <Lightbulb aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.newIdea}</span>
+                  </button>
+                  <button className="button button--ghost" type="button" disabled={saving || !canCreateFolderResource(selectedFolder)} onClick={() => void handleCreateFolderNote('note')}>
+                    <StickyNote aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.newFolderNote}</span>
+                  </button>
+                  <button className="button button--ghost" type="button" disabled={saving || !canCreateFolderResource(selectedFolder)} onClick={() => void handleCreateFolderNote('list')}>
+                    <ListChecks aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.newFolderList}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (isCreatingTask || selectedTask) && panelGoal && panelFolder ? (
           <>
             <header className="detail-panel__header">
               <div>
@@ -1043,7 +1684,7 @@ export function TasksRoute() {
         ) : (
           <div className="detail-empty">
             <Circle aria-hidden="true" size={28} strokeWidth={1.75} />
-            <span>{copy.selectTask}</span>
+            <span>{copy.selectItem}</span>
           </div>
         )}
       </aside>

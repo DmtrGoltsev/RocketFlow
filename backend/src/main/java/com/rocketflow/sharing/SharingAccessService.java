@@ -59,6 +59,11 @@ public class SharingAccessService {
     }
 
     @Transactional(readOnly = true)
+    public FolderAccess requireFolderContentAccess(UUID folderId, UUID actorUserId) {
+        return requireFolderAccess(folderId, actorUserId);
+    }
+
+    @Transactional(readOnly = true)
     public FolderAccess requireFolderOwner(UUID folderId, UUID actorUserId) {
         Folder folder = folderRepository.findById(folderId)
                 .orElseThrow(() -> notFound("Folder"));
@@ -66,6 +71,11 @@ public class SharingAccessService {
             throw notFound("Folder");
         }
         return new FolderAccess(folder, true, hasActiveFolderShares(folderId));
+    }
+
+    @Transactional(readOnly = true)
+    public FolderAccess requireFolderContentOwner(UUID folderId, UUID actorUserId) {
+        return requireFolderOwner(folderId, actorUserId);
     }
 
     @Transactional(readOnly = true)
