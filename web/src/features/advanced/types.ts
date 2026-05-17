@@ -66,6 +66,7 @@ export interface ShareInvitationDto {
 
 export type SharedFolderDto = FolderDto & {
   shared?: boolean;
+  canAccessFolderContent?: boolean;
 };
 
 export interface SharedResourcesResponse {

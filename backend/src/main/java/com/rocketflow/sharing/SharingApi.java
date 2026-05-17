@@ -2,7 +2,6 @@ package com.rocketflow.sharing;
 
 import static com.rocketflow.goals.GoalsApi.*;
 import static com.rocketflow.tasks.TasksApi.*;
-import static com.rocketflow.folders.FoldersApi.*;
 
 import java.time.Instant;
 import java.util.List;
@@ -77,8 +76,22 @@ public final class SharingApi {
     public record ShareLinkAcceptResponse(UUID shareId, String targetType, UUID targetId, String status) {
     }
 
+    public record SharedFolderResourceDto(
+            UUID id,
+            String name,
+            String description,
+            int displayOrder,
+            boolean archived,
+            boolean shared,
+            boolean canAccessFolderContent,
+            long version,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
     public record SharedResourcesResponse(
-            List<FolderDto> folders,
+            List<SharedFolderResourceDto> folders,
             List<GoalDto> goals,
             List<TaskDto> tasks,
             List<UUID> createTaskGoalIds

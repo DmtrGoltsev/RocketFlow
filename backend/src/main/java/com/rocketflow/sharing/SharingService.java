@@ -1,7 +1,6 @@
 package com.rocketflow.sharing;
 
 import static com.rocketflow.goals.GoalsApi.*;
-import static com.rocketflow.folders.FoldersApi.*;
 import static com.rocketflow.sharing.SharingApi.*;
 import static com.rocketflow.sharing.SharingValues.*;
 import static com.rocketflow.tasks.TasksApi.*;
@@ -197,14 +196,14 @@ public class SharingService {
         List<GoalShare> goalShares = goalShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE);
         List<TaskShare> taskShares = taskShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE);
 
-        Map<UUID, FolderDto> foldersById = folderShares.stream()
+        Map<UUID, SharedFolderResourceDto> foldersById = folderShares.stream()
                 .map(FolderShare::getFolderId)
                 .distinct()
                 .map(folderId -> sharingAccessService.requireFolderAccess(folderId, actorUserId).folder())
                 .sorted(Comparator.comparing(Folder::getDisplayOrder).thenComparing(Folder::getCreatedAt))
                 .collect(Collectors.toMap(
                         Folder::getId,
-                        folder -> toFolderDto(folder, true),
+                        folder -> toSharedFolderDto(folder, true, true),
                         (left, right) -> left,
                         LinkedHashMap::new
                 ));
@@ -221,7 +220,7 @@ public class SharingService {
             Goal goal = sharingAccessService.requireGoalAccess(goalShare.getGoalId(), actorUserId).goal();
             directGoalsById.put(goal.getId(), goal);
             Folder parentFolder = requireFolder(goal.getFolderId(), goal.getOwnerUserId());
-            foldersById.putIfAbsent(parentFolder.getId(), toFolderDto(parentFolder, true));
+            foldersById.putIfAbsent(parentFolder.getId(), toSharedFolderDto(parentFolder, true, false));
         }
 
         Map<UUID, GoalDto> goalsById = directGoalsById.values().stream()
@@ -256,7 +255,7 @@ public class SharingService {
             Goal parentGoal = requireGoal(task.getGoalId(), task.getOwnerUserId());
             goalsById.putIfAbsent(parentGoal.getId(), toGoalDto(parentGoal, true));
             Folder parentFolder = requireFolder(parentGoal.getFolderId(), parentGoal.getOwnerUserId());
-            foldersById.putIfAbsent(parentFolder.getId(), toFolderDto(parentFolder, true));
+            foldersById.putIfAbsent(parentFolder.getId(), toSharedFolderDto(parentFolder, true, false));
             tasksById.put(task.getId(), task);
         }
 
@@ -275,8 +274,8 @@ public class SharingService {
             ));
         }
 
-        List<FolderDto> folderDtos = foldersById.values().stream()
-                .sorted(Comparator.comparing(FolderDto::displayOrder).thenComparing(FolderDto::createdAt))
+        List<SharedFolderResourceDto> folderDtos = foldersById.values().stream()
+                .sorted(Comparator.comparing(SharedFolderResourceDto::displayOrder).thenComparing(SharedFolderResourceDto::createdAt))
                 .toList();
         List<GoalDto> goalDtos = goalsById.values().stream()
                 .sorted(Comparator.comparing(GoalDto::createdAt))
@@ -704,14 +703,15 @@ public class SharingService {
         );
     }
 
-    private FolderDto toFolderDto(Folder folder, boolean shared) {
-        return new FolderDto(
+    private SharedFolderResourceDto toSharedFolderDto(Folder folder, boolean shared, boolean canAccessFolderContent) {
+        return new SharedFolderResourceDto(
                 folder.getId(),
                 folder.getName(),
                 folder.getDescription(),
                 folder.getDisplayOrder(),
                 folder.isArchived(),
                 shared,
+                canAccessFolderContent,
                 folder.getVersion(),
                 folder.getCreatedAt(),
                 folder.getUpdatedAt()

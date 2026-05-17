@@ -73,7 +73,7 @@ import type {
 } from '../types';
 import type { SharedResourcesResponse } from '../../advanced/types';
 
-type PlanFolder = FolderDto & { shared?: boolean };
+type PlanFolder = FolderDto & { shared?: boolean; canAccessFolderContent?: boolean };
 type GoalsByFolder = Record<string, GoalDto[]>;
 type TasksByGoal = Record<string, TaskDto[]>;
 type IdeasByFolder = Record<string, IdeaDto[]>;
@@ -315,6 +315,10 @@ function mergeById<TItem extends { id: string }>(primary: TItem[], secondary: TI
   return Array.from(merged.values());
 }
 
+function canAccessFolderContent(folder: PlanFolder | null) {
+  return Boolean(folder && (!folder.shared || folder.canAccessFolderContent === true));
+}
+
 function groupGoalsByFolder(goals: GoalDto[]) {
   return goals.reduce<GoalsByFolder>((groups, goal) => {
     groups[goal.folderId] = [...(groups[goal.folderId] ?? []), goal];
@@ -479,7 +483,7 @@ export function TasksRoute() {
   const canEditSelectedIdea = selectedIdea ? !selectedIdea.shared : false;
   const canCreateGoalInFolder = (folder: PlanFolder | null) => Boolean(folder && !folder.shared);
   const canCreateTaskInGoal = (goal: GoalDto | null) => Boolean(goal && (!goal.shared || createTaskGoalIds.has(goal.id)));
-  const canCreateFolderResource = (folder: PlanFolder | null) => Boolean(folder);
+  const canCreateFolderResource = canAccessFolderContent;
   const currentRecurrenceError = recurrenceError(draft, planningCopy.tasks);
   const visiblePlanTree = useMemo<VisibleFolder[]>(() => {
     return folders
@@ -626,18 +630,23 @@ export function TasksRoute() {
       );
       const ownedTasks = nextTaskEntries.flatMap(([, goalTasks]) => goalTasks);
       const nextFolders = mergeById<PlanFolder>(
-        ownedFolders.map((folder) => ({ ...folder, shared: false })),
-        (sharedResources.folders ?? []).map((folder) => ({ ...folder, shared: true })),
+        ownedFolders.map((folder) => ({ ...folder, shared: false, canAccessFolderContent: true })),
+        (sharedResources.folders ?? []).map((folder) => ({
+          ...folder,
+          shared: true,
+          canAccessFolderContent: folder.canAccessFolderContent === true,
+        })),
       );
+      const folderContentFolders = nextFolders.filter(canAccessFolderContent);
       const [nextIdeaEntries, nextFolderNoteEntries] = await Promise.all([
         Promise.all(
-          nextFolders.map(async (folder) => [
+          folderContentFolders.map(async (folder) => [
             folder.id,
             await listIdeas(authorizedFetch, folder.id).catch(() => []),
           ] as const),
         ),
         Promise.all(
-          nextFolders.map(async (folder) => [
+          folderContentFolders.map(async (folder) => [
             folder.id,
             await listFolderNotes(authorizedFetch, folder.id).catch(() => []),
           ] as const),
