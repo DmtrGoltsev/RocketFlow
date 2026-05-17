@@ -29,8 +29,8 @@ management:
 rocketflow:
   web:
     cors:
-      allowed-origins: ${ROCKETFLOW_ALLOWED_ORIGINS:}
-      allowed-origin-patterns: ${ROCKETFLOW_ALLOWED_ORIGIN_PATTERNS:}
+      allowed-origins: ${ROCKETFLOW_ALLOWED_ORIGINS:http://45.10.110.42}
+      allowed-origin-patterns: ${ROCKETFLOW_ALLOWED_ORIGIN_PATTERNS:http://localhost:[*],http://127.0.0.1:[*]}
   notifications:
     scheduler:
       enabled: ${ROCKETFLOW_NOTIFICATIONS_SCHEDULER_ENABLED:false}

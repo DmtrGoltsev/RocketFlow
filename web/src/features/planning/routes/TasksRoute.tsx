@@ -44,12 +44,33 @@ import {
   updateFolderNoteItem,
   updateIdea,
   updateTask,
+  upsertTaskRecurrence,
 } from '../planning-api';
 import { getSharedResources } from '../../advanced/advanced-api';
 import { usePlanningCopy } from '../planning-copy';
 import { mapPlanningError } from '../planning-errors';
-import { formatDateTime, fromDateTimeInputValue, toDateTimeInputValue } from '../planning-utils';
-import type { FolderDto, FolderNoteDto, GoalDto, IdeaDto, IdeaNoteDto, TaskDto, TaskStatus, TaskType } from '../types';
+import {
+  createDefaultRecurrenceDraft,
+  describeRecurrence,
+  formatDateTime,
+  fromDateTimeInputValue,
+  toDateTimeInputValue,
+  toTaskRecurrenceDraft,
+  toTaskRecurrenceUpsertPayload,
+} from '../planning-utils';
+import type {
+  DayOfWeek,
+  FolderDto,
+  FolderNoteDto,
+  GoalDto,
+  IdeaDto,
+  IdeaNoteDto,
+  TaskDto,
+  TaskRecurrenceMode,
+  TaskStatus,
+  TaskTimeAnchor,
+  TaskType,
+} from '../types';
 import type { SharedResourcesResponse } from '../../advanced/types';
 
 type PlanFolder = FolderDto & { shared?: boolean };
@@ -92,6 +113,7 @@ interface TaskDraft {
   priority: string;
   plannedTime: string;
   dueTime: string;
+  recurrence: ReturnType<typeof createDefaultRecurrenceDraft>;
 }
 
 interface IdeaDraft {
@@ -105,6 +127,7 @@ interface FolderNoteDraft {
 }
 
 type MarkerTone = 'green' | 'red' | 'blue' | 'amber' | 'gray';
+const WEEKDAYS: DayOfWeek[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
 
 function toDraft(task: TaskDto | null): TaskDraft {
   return {
@@ -115,7 +138,65 @@ function toDraft(task: TaskDto | null): TaskDraft {
     priority: String(task?.priority ?? 2),
     plannedTime: toDateTimeInputValue(task?.plannedTime ?? null),
     dueTime: toDateTimeInputValue(task?.dueTime ?? null),
+    recurrence: toTaskRecurrenceDraft(task),
   };
+}
+
+function recurrenceStartInput(draft: TaskDraft) {
+  return draft.recurrence.anchor === 'due' ? draft.dueTime : draft.plannedTime;
+}
+
+function recurrenceError(
+  draft: TaskDraft,
+  copy: ReturnType<typeof usePlanningCopy>['tasks'],
+) {
+  if (!draft.recurrence.enabled) {
+    return null;
+  }
+
+  const interval = Number(draft.recurrence.interval);
+  const start = recurrenceStartInput(draft);
+
+  if (!start) {
+    return copy.validationRecurrenceAnchor;
+  }
+
+  if (!Number.isInteger(interval) || interval < 1) {
+    return copy.validationRecurrenceInterval;
+  }
+
+  if (draft.recurrence.mode === 'weekly' && draft.recurrence.daysOfWeek.length === 0) {
+    return copy.validationRecurrenceWeekday;
+  }
+
+  if (draft.recurrence.endAt) {
+    const startDate = new Date(start);
+    const endDate = new Date(draft.recurrence.endAt);
+
+    if (
+      Number.isNaN(startDate.getTime()) ||
+      Number.isNaN(endDate.getTime()) ||
+      endDate <= startDate
+    ) {
+      return copy.validationRecurrenceEndAt;
+    }
+  }
+
+  return null;
+}
+
+function weekdayLabel(day: DayOfWeek, copy: ReturnType<typeof usePlanningCopy>['tasks']) {
+  const labels: Record<DayOfWeek, string> = {
+    MONDAY: copy.weekdayMonday,
+    TUESDAY: copy.weekdayTuesday,
+    WEDNESDAY: copy.weekdayWednesday,
+    THURSDAY: copy.weekdayThursday,
+    FRIDAY: copy.weekdayFriday,
+    SATURDAY: copy.weekdaySaturday,
+    SUNDAY: copy.weekdaySunday,
+  };
+
+  return labels[day];
 }
 
 function toIdeaDraft(idea: IdeaDto | null): IdeaDraft {
@@ -379,6 +460,9 @@ export function TasksRoute() {
   const selectedIdea = ideas.find((idea) => idea.id === selection.ideaId) ?? null;
   const selectedFolderNote = folderNotes.find((note) => note.id === selection.folderNoteId) ?? null;
   const selectedIdeaNotes = selectedIdea ? ideaNotesByIdea[selectedIdea.id] ?? [] : [];
+  const selectedFolderGoals = selectedFolder ? goals.filter((goal) => goal.folderId === selectedFolder.id) : [];
+  const selectedFolderTasks = selectedFolderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []);
+  const selectedGoalTasks = selectedGoal ? tasksByGoal[selectedGoal.id] ?? [] : [];
   const [draft, setDraft] = useState<TaskDraft>(() => toDraft(null));
   const taskCreationGoal = goals.find((goal) => goal.id === createTaskGoalId) ?? null;
   const taskCreationFolder = taskCreationGoal
@@ -395,7 +479,8 @@ export function TasksRoute() {
   const canEditSelectedIdea = selectedIdea ? !selectedIdea.shared : false;
   const canCreateGoalInFolder = (folder: PlanFolder | null) => Boolean(folder && !folder.shared);
   const canCreateTaskInGoal = (goal: GoalDto | null) => Boolean(goal && (!goal.shared || createTaskGoalIds.has(goal.id)));
-  const canCreateFolderResource = (folder: PlanFolder | null) => Boolean(folder && !folder.shared);
+  const canCreateFolderResource = (folder: PlanFolder | null) => Boolean(folder);
+  const currentRecurrenceError = recurrenceError(draft, planningCopy.tasks);
   const visiblePlanTree = useMemo<VisibleFolder[]>(() => {
     return folders
       .map((folder) => {
@@ -883,6 +968,10 @@ export function TasksRoute() {
       return;
     }
 
+    if (currentRecurrenceError) {
+      return;
+    }
+
     setSaving(true);
     try {
       if (isCreatingTask) {
@@ -895,6 +984,11 @@ export function TasksRoute() {
           plannedTime: fromDateTimeInputValue(draft.plannedTime),
           dueTime: fromDateTimeInputValue(draft.dueTime),
         });
+
+        const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
+        if (recurrencePayload) {
+          await upsertTaskRecurrence(authorizedFetch, task.id, recurrencePayload);
+        }
 
         setCreateTaskGoalId(null);
         await loadPlan({ folderId: targetGoal.folderId, goalId: targetGoal.id, taskId: task.id });
@@ -918,11 +1012,18 @@ export function TasksRoute() {
         version: selectedTask.version,
       });
 
+      const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
+      let nextTask = updated;
+      if (recurrencePayload) {
+        const recurrenceResult = await upsertTaskRecurrence(authorizedFetch, selectedTask.id, recurrencePayload);
+        nextTask = { ...updated, recurrence: recurrenceResult.recurrence };
+      }
+
       setTasksByGoal((current) => ({
         ...current,
-        [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) => (task.id === updated.id ? updated : task)),
+        [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) => (task.id === nextTask.id ? nextTask : task)),
       }));
-      setSelection((current) => ({ ...current, taskId: updated.id, ideaId: null, folderNoteId: null }));
+      setSelection((current) => ({ ...current, taskId: nextTask.id, ideaId: null, folderNoteId: null }));
     } finally {
       setSaving(false);
     }
@@ -1128,7 +1229,6 @@ export function TasksRoute() {
               allIdeas,
               allFolderNotes,
             }, index) => {
-              const firstGoal = allGoals[0] ?? null;
               const startsSharedSection = folder.shared && !visiblePlanTree[index - 1]?.folder.shared;
 
               return (
@@ -1141,7 +1241,7 @@ export function TasksRoute() {
                     className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.taskId && !selection.ideaId && !selection.folderNoteId ? ' is-selected' : ''}`}
                     onClick={() => {
                       setCreateTaskGoalId(null);
-                      setSelection({ folderId: folder.id, goalId: firstGoal?.id ?? null, taskId: null, ideaId: null, folderNoteId: null });
+                      setSelection({ folderId: folder.id, goalId: null, taskId: null, ideaId: null, folderNoteId: null });
                       setIsPanelOpen(true);
                     }}
                     role="treeitem"
@@ -1222,7 +1322,8 @@ export function TasksRoute() {
                           className={`plan-row plan-row--goal${selection.goalId === goal.id && !selection.taskId && !selection.ideaId && !selection.folderNoteId ? ' is-selected' : ''}`}
                           onClick={() => {
                             setCreateTaskGoalId(null);
-                            setSelection({ folderId: folder.id, goalId: goal.id, taskId: allGoalTasks[0]?.id ?? null, ideaId: null, folderNoteId: null });
+                            setSelection({ folderId: folder.id, goalId: goal.id, taskId: null, ideaId: null, folderNoteId: null });
+                            setIsPanelOpen(true);
                           }}
                           role="treeitem"
                           aria-expanded="true"
@@ -1397,7 +1498,7 @@ export function TasksRoute() {
                     <span>{copy.notes}</span>
                     <textarea className="field__control field__control--area" disabled={!canEditSelectedIdea} value={ideaDraft.description} onChange={(event) => setIdeaDraft((current) => ({ ...current, description: event.target.value }))} />
                   </label>
-                  <div className="cluster detail-grid__wide">
+                  <div className="cluster detail-grid__wide detail-editor__actions">
                     <button className="button button--primary" type="button" disabled={saving || !canEditSelectedIdea} onClick={() => void handleSaveIdea()}>
                       <Save aria-hidden="true" size={16} strokeWidth={1.75} />
                       <span>{copy.save}</span>
@@ -1465,7 +1566,7 @@ export function TasksRoute() {
                     <span>{copy.notes}</span>
                     <textarea className="field__control field__control--area" value={folderNoteDraft.body} onChange={(event) => setFolderNoteDraft((current) => ({ ...current, body: event.target.value }))} />
                   </label>
-                  <div className="cluster detail-grid__wide">
+                  <div className="cluster detail-grid__wide detail-editor__actions">
                     <button className="button button--primary" type="button" disabled={saving} onClick={() => void handleSaveFolderNote()}>
                       <Save aria-hidden="true" size={16} strokeWidth={1.75} />
                       <span>{copy.save}</span>
@@ -1497,12 +1598,61 @@ export function TasksRoute() {
               ) : null}
             </div>
           </>
+        ) : !isCreatingTask && !selectedTask && selectedGoal && selectedFolder ? (
+          <>
+            <header className="detail-panel__header">
+              <div>
+                <h2>{selectedGoal.name}</h2>
+                <div className="detail-panel__badges" aria-label={copy.details}>
+                  <span className="meta-chip">
+                    <Target aria-hidden="true" size={14} strokeWidth={1.75} />
+                    {copy.goal}
+                  </span>
+                  <span className="meta-chip">{copy.task}: {selectedGoalTasks.length}</span>
+                  {selectedGoal.shared ? <span className="meta-chip">{copy.sharedResource}</span> : null}
+                </div>
+              </div>
+              <button className="icon-button" type="button" aria-label={copy.collapse} title={copy.collapse} onClick={() => setIsPanelOpen(false)}>
+                <PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} />
+              </button>
+            </header>
+            <div className="detail-panel__body">
+              <div className="detail-section">
+                <div className="detail-label">{copy.path}</div>
+                <div className="breadcrumb">
+                  <Folder aria-hidden="true" size={15} strokeWidth={1.75} />
+                  <span>{selectedFolder.name} / {selectedGoal.name}</span>
+                </div>
+              </div>
+              <div className="detail-section">
+                <div className="detail-label">{copy.notes}</div>
+                <div className="detail-note">
+                  <StickyNote aria-hidden="true" size={15} strokeWidth={1.75} />
+                  <p>{selectedGoal.description || planningCopy.common.noDescription}</p>
+                </div>
+              </div>
+              {canCreateTaskInGoal(selectedGoal) ? (
+                <div className="detail-section">
+                  <button className="button button--primary" type="button" disabled={saving} onClick={() => void handleCreateTask(selectedGoal.id)}>
+                    <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.newTask}</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </>
         ) : !isCreatingTask && !selectedTask && selectedFolder ? (
           <>
             <header className="detail-panel__header">
               <div>
                 <h2>{selectedFolder.name}</h2>
                 <div className="detail-panel__badges" aria-label={copy.details}>
+                  <span className="meta-chip">
+                    <Folder aria-hidden="true" size={14} strokeWidth={1.75} />
+                    {copy.folder}
+                  </span>
+                  <span className="meta-chip">{copy.goal}: {selectedFolderGoals.length}</span>
+                  <span className="meta-chip">{copy.task}: {selectedFolderTasks.length}</span>
                   <span className="meta-chip">{copy.ideas}: {(ideasByFolder[selectedFolder.id] ?? []).length}</span>
                   <span className="meta-chip">{copy.folderNotes}: {(folderNotesByFolder[selectedFolder.id] ?? []).length}</span>
                 </div>
@@ -1512,6 +1662,13 @@ export function TasksRoute() {
               </button>
             </header>
             <div className="detail-panel__body">
+              <div className="detail-section">
+                <div className="detail-label">{copy.notes}</div>
+                <div className="detail-note">
+                  <StickyNote aria-hidden="true" size={15} strokeWidth={1.75} />
+                  <p>{selectedFolder.description || planningCopy.common.noDescription}</p>
+                </div>
+              </div>
               <div className="detail-section">
                 <div className="detail-label">{copy.folderNotes}</div>
                 <div className="cluster">
@@ -1560,6 +1717,12 @@ export function TasksRoute() {
                       <span className="meta-chip" title={copy.planned}>
                         <CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />
                         {formatDateTime(selectedTask.plannedTime, locale)}
+                      </span>
+                    ) : null}
+                    {selectedTask.recurrence?.active ? (
+                      <span className="meta-chip" title={planningCopy.tasks.recurrenceLabel}>
+                        <CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />
+                        {describeRecurrence(selectedTask.recurrence, locale)}
                       </span>
                     ) : null}
                   </div>
@@ -1653,8 +1816,125 @@ export function TasksRoute() {
                     <span>{copy.due}</span>
                     <input className="field__control" type="datetime-local" disabled={!canEditSelectedTaskFields} value={draft.dueTime} onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))} />
                   </label>
-                  <div className="cluster detail-grid__wide">
-                    <button className="button button--primary" type="button" disabled={saving} onClick={() => void handleSaveTask()}>
+                  <div className="recurrence-editor detail-grid__wide">
+                    <div className="recurrence-editor__heading">
+                      <div>
+                        <span className="detail-label">{planningCopy.tasks.recurrenceLabel}</span>
+                        <p>{planningCopy.tasks.schedulingHelp}</p>
+                      </div>
+                      <label className="switch-control">
+                        <input
+                          type="checkbox"
+                          checked={draft.recurrence.enabled}
+                          disabled={!canEditSelectedTaskFields}
+                          onChange={(event) => setDraft((current) => ({
+                            ...current,
+                            recurrence: {
+                              ...current.recurrence,
+                              enabled: event.target.checked,
+                              active: event.target.checked ? current.recurrence.active : false,
+                            },
+                          }))}
+                        />
+                        <span>{planningCopy.tasks.recurrenceEnabledLabel}</span>
+                      </label>
+                    </div>
+                    <div className="recurrence-editor__grid" aria-disabled={!draft.recurrence.enabled}>
+                      <label className="field">
+                        <span>{planningCopy.tasks.recurrenceModeLabel}</span>
+                        <select
+                          className="field__control"
+                          disabled={!canEditSelectedTaskFields || !draft.recurrence.enabled}
+                          value={draft.recurrence.mode}
+                          onChange={(event) => setDraft((current) => ({
+                            ...current,
+                            recurrence: { ...current.recurrence, mode: event.target.value as TaskRecurrenceMode },
+                          }))}
+                        >
+                          <option value="daily">{planningCopy.tasks.recurrenceModeDaily}</option>
+                          <option value="weekly">{planningCopy.tasks.recurrenceModeWeekly}</option>
+                          <option value="monthly">{planningCopy.tasks.recurrenceModeMonthly}</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>{planningCopy.tasks.recurrenceIntervalLabel}</span>
+                        <input
+                          className="field__control"
+                          type="number"
+                          min={1}
+                          inputMode="numeric"
+                          disabled={!canEditSelectedTaskFields || !draft.recurrence.enabled}
+                          value={draft.recurrence.interval}
+                          onChange={(event) => setDraft((current) => ({
+                            ...current,
+                            recurrence: { ...current.recurrence, interval: event.target.value },
+                          }))}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>{planningCopy.tasks.recurrenceAnchorLabel}</span>
+                        <select
+                          className="field__control"
+                          disabled={!canEditSelectedTaskFields || !draft.recurrence.enabled}
+                          value={draft.recurrence.anchor}
+                          onChange={(event) => setDraft((current) => ({
+                            ...current,
+                            recurrence: { ...current.recurrence, anchor: event.target.value as TaskTimeAnchor },
+                          }))}
+                        >
+                          <option value="planned">{planningCopy.tasks.anchorPlanned}</option>
+                          <option value="due">{planningCopy.tasks.anchorDue}</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>{planningCopy.tasks.recurrenceEndAtLabel}</span>
+                        <input
+                          className="field__control"
+                          type="datetime-local"
+                          disabled={!canEditSelectedTaskFields || !draft.recurrence.enabled}
+                          value={draft.recurrence.endAt}
+                          onChange={(event) => setDraft((current) => ({
+                            ...current,
+                            recurrence: { ...current.recurrence, endAt: event.target.value },
+                          }))}
+                        />
+                      </label>
+                    </div>
+                    {draft.recurrence.mode === 'weekly' ? (
+                      <fieldset className="weekday-picker" disabled={!canEditSelectedTaskFields || !draft.recurrence.enabled}>
+                        <legend>{planningCopy.tasks.recurrenceWeekdaysLabel}</legend>
+                        {WEEKDAYS.map((day) => {
+                          const selected = draft.recurrence.daysOfWeek.includes(day);
+
+                          return (
+                            <label className="weekday-picker__item" key={day}>
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={(event) => setDraft((current) => ({
+                                  ...current,
+                                  recurrence: {
+                                    ...current.recurrence,
+                                    daysOfWeek: event.target.checked
+                                      ? [...current.recurrence.daysOfWeek, day]
+                                      : current.recurrence.daysOfWeek.filter((candidate) => candidate !== day),
+                                  },
+                                }))}
+                              />
+                              <span>{weekdayLabel(day, planningCopy.tasks)}</span>
+                            </label>
+                          );
+                        })}
+                      </fieldset>
+                    ) : null}
+                    {currentRecurrenceError ? (
+                      <p className="field__error">{currentRecurrenceError}</p>
+                    ) : (
+                      <p className="field__hint">{planningCopy.tasks.recurrenceHint}</p>
+                    )}
+                  </div>
+                  <div className="cluster detail-grid__wide detail-editor__actions">
+                    <button className="button button--primary" type="button" disabled={saving || Boolean(currentRecurrenceError)} onClick={() => void handleSaveTask()}>
                       <Save aria-hidden="true" size={16} strokeWidth={1.75} />
                       <span>{copy.save}</span>
                     </button>

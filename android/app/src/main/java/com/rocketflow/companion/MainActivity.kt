@@ -1441,7 +1441,7 @@ class MainActivity : Activity() {
                     selectedTaskDetail = null
                     selectedIdeaId = null
                     selectedIdeaDetail = null
-                    render()
+                    showFolderDetails(folder)
                 }
             })
             addView(counterText(listOfNotNull(
@@ -1478,7 +1478,7 @@ class MainActivity : Activity() {
                     selectedTaskDetail = null
                     selectedIdeaId = null
                     selectedIdeaDetail = null
-                    render()
+                    showGoalDetails(goal)
                 }
             })
             addView(counterText(if (goalTasks.isEmpty()) "0" else "$doneTasks/${goalTasks.size}"))
@@ -1989,7 +1989,7 @@ class MainActivity : Activity() {
         val c = copy()
         val folderGoals = goalsForFolder(folder.id)
         val taskCount = folderGoals.sumOf { tasksForGoal(it.id).size }
-        AlertDialog.Builder(this)
+        val builder = AlertDialog.Builder(this)
             .setTitle(folder.name)
             .setView(
                 dialogForm(
@@ -1998,16 +1998,21 @@ class MainActivity : Activity() {
                     detailDialogText(c.task, taskCount.toString())
                 )
             )
-            .setNegativeButton(c.cancel, null)
-            .setPositiveButton(c.edit) { _, _ -> showFolderDialog(folder) }
-            .show()
+        if (folder.shared) {
+            builder.setPositiveButton(c.cancel, null)
+        } else {
+            builder
+                .setNegativeButton(c.cancel, null)
+                .setPositiveButton(c.edit) { _, _ -> showFolderDialog(folder) }
+        }
+        builder.show()
     }
 
     private fun showGoalDetails(goal: PlanningGoal) {
         val c = copy()
         val folder = folders.firstOrNull { it.id == goal.folderId }
         val taskCount = tasksForGoal(goal.id).size
-        AlertDialog.Builder(this)
+        val builder = AlertDialog.Builder(this)
             .setTitle(goal.name)
             .setView(
                 dialogForm(
@@ -2016,9 +2021,14 @@ class MainActivity : Activity() {
                     detailDialogText(c.task, taskCount.toString())
                 )
             )
-            .setNegativeButton(c.cancel, null)
-            .setPositiveButton(c.edit) { _, _ -> showGoalDialog(goal) }
-            .show()
+        if (goal.shared) {
+            builder.setPositiveButton(c.cancel, null)
+        } else {
+            builder
+                .setNegativeButton(c.cancel, null)
+                .setPositiveButton(c.edit) { _, _ -> showGoalDialog(goal) }
+        }
+        builder.show()
     }
 
     private fun showTaskActions(task: PlanningTask) {
@@ -2670,12 +2680,26 @@ class MainActivity : Activity() {
         val checked = modes.indexOf(currentMode).coerceAtLeast(0)
         AlertDialog.Builder(this)
             .setTitle(c.recurrence)
+            .setMessage(recurrenceHelpText(task))
             .setSingleChoiceItems(labels, checked) { dialog, which ->
                 val payload = recurrencePayload(task, modes[which], active = which != 0)
                 saveTask(task.goalId, task, task.toDraft(recurrenceJson = payload.toString()))
                 dialog.dismiss()
             }
             .show()
+    }
+
+    private fun recurrenceHelpText(task: PlanningTask): String {
+        val anchor = when {
+            !task.plannedTime.isNullOrBlank() -> copy().planned
+            !task.dueTime.isNullOrBlank() -> copy().due
+            else -> if (currentLanguage == "en") "current time" else "текущее время"
+        }
+        return if (currentLanguage == "en") {
+            "Recurrence starts from Planned time. If it is empty, RocketFlow uses Deadline; if both are empty, it uses the current time. Current source: $anchor."
+        } else {
+            "Повтор начинается от поля «Когда делать». Если оно пустое, используется дедлайн; если оба поля пустые, текущее время. Сейчас источник: $anchor."
+        }
     }
 
     private fun showRemindersDialog(task: PlanningTask) {
@@ -4358,13 +4382,31 @@ class MainActivity : Activity() {
         if (!json.optBoolean("active", false)) return copy().noRecurrence
         val interval = json.optInt("interval", 1).coerceAtLeast(1)
         val start = formatDateTime(json.optString("startAt").ifBlank { null })
-        val prefix = when (json.optString("mode")) {
-            "weekly" -> "${copy().weekly}: ${weekdaySummary(json.optJSONArray("daysOfWeek"))}"
-            "monthly" -> "${copy().monthly}: ${json.optInt("dayOfMonth", 1)}"
-            else -> copy().daily
+        return when (json.optString("mode")) {
+            "weekly" -> {
+                val days = weekdaySummary(json.optJSONArray("daysOfWeek"))
+                if (currentLanguage == "en") {
+                    if (interval == 1) "Weekly on $days from $start" else "Every $interval weeks on $days from $start"
+                } else {
+                    if (interval == 1) "Еженедельно: $days, с $start" else "Каждые $interval нед.: $days, с $start"
+                }
+            }
+            "monthly" -> {
+                val day = json.optInt("dayOfMonth", 1)
+                if (currentLanguage == "en") {
+                    if (interval == 1) "Monthly on day $day from $start" else "Every $interval months on day $day from $start"
+                } else {
+                    if (interval == 1) "Ежемесячно: $day-го числа, с $start" else "Каждые $interval мес.: $day-го числа, с $start"
+                }
+            }
+            else -> {
+                if (currentLanguage == "en") {
+                    if (interval == 1) "Daily from $start" else "Every $interval days from $start"
+                } else {
+                    if (interval == 1) "Ежедневно с $start" else "Каждые $interval дн. с $start"
+                }
+            }
         }
-        val every = if (currentLanguage == "en") "every $interval" else "����. $interval"
-        return "$prefix, $every, $start"
     }
 
     private fun describeLocalReminder(task: PlanningTask): String {
@@ -4535,13 +4577,13 @@ class MainActivity : Activity() {
         if (days == null || days.length() == 0) return copy().noDate
         return (0 until days.length()).joinToString(", ") { index ->
             when (days.optString(index)) {
-                "MONDAY" -> if (currentLanguage == "en") "Mon" else "��"
-                "TUESDAY" -> if (currentLanguage == "en") "Tue" else "��"
-                "WEDNESDAY" -> if (currentLanguage == "en") "Wed" else "��"
-                "THURSDAY" -> if (currentLanguage == "en") "Thu" else "��"
-                "FRIDAY" -> if (currentLanguage == "en") "Fri" else "��"
-                "SATURDAY" -> if (currentLanguage == "en") "Sat" else "��"
-                "SUNDAY" -> if (currentLanguage == "en") "Sun" else "��"
+                "MONDAY" -> if (currentLanguage == "en") "Mon" else "Пн"
+                "TUESDAY" -> if (currentLanguage == "en") "Tue" else "Вт"
+                "WEDNESDAY" -> if (currentLanguage == "en") "Wed" else "Ср"
+                "THURSDAY" -> if (currentLanguage == "en") "Thu" else "Чт"
+                "FRIDAY" -> if (currentLanguage == "en") "Fri" else "Пт"
+                "SATURDAY" -> if (currentLanguage == "en") "Sat" else "Сб"
+                "SUNDAY" -> if (currentLanguage == "en") "Sun" else "Вс"
                 else -> days.optString(index)
             }
         }
@@ -4592,11 +4634,11 @@ class MainActivity : Activity() {
 
     private fun priorityA11y(priority: Int): String {
         val level = when {
-            priority <= 2 -> if (currentLanguage == "en") "high" else "�������"
-            priority <= 5 -> if (currentLanguage == "en") "medium" else "�������"
-            else -> if (currentLanguage == "en") "low" else "������"
+            priority <= 2 -> if (currentLanguage == "en") "high" else "высокий"
+            priority <= 5 -> if (currentLanguage == "en") "medium" else "средний"
+            else -> if (currentLanguage == "en") "low" else "низкий"
         }
-        return if (currentLanguage == "en") "Priority $level" else "���������: $level"
+        return if (currentLanguage == "en") "Priority $level" else "Приоритет: $level"
     }
 
     private fun dueChipColor(raw: String?): String {

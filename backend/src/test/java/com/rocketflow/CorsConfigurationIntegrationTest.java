@@ -38,7 +38,9 @@ import com.rocketflow.tasks.TaskTagRepository;
 
 @SpringBootTest(properties = {
         "rocketflow.web.cors.allowed-origins[0]=http://localhost:5173",
+        "rocketflow.web.cors.allowed-origins[1]=http://45.10.110.42",
         "rocketflow.web.cors.allowed-origin-patterns[0]=http://127.0.0.1:[*]",
+        "rocketflow.web.cors.allowed-origin-patterns[1]=http://localhost:[*]",
         "spring.autoconfigure.exclude="
                 + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,"
@@ -142,5 +144,27 @@ class CorsConfigurationIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://127.0.0.1:5191"))
                 .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("POST")));
+    }
+
+    @Test
+    void preflightRequestAllowsProdLikePublicWebOriginForApiRoutes() throws Exception {
+        mockMvc.perform(options("/api/tasks/00000000-0000-0000-0000-000000000001")
+                        .header("Origin", "http://45.10.110.42")
+                        .header("Access-Control-Request-Method", "PATCH")
+                        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://45.10.110.42"))
+                .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("PATCH")));
+    }
+
+    @Test
+    void preflightRequestAllowsLocalPreviewOriginPatternForApiRoutes() throws Exception {
+        mockMvc.perform(options("/api/tasks/00000000-0000-0000-0000-000000000001")
+                        .header("Origin", "http://localhost:4173")
+                        .header("Access-Control-Request-Method", "PATCH")
+                        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:4173"))
+                .andExpect(header().string("Access-Control-Allow-Methods", org.hamcrest.Matchers.containsString("PATCH")));
     }
 }

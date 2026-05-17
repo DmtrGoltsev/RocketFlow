@@ -186,8 +186,18 @@ class SharingIntegrationTest {
                                   "version": %s
                                 }
                                 """.formatted(collaboratorTaskVersion)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("not_found"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Prepare promotion plan draft"))
+                .andExpect(jsonPath("$.status").value("in_progress"))
+                .andExpect(jsonPath("$.shared").value(true));
+
+        String ownerTaskAfterCollaboratorUpdate = mockMvc.perform(get("/api/tasks/" + taskId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String ownerTaskVersion = read(ownerTaskAfterCollaboratorUpdate, "/version");
 
         mockMvc.perform(put("/api/tasks/" + taskId + "/recurrence")
                         .header("Authorization", "Bearer " + collaborator.accessToken())
@@ -265,7 +275,7 @@ class SharingIntegrationTest {
                                   "tagIds": [],
                                   "version": %s
                                 }
-                                """.formatted(collaboratorTaskVersion)))
+                                """.formatted(ownerTaskVersion)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Prepare promotion plan draft"))
                 .andExpect(jsonPath("$.shared").value(true));
@@ -441,8 +451,10 @@ class SharingIntegrationTest {
                                   "version": %s
                                 }
                                 """.formatted(collaboratorTaskVersion)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("not_found"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Prepare status update draft"))
+                .andExpect(jsonPath("$.status").value("in_progress"))
+                .andExpect(jsonPath("$.shared").value(true));
 
         mockMvc.perform(get("/api/goals/" + goalId)
                         .header("Authorization", "Bearer " + taskCollaborator.accessToken()))
@@ -736,14 +748,16 @@ class SharingIntegrationTest {
                                   "version": %s
                                 }
                                 """.formatted(taskAfterOwnerUpdateVersion)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("not_found"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Shared completion renamed"))
+                .andExpect(jsonPath("$.status").value("in_progress"))
+                .andExpect(jsonPath("$.shared").value(true));
 
         mockMvc.perform(get("/api/tasks/" + sharedTaskId)
                         .header("Authorization", "Bearer " + owner.accessToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("todo"))
-                .andExpect(jsonPath("$.title").value("Shared completion"));
+                .andExpect(jsonPath("$.status").value("in_progress"))
+                .andExpect(jsonPath("$.title").value("Shared completion renamed"));
     }
 
     @Test
@@ -825,7 +839,9 @@ class SharingIntegrationTest {
                                   "version": %s
                                 }
                                 """.formatted(sharedTaskVersion)))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Write backend contract draft"))
+                .andExpect(jsonPath("$.shared").value(true));
 
         mockMvc.perform(get("/api/shares/resources")
                         .header("Authorization", "Bearer " + folderCollaborator.accessToken()))

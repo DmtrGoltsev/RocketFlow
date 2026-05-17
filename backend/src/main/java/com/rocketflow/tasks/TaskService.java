@@ -5,10 +5,8 @@ import static com.rocketflow.tasks.TasksApi.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -118,13 +116,17 @@ public class TaskService {
         Task task = access.task();
         ensureVersion(task.getVersion(), request.version(), "Task");
         if (!access.owner()) {
-            ensureSharedStatusOnlyUpdate(task, request);
-            if (!Objects.equals(task.getStatus(), request.status())) {
-                task.setStatus(request.status());
-                task.setCompletedAt(resolveCompletedAt(request.status(), task.getCompletedAt()));
-                task.setUpdatedAt(Instant.now());
-                task = taskRepository.save(task);
-            }
+            ensureSharedTaskUpdateAllowed(task, request);
+            task.setTitle(request.title().trim());
+            task.setDescription(request.description());
+            task.setType(request.type());
+            task.setPriority(request.priority());
+            task.setStatus(request.status());
+            task.setPlannedTime(request.plannedTime());
+            task.setDueTime(request.dueTime());
+            task.setCompletedAt(resolveCompletedAt(request.status(), task.getCompletedAt()));
+            task.setUpdatedAt(Instant.now());
+            task = taskRepository.save(task);
             return toDto(
                     task,
                     resolveTags(task.getId()),
@@ -272,29 +274,10 @@ public class TaskService {
         return null;
     }
 
-    private void ensureSharedStatusOnlyUpdate(Task task, UpdateTaskRequest request) {
-        if (!Objects.equals(task.getTitle(), request.title().trim())
-                || !Objects.equals(task.getDescription(), request.description())
-                || !Objects.equals(task.getType(), request.type())
-                || task.getPriority() != request.priority()
-                || !Objects.equals(task.getPlannedTime(), request.plannedTime())
-                || !Objects.equals(task.getDueTime(), request.dueTime())
-                || task.isArchived() != request.archived()
-                || !requestedTagsMatchExisting(task.getId(), request.tagIds())) {
+    private void ensureSharedTaskUpdateAllowed(Task task, UpdateTaskRequest request) {
+        if (task.isArchived() != request.archived()) {
             throw notFound("Task");
         }
-    }
-
-    private boolean requestedTagsMatchExisting(UUID taskId, List<UUID> requestedTagIds) {
-        if (requestedTagIds == null) {
-            return true;
-        }
-        List<UUID> existingTagIds = taskTagLinkRepository.findByTaskId(taskId)
-                .stream()
-                .map(TaskTagLink::getTagId)
-                .toList();
-        return requestedTagIds.size() == existingTagIds.size()
-                && new LinkedHashSet<>(requestedTagIds).equals(new LinkedHashSet<>(existingTagIds));
     }
 
     private void ensureVersion(long actual, long expected, String entityName) {
