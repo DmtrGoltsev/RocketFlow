@@ -43,6 +43,7 @@ import {
   updateFolderNote,
   updateFolderNoteItem,
   updateIdea,
+  updateIdeaNote,
   updateTask,
   upsertTaskRecurrence,
 } from '../planning-api';
@@ -119,6 +120,8 @@ interface TaskDraft {
 interface IdeaDraft {
   title: string;
   description: string;
+  status: string;
+  allowAuthorNoteEdits: boolean;
 }
 
 interface FolderNoteDraft {
@@ -128,6 +131,7 @@ interface FolderNoteDraft {
 
 type MarkerTone = 'green' | 'red' | 'blue' | 'amber' | 'gray';
 const WEEKDAYS: DayOfWeek[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+const DEFAULT_ALLOW_AUTHOR_NOTE_EDITS = false;
 
 function toDraft(task: TaskDto | null): TaskDraft {
   return {
@@ -203,6 +207,8 @@ function toIdeaDraft(idea: IdeaDto | null): IdeaDraft {
   return {
     title: idea?.title ?? '',
     description: idea?.body ?? '',
+    status: idea?.status ?? 'active',
+    allowAuthorNoteEdits: idea?.allowAuthorNoteEdits ?? false,
   };
 }
 
@@ -423,7 +429,7 @@ function usePlanCopy() {
 }
 
 export function TasksRoute() {
-  const { authorizedFetch } = useAuth();
+  const { authorizedFetch, session } = useAuth();
   const { locale } = useI18n();
   const planningCopy = usePlanningCopy();
   const copy = usePlanCopy();
@@ -446,11 +452,13 @@ export function TasksRoute() {
   const [saving, setSaving] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [createTaskGoalId, setCreateTaskGoalId] = useState<string | null>(null);
+  const [createIdeaFolderId, setCreateIdeaFolderId] = useState<string | null>(null);
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [ideaDraft, setIdeaDraft] = useState<IdeaDraft>(() => toIdeaDraft(null));
   const [ideaNoteDraft, setIdeaNoteDraft] = useState('');
+  const [ideaNoteEdits, setIdeaNoteEdits] = useState<Record<string, string>>({});
   const [folderNoteDraft, setFolderNoteDraft] = useState<FolderNoteDraft>({ title: '', body: '' });
   const [folderNoteItemDraft, setFolderNoteItemDraft] = useState('');
 
@@ -468,11 +476,13 @@ export function TasksRoute() {
   const selectedFolderTasks = selectedFolderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []);
   const selectedGoalTasks = selectedGoal ? tasksByGoal[selectedGoal.id] ?? [] : [];
   const [draft, setDraft] = useState<TaskDraft>(() => toDraft(null));
+  const ideaCreationFolder = createIdeaFolderId ? folders.find((folder) => folder.id === createIdeaFolderId) ?? null : null;
   const taskCreationGoal = goals.find((goal) => goal.id === createTaskGoalId) ?? null;
   const taskCreationFolder = taskCreationGoal
     ? folders.find((folder) => folder.id === taskCreationGoal.folderId) ?? null
     : null;
   const isCreatingTask = Boolean(createTaskGoalId);
+  const isCreatingIdea = Boolean(createIdeaFolderId);
   const panelGoal = isCreatingTask ? taskCreationGoal : selectedGoal;
   const panelFolder = isCreatingTask ? taskCreationFolder : selectedFolder;
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase(locale === 'ru' ? 'ru-RU' : 'en-US');
@@ -481,6 +491,19 @@ export function TasksRoute() {
   const canArchiveSelectedTask = !isCreatingTask && selectedTask ? !selectedTask.shared : false;
   const canEditSelectedTaskFields = isCreatingTask || (selectedTask ? !selectedTask.shared : false);
   const canEditSelectedIdea = selectedIdea ? !selectedIdea.shared : false;
+  const canEditIdeaNote = (note: IdeaNoteDto) => Boolean(
+    selectedIdea &&
+    (
+      canEditSelectedIdea ||
+      (
+        selectedIdea.allowAuthorNoteEdits &&
+        (
+          note.authorUserId === session?.user.id ||
+          (note.authorEmail !== null && note.authorEmail === session?.user.email)
+        )
+      )
+    )
+  );
   const canCreateGoalInFolder = (folder: PlanFolder | null) => Boolean(folder && !folder.shared);
   const canCreateTaskInGoal = (goal: GoalDto | null) => Boolean(goal && (!goal.shared || createTaskGoalIds.has(goal.id)));
   const canCreateFolderResource = canAccessFolderContent;
@@ -595,9 +618,36 @@ export function TasksRoute() {
   }, [isCreatingTask, selectedTask?.id]);
 
   useEffect(() => {
+    if (createIdeaFolderId) {
+      return;
+    }
+
     setIdeaDraft(toIdeaDraft(selectedIdea));
     setIdeaNoteDraft('');
-  }, [selectedIdea?.id]);
+    setIdeaNoteEdits({});
+  }, [createIdeaFolderId, selectedIdea?.id]);
+
+  useEffect(() => {
+    if (
+      createIdeaFolderId &&
+      (
+        selection.folderId !== createIdeaFolderId ||
+        selection.goalId ||
+        selection.taskId ||
+        selection.ideaId ||
+        selection.folderNoteId
+      )
+    ) {
+      setCreateIdeaFolderId(null);
+    }
+  }, [
+    createIdeaFolderId,
+    selection.folderId,
+    selection.folderNoteId,
+    selection.goalId,
+    selection.ideaId,
+    selection.taskId,
+  ]);
 
   useEffect(() => {
     setFolderNoteDraft({
@@ -726,6 +776,7 @@ export function TasksRoute() {
   }, [authorizedFetch, ideaNotesByIdea, selectedIdea]);
 
   async function handleCreateFolder() {
+    setCreateIdeaFolderId(null);
     setSaving(true);
     try {
       const folder = await createFolder(authorizedFetch, {
@@ -744,6 +795,7 @@ export function TasksRoute() {
       return;
     }
 
+    setCreateIdeaFolderId(null);
     setSaving(true);
     try {
       const goal = await createGoal(authorizedFetch, folderId, {
@@ -762,30 +814,51 @@ export function TasksRoute() {
       return;
     }
 
+    setCreateIdeaFolderId(null);
     setCreateTaskGoalId(goalId);
     setSelection({ folderId: targetGoal.folderId, goalId, taskId: null, ideaId: null, folderNoteId: null });
     setDraft(toDraft(null));
     setIsPanelOpen(true);
   }
 
-  async function handleCreateIdea(folderId = selection.folderId) {
+  function handleCreateIdea(folderId = selection.folderId) {
     const targetFolder = folders.find((folder) => folder.id === folderId) ?? null;
     if (!folderId || !canCreateFolderResource(targetFolder)) {
       return;
     }
 
+    setCreateTaskGoalId(null);
+    setCreateIdeaFolderId(folderId);
+    setSelection({ folderId, goalId: null, taskId: null, ideaId: null, folderNoteId: null });
+    setIdeaDraft({
+      title: planningCopy.ideas.createTitle,
+      description: '',
+      status: planningCopy.ideas.defaultStatus,
+      allowAuthorNoteEdits: DEFAULT_ALLOW_AUTHOR_NOTE_EDITS,
+    });
+    setIsPanelOpen(true);
+  }
+
+  async function handleSaveNewIdea() {
+    if (!createIdeaFolderId || !ideaDraft.title.trim()) {
+      return;
+    }
+
     setSaving(true);
     try {
-      const idea = await createIdea(authorizedFetch, folderId, {
-        title: copy.ideaName,
-        body: '',
+      const idea = await createIdea(authorizedFetch, createIdeaFolderId, {
+        title: ideaDraft.title.trim(),
+        body: ideaDraft.description.trim(),
+        status: ideaDraft.status.trim() || planningCopy.ideas.defaultStatus,
+        allowAuthorNoteEdits: ideaDraft.allowAuthorNoteEdits,
       });
 
       setIdeasByFolder((current) => ({
         ...current,
-        [folderId]: [...(current[folderId] ?? []), idea],
+        [createIdeaFolderId]: [...(current[createIdeaFolderId] ?? []), idea],
       }));
-      setSelection({ folderId, goalId: null, taskId: null, ideaId: idea.id, folderNoteId: null });
+      setCreateIdeaFolderId(null);
+      setSelection({ folderId: createIdeaFolderId, goalId: null, taskId: null, ideaId: idea.id, folderNoteId: null });
       setIsPanelOpen(true);
     } finally {
       setSaving(false);
@@ -802,9 +875,10 @@ export function TasksRoute() {
       const updated = await updateIdea(authorizedFetch, selectedIdea.id, {
         title: ideaDraft.title.trim(),
         body: ideaDraft.description.trim(),
-        status: selectedIdea.status,
+        status: ideaDraft.status.trim() || selectedIdea.status,
         displayOrder: selectedIdea.displayOrder,
         archived: selectedIdea.archived,
+        allowAuthorNoteEdits: ideaDraft.allowAuthorNoteEdits,
         version: selectedIdea.version,
       });
 
@@ -868,11 +942,40 @@ export function TasksRoute() {
     }
   }
 
+  async function handleSaveIdeaNote(note: IdeaNoteDto) {
+    if (!selectedIdea || !canEditIdeaNote(note)) {
+      return;
+    }
+
+    const body = (ideaNoteEdits[note.id] ?? note.body).trim();
+    if (!body) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const updated = await updateIdeaNote(authorizedFetch, note.id, {
+        eventType: note.eventType,
+        body,
+        metadata: note.metadata,
+        version: note.version,
+      });
+      setIdeaNotesByIdea((current) => ({
+        ...current,
+        [selectedIdea.id]: (current[selectedIdea.id] ?? []).map((item) => (item.id === updated.id ? updated : item)),
+      }));
+      setIdeaNoteEdits((current) => ({ ...current, [updated.id]: updated.body }));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleCreateFolderNote(kind: FolderNoteDto['kind']) {
     if (!selectedFolder || !canCreateFolderResource(selectedFolder)) {
       return;
     }
 
+    setCreateIdeaFolderId(null);
     setSaving(true);
     try {
       const note = await createFolderNote(authorizedFetch, selectedFolder.id, {
@@ -1472,6 +1575,7 @@ export function TasksRoute() {
                     <Lightbulb aria-hidden="true" size={14} strokeWidth={1.75} />
                     {copy.idea}
                   </span>
+                  <span className="meta-chip">{copy.status}: {selectedIdea.status}</span>
                   {selectedIdea.shared ? <span className="meta-chip">{copy.sharedResource}</span> : null}
                 </div>
               </div>
@@ -1500,15 +1604,39 @@ export function TasksRoute() {
                 <summary>{copy.details}</summary>
                 <div className="detail-editor">
                   <label className="field detail-grid__wide">
-                    <span>{copy.idea}</span>
+                    <span>{planningCopy.ideas.titleLabel}</span>
                     <input className="field__control" disabled={!canEditSelectedIdea} value={ideaDraft.title} onChange={(event) => setIdeaDraft((current) => ({ ...current, title: event.target.value }))} />
                   </label>
                   <label className="field detail-grid__wide">
-                    <span>{copy.notes}</span>
+                    <span>{planningCopy.ideas.bodyLabel}</span>
                     <textarea className="field__control field__control--area" disabled={!canEditSelectedIdea} value={ideaDraft.description} onChange={(event) => setIdeaDraft((current) => ({ ...current, description: event.target.value }))} />
                   </label>
+                  <label className="field detail-grid__wide">
+                    <span>{planningCopy.ideas.statusLabel}</span>
+                    <input
+                      className="field__control"
+                      disabled={!canEditSelectedIdea}
+                      placeholder={planningCopy.ideas.statusPlaceholder}
+                      value={ideaDraft.status}
+                      onChange={(event) => setIdeaDraft((current) => ({ ...current, status: event.target.value }))}
+                    />
+                  </label>
+                  {canEditSelectedIdea ? (
+                    <label className="switch-control detail-grid__wide">
+                      <input
+                        type="checkbox"
+                        checked={ideaDraft.allowAuthorNoteEdits}
+                        disabled={saving}
+                        onChange={(event) => setIdeaDraft((current) => ({ ...current, allowAuthorNoteEdits: event.target.checked }))}
+                      />
+                      <span>{planningCopy.ideas.allowAuthorNoteEditsLabel}</span>
+                    </label>
+                  ) : null}
+                  {canEditSelectedIdea ? (
+                    <p className="field__hint detail-grid__wide">{planningCopy.ideas.allowAuthorNoteEditsHint}</p>
+                  ) : null}
                   <div className="cluster detail-grid__wide detail-editor__actions">
-                    <button className="button button--primary" type="button" disabled={saving || !canEditSelectedIdea} onClick={() => void handleSaveIdea()}>
+                    <button className="button button--primary" type="button" disabled={saving || !canEditSelectedIdea || !ideaDraft.title.trim()} onClick={() => void handleSaveIdea()}>
                       <Save aria-hidden="true" size={16} strokeWidth={1.75} />
                       <span>{copy.save}</span>
                     </button>
@@ -1529,13 +1657,143 @@ export function TasksRoute() {
                   </button>
                 </div>
                 <dl>
-                  {selectedIdeaNotes.map((note) => (
-                    <div key={note.id}>
-                      <dt>{describeIdeaAuthor(note) ?? copy.creator}</dt>
-                      <dd>{formatDateTime(note.createdAt, locale)} · {note.body}</dd>
-                    </div>
-                  ))}
+                  {selectedIdeaNotes.map((note) => {
+                    const noteCanEdit = canEditIdeaNote(note);
+                    const noteBody = ideaNoteEdits[note.id] ?? note.body;
+
+                    return (
+                      <div key={note.id}>
+                        <dt>{describeIdeaAuthor(note) ?? copy.creator}</dt>
+                        <dd>
+                          <div className="idea-history-note">
+                            <span className="muted">
+                              {formatDateTime(note.createdAt, locale)}
+                              {note.updatedAt !== note.createdAt
+                                ? ` · ${planningCopy.ideas.historyUpdatedAt}: ${formatDateTime(note.updatedAt, locale)}`
+                                : ''}
+                            </span>
+                            {noteCanEdit ? (
+                              <>
+                                <textarea
+                                  className="field__control field__control--area"
+                                  aria-label={planningCopy.ideas.editHistoryNote}
+                                  disabled={saving}
+                                  value={noteBody}
+                                  onChange={(event) => setIdeaNoteEdits((current) => ({ ...current, [note.id]: event.target.value }))}
+                                />
+                                <button
+                                  className="button button--ghost"
+                                  type="button"
+                                  disabled={saving || !noteBody.trim()}
+                                  onClick={() => void handleSaveIdeaNote(note)}
+                                >
+                                  <Save aria-hidden="true" size={16} strokeWidth={1.75} />
+                                  <span>{planningCopy.ideas.saveHistoryNote}</span>
+                                </button>
+                              </>
+                            ) : (
+                              <p>{note.body}</p>
+                            )}
+                          </div>
+                        </dd>
+                      </div>
+                    );
+                  })}
                 </dl>
+              </details>
+            </div>
+          </>
+        ) : isCreatingIdea && ideaCreationFolder ? (
+          <>
+            <header className="detail-panel__header">
+              <div>
+                <h2>{planningCopy.ideas.createTitle}</h2>
+                <div className="detail-panel__badges" aria-label={copy.details}>
+                  <span className="meta-chip">
+                    <Lightbulb aria-hidden="true" size={14} strokeWidth={1.75} />
+                    {copy.idea}
+                  </span>
+                </div>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label={copy.collapse}
+                title={copy.collapse}
+                onClick={() => {
+                  setCreateIdeaFolderId(null);
+                  setIsPanelOpen(false);
+                }}
+              >
+                <PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} />
+              </button>
+            </header>
+
+            <div className="detail-panel__body">
+              <div className="detail-section">
+                <div className="detail-label">{copy.path}</div>
+                <div className="breadcrumb">
+                  <Folder aria-hidden="true" size={15} strokeWidth={1.75} />
+                  <span>{ideaCreationFolder.name}</span>
+                </div>
+              </div>
+
+              <details className="detail-disclosure" open>
+                <summary>{copy.details}</summary>
+                <div className="detail-editor">
+                  <label className="field detail-grid__wide">
+                    <span>{planningCopy.ideas.titleLabel}</span>
+                    <input
+                      className="field__control"
+                      value={ideaDraft.title}
+                      onChange={(event) => setIdeaDraft((current) => ({ ...current, title: event.target.value }))}
+                    />
+                  </label>
+                  <label className="field detail-grid__wide">
+                    <span>{planningCopy.ideas.bodyLabel}</span>
+                    <textarea
+                      className="field__control field__control--area"
+                      value={ideaDraft.description}
+                      onChange={(event) => setIdeaDraft((current) => ({ ...current, description: event.target.value }))}
+                    />
+                  </label>
+                  <label className="switch-control detail-grid__wide">
+                    <input
+                      type="checkbox"
+                      checked={ideaDraft.allowAuthorNoteEdits}
+                      disabled={saving}
+                      onChange={(event) => setIdeaDraft((current) => ({ ...current, allowAuthorNoteEdits: event.target.checked }))}
+                    />
+                    <span>{planningCopy.ideas.allowAuthorNoteEditsLabel}</span>
+                  </label>
+                  <p className="field__hint detail-grid__wide">{planningCopy.ideas.allowAuthorNoteEditsHint}</p>
+                  <label className="field detail-grid__wide">
+                    <span>{planningCopy.ideas.statusLabel}</span>
+                    <input
+                      className="field__control"
+                      placeholder={planningCopy.ideas.statusPlaceholder}
+                      value={ideaDraft.status}
+                      onChange={(event) => setIdeaDraft((current) => ({ ...current, status: event.target.value }))}
+                    />
+                  </label>
+                  <div className="cluster detail-grid__wide detail-editor__actions">
+                    <button
+                      className="button button--ghost"
+                      type="button"
+                      disabled={saving}
+                      onClick={() => {
+                        setCreateIdeaFolderId(null);
+                        setIdeaDraft(toIdeaDraft(null));
+                      }}
+                    >
+                      <span>{planningCopy.common.cancel}</span>
+                    </button>
+                    <button className="button button--primary" type="button" disabled={saving || !ideaDraft.title.trim()} onClick={() => void handleSaveNewIdea()}>
+                      <Save aria-hidden="true" size={16} strokeWidth={1.75} />
+                      <span>{copy.save}</span>
+                    </button>
+                  </div>
+                </div>
               </details>
             </div>
           </>

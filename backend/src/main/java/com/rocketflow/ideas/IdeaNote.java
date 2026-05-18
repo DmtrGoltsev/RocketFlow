@@ -12,6 +12,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "idea_notes")
@@ -42,6 +43,12 @@ public class IdeaNote {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+
+    @Version
+    private long version;
+
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
     public UUID getIdeaId() { return ideaId; }
@@ -58,4 +65,7 @@ public class IdeaNote {
     public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    public long getVersion() { return version; }
 }

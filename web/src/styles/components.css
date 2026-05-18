@@ -892,6 +892,21 @@
   margin: 0;
 }
 
+.idea-history-note {
+  display: grid;
+  gap: var(--rf-space-2);
+}
+
+.idea-history-note p {
+  margin: 0;
+  color: var(--rf-text);
+  white-space: pre-wrap;
+}
+
+.idea-history-note .button {
+  justify-self: start;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 96px;

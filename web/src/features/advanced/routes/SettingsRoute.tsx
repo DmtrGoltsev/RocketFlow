@@ -2,7 +2,6 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Bell, Save, Settings } from 'lucide-react';
 
 import { useAuth } from '../../auth';
-import { useI18n } from '../../../i18n';
 import { ErrorState } from '../../../ui/feedback/ErrorState';
 import { LoadingState } from '../../../ui/feedback/LoadingState';
 import { AdvancedApiError, getSettings, updateSettings } from '../advanced-api';
@@ -34,7 +33,6 @@ function toPayload(draft: SettingsDraft): UpdateSettingsPayload {
 
 export function SettingsRoute() {
   const { authorizedFetch, syncSessionLanguage } = useAuth();
-  const { locale } = useI18n();
   const copy = useAdvancedCopy();
   const [draft, setDraft] = useState<SettingsDraft | null>(null);
   const [loading, setLoading] = useState(true);
@@ -158,8 +156,8 @@ export function SettingsRoute() {
                 value={draft.language}
                 onChange={(event) => setDraft((current) => current ? { ...current, language: event.target.value as Locale } : current)}
               >
-                <option value="ru">{locale === 'ru' ? 'Русский' : 'Russian'}</option>
-                <option value="en">English</option>
+                <option value="ru">{copy.locale.ru}</option>
+                <option value="en">{copy.locale.en}</option>
               </select>
               <span className="field__hint">{copy.settings.syncHint}</span>
               {fieldErrors.language ? <span className="field__error">{fieldErrors.language}</span> : null}

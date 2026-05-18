@@ -23,6 +23,7 @@ public final class IdeasApi {
             String status,
             int displayOrder,
             boolean archived,
+            boolean allowAuthorNoteEdits,
             boolean shared,
             UUID creatorUserId,
             String creatorEmail,
@@ -39,7 +40,8 @@ public final class IdeasApi {
     public record CreateIdeaRequest(
             @NotBlank @Size(max = 200) String title,
             @Size(max = 4000) String body,
-            @Size(max = 32) String status
+            @Size(max = 32) String status,
+            Boolean allowAuthorNoteEdits
     ) {
     }
 
@@ -49,6 +51,7 @@ public final class IdeasApi {
             @NotBlank @Size(max = 32) String status,
             @NotNull Integer displayOrder,
             @NotNull Boolean archived,
+            Boolean allowAuthorNoteEdits,
             @NotNull Long version
     ) {
     }
@@ -62,7 +65,9 @@ public final class IdeasApi {
             UUID authorUserId,
             String authorEmail,
             String authorName,
-            Instant createdAt
+            long version,
+            Instant createdAt,
+            Instant updatedAt
     ) {
     }
 
@@ -73,6 +78,14 @@ public final class IdeasApi {
             @NotBlank @Size(max = 32) String eventType,
             @Size(max = 4000) String body,
             Map<String, Object> metadata
+    ) {
+    }
+
+    public record UpdateIdeaNoteRequest(
+            @NotBlank @Size(max = 32) String eventType,
+            @Size(max = 4000) String body,
+            Map<String, Object> metadata,
+            @NotNull Long version
     ) {
     }
 

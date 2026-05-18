@@ -73,6 +73,7 @@ export interface IdeaDto {
   status: string;
   displayOrder: number;
   archived: boolean;
+  allowAuthorNoteEdits: boolean;
   shared: boolean;
   creatorUserId: string | null;
   creatorEmail: string | null;
@@ -91,7 +92,9 @@ export interface IdeaNoteDto {
   authorName: string | null;
   body: string;
   metadata: Record<string, unknown>;
+  version: number;
   createdAt: string;
+  updatedAt: string;
 }
 
 export type FolderNoteKind = 'note' | 'list';
@@ -158,6 +161,7 @@ export interface IdeaUpsertPayload {
   status?: string;
   displayOrder?: number;
   archived?: boolean;
+  allowAuthorNoteEdits?: boolean;
   version?: number;
 }
 
@@ -165,6 +169,13 @@ export interface IdeaNoteCreatePayload {
   eventType: string;
   body: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface IdeaNoteUpdatePayload {
+  eventType: string;
+  body: string;
+  metadata?: Record<string, unknown>;
+  version: number;
 }
 
 export interface FolderNoteUpsertPayload {

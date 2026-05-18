@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Link as LinkIcon, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -33,27 +33,10 @@ const emptyResources: SharedResourcesResponse = {
   createTaskGoalIds: [],
 };
 
-function useSharingLocalCopy(locale: 'ru' | 'en') {
-  return useMemo(() => ({
-    linkTitle: locale === 'ru' ? 'Ссылка доступа' : 'Share link',
-    linkAccept: locale === 'ru' ? 'Принять ссылку' : 'Accept link',
-    linkAccepted: locale === 'ru' ? 'Доступ по ссылке принят.' : 'Share link accepted.',
-    linkHint: locale === 'ru'
-      ? 'Ссылка найдена. После принятия ресурсы появятся в списке ниже.'
-      : 'Link found. After accepting it, resources appear below.',
-    pendingOnly: locale === 'ru' ? 'Действия доступны для ожидающих инвайтов.' : 'Actions are available for pending invitations.',
-    folders: locale === 'ru' ? 'Общие папки' : 'Shared folders',
-    canCreateTasks: locale === 'ru' ? 'Можно создавать задачи' : 'Can create tasks',
-    tokenMissing: locale === 'ru' ? 'Token в ссылке не найден.' : 'No token was found in the link.',
-    resourcesCount: locale === 'ru' ? 'ресурсов' : 'resources',
-  }), [locale]);
-}
-
 export function SharingRoute() {
   const { authorizedFetch } = useAuth();
   const { locale } = useI18n();
   const copy = useAdvancedCopy();
-  const localCopy = useSharingLocalCopy(locale);
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') ?? searchParams.get('shareToken') ?? '';
   const [invitations, setInvitations] = useState<ShareInvitationDto[]>([]);
@@ -124,7 +107,7 @@ export function SharingRoute() {
 
   async function handleAcceptLink() {
     if (!token) {
-      setError(localCopy.tokenMissing);
+      setError(copy.sharing.tokenMissing);
       return;
     }
 
@@ -134,7 +117,7 @@ export function SharingRoute() {
 
     try {
       await acceptShareLink(authorizedFetch, token);
-      setNotice(localCopy.linkAccepted);
+      setNotice(copy.sharing.linkAccepted);
       await loadSharing();
     } catch (linkError) {
       setError(mapAdvancedError(linkError, copy).formError);
@@ -159,7 +142,7 @@ export function SharingRoute() {
             <h1>{copy.sharing.title}</h1>
             <div className="planner-header__meta">
               <span>{copy.sharing.subtitle}</span>
-              <span>{totalResources} {localCopy.resourcesCount}</span>
+              <span>{totalResources} {copy.sharing.resourcesCount}</span>
             </div>
           </div>
           <button className="icon-button" type="button" aria-label={copy.common.refresh} title={copy.common.refresh} onClick={() => void loadSharing()}>
@@ -182,17 +165,17 @@ export function SharingRoute() {
             <section className="detail-disclosure">
               <div className="breadcrumb">
                 <LinkIcon size={16} aria-hidden="true" />
-                <strong>{localCopy.linkTitle}</strong>
+                <strong>{copy.sharing.linkTitle}</strong>
               </div>
               <div className="detail-panel__badges">
                 <span className="meta-chip">{copy.common.type}: {targetLabel(shareLink.targetType)}</span>
                 <span className="meta-chip">{copy.common.status}: {shareLink.status}</span>
                 <span className="meta-chip">{copy.common.dueTime}: {formatDateTime(shareLink.expiresAt, locale)}</span>
               </div>
-              <p className="muted">{localCopy.linkHint}</p>
+              <p className="muted">{copy.sharing.linkHint}</p>
               <button className="button button--primary" type="button" disabled={actingId === token} onClick={() => void handleAcceptLink()}>
                 <ShieldCheck size={16} aria-hidden="true" />
-                {localCopy.linkAccept}
+                {copy.sharing.linkAccept}
               </button>
             </section>
           ) : null}
@@ -229,7 +212,7 @@ export function SharingRoute() {
                         </button>
                       </div>
                     ) : (
-                      <p className="muted">{localCopy.pendingOnly}</p>
+                      <p className="muted">{copy.sharing.pendingOnly}</p>
                     )}
                   </article>
                 ))}
@@ -244,7 +227,7 @@ export function SharingRoute() {
             ) : (
               <div className="stack stack--tight">
                 {resources.folders.length > 0 ? (
-                  <ResourceGroup title={localCopy.folders} items={resources.folders.map((folder) => ({
+                  <ResourceGroup title={copy.sharing.sharedFolders} items={resources.folders.map((folder) => ({
                     id: folder.id,
                     title: folder.name,
                     description: folder.description,
@@ -258,7 +241,7 @@ export function SharingRoute() {
                     title: goal.name,
                     description: goal.description,
                     meta: resources.createTaskGoalIds.includes(goal.id)
-                      ? localCopy.canCreateTasks
+                      ? copy.sharing.canCreateTasks
                       : `${copy.sharing.goalLabel} · ${formatDateTime(goal.updatedAt, locale)}`,
                   }))} />
                 ) : null}

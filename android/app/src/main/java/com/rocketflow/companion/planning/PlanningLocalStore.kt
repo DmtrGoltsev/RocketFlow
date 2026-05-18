@@ -123,6 +123,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 createFolderNotesTable(db)
                 createFolderNoteItemsTable(db)
             }
+            if (oldVersion < 7) {
+                addIdeaContractColumns(db)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -139,6 +142,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             addColumnIfMissing(db, TABLE_TASKS, "creator_name", "TEXT")
             createIdeasTable(db)
             createIdeaNotesTable(db)
+            addIdeaContractColumns(db)
             createFolderNotesTable(db)
             createFolderNoteItemsTable(db)
         }
@@ -1222,8 +1226,11 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("folder_id", idea.folderId)
             put("title", idea.title)
             put("body", idea.body)
+            put("status", idea.status)
+            put("display_order", idea.displayOrder)
             put("archived", idea.archived.toInt())
             put("shared", idea.shared.toInt())
+            put("allow_author_note_edits", idea.allowAuthorNoteEdits.toInt())
             put("version", idea.version)
             put("created_at", idea.createdAt)
             put("updated_at", idea.updatedAt)
@@ -1238,11 +1245,15 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("user_id", userId)
             put("id", note.id)
             put("idea_id", note.ideaId)
+            put("event_type", note.eventType)
             put("body", note.body)
+            put("metadata_json", note.metadataJson)
             put("author_user_id", note.authorUserId)
             put("author_email", note.authorEmail)
             put("author_name", note.authorName)
+            put("version", note.version)
             put("created_at", note.createdAt)
+            put("updated_at", note.updatedAt)
         }
     }
 
@@ -1360,8 +1371,11 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             folderId = string("folder_id"),
             title = string("title"),
             body = string("body"),
+            status = optionalStringOrNull("status") ?: "active",
+            displayOrder = optionalInt("display_order"),
             archived = boolean("archived"),
             shared = boolean("shared"),
+            allowAuthorNoteEdits = optionalBoolean("allow_author_note_edits"),
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
@@ -1374,11 +1388,15 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         return IdeaNote(
             id = string("id"),
             ideaId = string("idea_id"),
+            eventType = optionalStringOrNull("event_type") ?: "note",
             body = string("body"),
+            metadataJson = optionalStringOrNull("metadata_json") ?: "{}",
             authorUserId = optionalStringOrNull("author_user_id"),
             authorEmail = optionalStringOrNull("author_email"),
             authorName = optionalStringOrNull("author_name"),
-            createdAt = string("created_at")
+            version = optionalLong("version"),
+            createdAt = string("created_at"),
+            updatedAt = optionalStringOrNull("updated_at") ?: string("created_at")
         )
     }
 
@@ -1431,8 +1449,18 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         return getInt(getColumnIndexOrThrow(column))
     }
 
+    private fun Cursor.optionalInt(column: String): Int {
+        val index = getColumnIndex(column)
+        return if (index < 0 || isNull(index)) 0 else getInt(index)
+    }
+
     private fun Cursor.long(column: String): Long {
         return getLong(getColumnIndexOrThrow(column))
+    }
+
+    private fun Cursor.optionalLong(column: String): Long {
+        val index = getColumnIndex(column)
+        return if (index < 0 || isNull(index)) 0L else getLong(index)
     }
 
     private fun Cursor.boolean(column: String): Boolean {
@@ -1515,8 +1543,11 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 folder_id TEXT NOT NULL,
                 title TEXT NOT NULL,
                 body TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                display_order INTEGER NOT NULL DEFAULT 0,
                 archived INTEGER NOT NULL,
                 shared INTEGER NOT NULL,
+                allow_author_note_edits INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -1536,15 +1567,29 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 user_id TEXT NOT NULL,
                 id TEXT NOT NULL,
                 idea_id TEXT NOT NULL,
+                event_type TEXT NOT NULL DEFAULT 'note',
                 body TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
                 author_user_id TEXT,
                 author_email TEXT,
                 author_name TEXT,
+                version INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (user_id, id)
             )
             """.trimIndent()
         )
+    }
+
+    private fun addIdeaContractColumns(db: SQLiteDatabase) {
+        addColumnIfMissing(db, TABLE_IDEAS, "status", "TEXT NOT NULL DEFAULT 'active'")
+        addColumnIfMissing(db, TABLE_IDEAS, "display_order", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_IDEAS, "allow_author_note_edits", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_IDEA_NOTES, "event_type", "TEXT NOT NULL DEFAULT 'note'")
+        addColumnIfMissing(db, TABLE_IDEA_NOTES, "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+        addColumnIfMissing(db, TABLE_IDEA_NOTES, "version", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_IDEA_NOTES, "updated_at", "TEXT NOT NULL DEFAULT ''")
     }
 
     private fun createFolderNotesTable(db: SQLiteDatabase) {
@@ -1601,7 +1646,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 6
+        private const val DATABASE_VERSION = 7
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"

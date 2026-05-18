@@ -93,6 +93,7 @@ class IdeasFolderNotesIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.folderId").value(folderId))
                 .andExpect(jsonPath("$.status").value("active"))
+                .andExpect(jsonPath("$.allowAuthorNoteEdits").value(false))
                 .andExpect(jsonPath("$.creatorEmail").value("owner@example.com"))
                 .andReturn()
                 .getResponse()
@@ -106,7 +107,7 @@ class IdeasFolderNotesIntegrationTest {
                 .andExpect(jsonPath("$.items[0].id").value(ideaId))
                 .andExpect(jsonPath("$.items[0].shared").value(false));
 
-        mockMvc.perform(post("/api/ideas/" + ideaId + "/notes")
+        String ideaNoteResponse = mockMvc.perform(post("/api/ideas/" + ideaId + "/notes")
                         .header("Authorization", "Bearer " + owner.accessToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -121,13 +122,38 @@ class IdeasFolderNotesIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.ideaId").value(ideaId))
                 .andExpect(jsonPath("$.authorEmail").value("owner@example.com"))
-                .andExpect(jsonPath("$.createdAt", notNullValue()));
+                .andExpect(jsonPath("$.version").value(0))
+                .andExpect(jsonPath("$.createdAt", notNullValue()))
+                .andExpect(jsonPath("$.updatedAt", notNullValue()))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String ideaNoteId = read(ideaNoteResponse, "/id");
+        String ideaNoteVersion = read(ideaNoteResponse, "/version");
+
+        mockMvc.perform(patch("/api/idea-notes/" + ideaNoteId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "eventType": "note",
+                                  "body": "First refinement edited",
+                                  "metadata": {
+                                    "source": "owner-edit"
+                                  },
+                                  "version": %s
+                                }
+                                """.formatted(ideaNoteVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.body").value("First refinement edited"))
+                .andExpect(jsonPath("$.metadata.source").value("owner-edit"))
+                .andExpect(jsonPath("$.version").value(1));
 
         mockMvc.perform(get("/api/ideas/" + ideaId + "/notes")
                         .header("Authorization", "Bearer " + owner.accessToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items.length()").value(1))
-                .andExpect(jsonPath("$.items[0].metadata.source").value("owner-test"));
+                .andExpect(jsonPath("$.items[0].metadata.source").value("owner-edit"));
 
         String folderNoteResponse = mockMvc.perform(post("/api/folders/" + folderId + "/notes")
                         .header("Authorization", "Bearer " + owner.accessToken())
@@ -188,11 +214,13 @@ class IdeasFolderNotesIntegrationTest {
                                   "status": "active",
                                   "displayOrder": 2,
                                   "archived": false,
+                                  "allowAuthorNoteEdits": true,
                                   "version": %s
                                 }
                                 """.formatted(ideaVersion)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("Voice capture inbox refined"));
+                .andExpect(jsonPath("$.title").value("Voice capture inbox refined"))
+                .andExpect(jsonPath("$.allowAuthorNoteEdits").value(true));
 
         mockMvc.perform(delete("/api/ideas/" + ideaId)
                         .header("Authorization", "Bearer " + owner.accessToken()))
@@ -218,7 +246,7 @@ class IdeasFolderNotesIntegrationTest {
                 .andExpect(jsonPath("$.id").value(ideaId))
                 .andExpect(jsonPath("$.shared").value(true));
 
-        mockMvc.perform(post("/api/folders/" + folderId + "/ideas")
+        String collaboratorIdeaResponse = mockMvc.perform(post("/api/folders/" + folderId + "/ideas")
                         .header("Authorization", "Bearer " + collaborator.accessToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -229,6 +257,29 @@ class IdeasFolderNotesIntegrationTest {
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.shared").value(true))
+                .andExpect(jsonPath("$.creatorEmail").value("collaborator@example.com"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String collaboratorCreatedIdeaId = read(collaboratorIdeaResponse, "/id");
+        String collaboratorCreatedIdeaVersion = read(collaboratorIdeaResponse, "/version");
+
+        mockMvc.perform(patch("/api/ideas/" + collaboratorCreatedIdeaId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Owner refined collaborator idea",
+                                  "body": "Folder owner can edit after creation",
+                                  "status": "active",
+                                  "displayOrder": 2,
+                                  "archived": false,
+                                  "allowAuthorNoteEdits": false,
+                                  "version": %s
+                                }
+                                """.formatted(collaboratorCreatedIdeaVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Owner refined collaborator idea"))
                 .andExpect(jsonPath("$.creatorEmail").value("collaborator@example.com"));
 
         mockMvc.perform(post("/api/ideas/" + ideaId + "/notes")
@@ -318,6 +369,176 @@ class IdeasFolderNotesIntegrationTest {
                                   "version": %s
                                 }
                                 """.formatted(collaboratorIdeaVersion)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void ideaSettingControlsAuthorHistoryNoteEditing() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+        Session collaborator = registerAndLogin("collaborator@example.com", "Collaborator");
+        Session otherCollaborator = registerAndLogin("other@example.com", "Other");
+        Session outsider = registerAndLogin("outsider@example.com", "Outsider");
+        String folderId = createFolder(owner.accessToken());
+        String ideaResponse = createIdea(owner.accessToken(), folderId, "Editable note policy");
+        String ideaId = read(ideaResponse, "/id");
+        String ideaVersion = read(ideaResponse, "/version");
+        shareAndAccept(owner.accessToken(), collaborator.accessToken(), "/api/folders/" + folderId + "/share", "collaborator@example.com");
+        shareAndAccept(owner.accessToken(), otherCollaborator.accessToken(), "/api/folders/" + folderId + "/share", "other@example.com");
+
+        String noteResponse = mockMvc.perform(post("/api/ideas/" + ideaId + "/notes")
+                        .header("Authorization", "Bearer " + collaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "eventType": "comment",
+                                  "body": "Draft from collaborator",
+                                  "metadata": {
+                                    "stage": "draft"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.authorEmail").value("collaborator@example.com"))
+                .andExpect(jsonPath("$.version").value(0))
+                .andExpect(jsonPath("$.updatedAt", notNullValue()))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String noteId = read(noteResponse, "/id");
+        String noteVersion = read(noteResponse, "/version");
+
+        mockMvc.perform(patch("/api/idea-notes/" + noteId)
+                        .header("Authorization", "Bearer " + collaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "eventType": "comment",
+                                  "body": "Author edit while disabled",
+                                  "metadata": {},
+                                  "version": %s
+                                }
+                                """.formatted(noteVersion)))
+                .andExpect(status().isNotFound());
+
+        String enabledIdeaResponse = mockMvc.perform(patch("/api/ideas/" + ideaId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Editable note policy",
+                                  "body": "Idea body",
+                                  "status": "active",
+                                  "displayOrder": 1,
+                                  "archived": false,
+                                  "allowAuthorNoteEdits": true,
+                                  "version": %s
+                                }
+                                """.formatted(ideaVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowAuthorNoteEdits").value(true))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String enabledIdeaVersion = read(enabledIdeaResponse, "/version");
+
+        String authorEditResponse = mockMvc.perform(patch("/api/idea-notes/" + noteId)
+                        .header("Authorization", "Bearer " + collaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "eventType": "comment",
+                                  "body": "Author edit while enabled",
+                                  "metadata": {
+                                    "stage": "refined"
+                                  },
+                                  "version": %s
+                                }
+                                """.formatted(noteVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.body").value("Author edit while enabled"))
+                .andExpect(jsonPath("$.metadata.stage").value("refined"))
+                .andExpect(jsonPath("$.version").value(1))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String authorEditedVersion = read(authorEditResponse, "/version");
+
+        mockMvc.perform(patch("/api/idea-notes/" + noteId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "eventType": "comment",
+                                  "body": "Stale owner edit",
+                                  "metadata": {},
+                                  "version": %s
+                                }
+                                """.formatted(noteVersion)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("conflict"));
+
+        String ownerEditResponse = mockMvc.perform(patch("/api/idea-notes/" + noteId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "eventType": "owner_note",
+                                  "body": "Owner can edit collaborator history note",
+                                  "metadata": {
+                                    "stage": "owner-reviewed"
+                                  },
+                                  "version": %s
+                                }
+                                """.formatted(authorEditedVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.eventType").value("owner_note"))
+                .andExpect(jsonPath("$.body").value("Owner can edit collaborator history note"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String ownerEditedVersion = read(ownerEditResponse, "/version");
+
+        mockMvc.perform(patch("/api/idea-notes/" + noteId)
+                        .header("Authorization", "Bearer " + otherCollaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "eventType": "comment",
+                                  "body": "Other collaborator cannot edit",
+                                  "metadata": {},
+                                  "version": %s
+                                }
+                                """.formatted(ownerEditedVersion)))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(patch("/api/ideas/" + ideaId)
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Editable note policy",
+                                  "body": "Idea body",
+                                  "status": "active",
+                                  "displayOrder": 1,
+                                  "archived": false,
+                                  "allowAuthorNoteEdits": false,
+                                  "version": %s
+                                }
+                                """.formatted(enabledIdeaVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowAuthorNoteEdits").value(false));
+
+        mockMvc.perform(patch("/api/idea-notes/" + noteId)
+                        .header("Authorization", "Bearer " + outsider.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "eventType": "comment",
+                                  "body": "Outsider cannot edit",
+                                  "metadata": {},
+                                  "version": %s
+                                }
+                                """.formatted(ownerEditedVersion)))
                 .andExpect(status().isNotFound());
     }
 

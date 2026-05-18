@@ -11,6 +11,7 @@ import type {
   IdeaDto,
   IdeaNoteCreatePayload,
   IdeaNoteDto,
+  IdeaNoteUpdatePayload,
   IdeaUpsertPayload,
   PlanningApiErrorPayload,
   TaskDto,
@@ -268,6 +269,17 @@ export async function createIdeaNote(
 ) {
   return requestJson<IdeaNoteDto>(authorizedFetch, `/ideas/${ideaId}/notes`, {
     method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateIdeaNote(
+  authorizedFetch: AuthorizedFetch,
+  noteId: string,
+  payload: IdeaNoteUpdatePayload,
+) {
+  return requestJson<IdeaNoteDto>(authorizedFetch, `/idea-notes/${noteId}`, {
+    method: 'PATCH',
     body: JSON.stringify(payload),
   });
 }

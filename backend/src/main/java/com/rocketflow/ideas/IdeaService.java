@@ -73,6 +73,7 @@ public class IdeaService {
         idea.setStatus(normalizeStatus(request.status()));
         idea.setDisplayOrder((int) ideaRepository.countByFolderIdAndOwnerUserId(folderId, access.folder().getOwnerUserId()) + 1);
         idea.setArchived(false);
+        idea.setAllowAuthorNoteEdits(Boolean.TRUE.equals(request.allowAuthorNoteEdits()));
         idea.setCreatedAt(now);
         idea.setUpdatedAt(now);
         return toDto(ideaRepository.save(idea), access.shared());
@@ -93,9 +94,12 @@ public class IdeaService {
         idea.setStatus(request.status().trim());
         idea.setDisplayOrder(request.displayOrder());
         idea.setArchived(request.archived());
+        if (request.allowAuthorNoteEdits() != null) {
+            idea.setAllowAuthorNoteEdits(request.allowAuthorNoteEdits());
+        }
         idea.setUpdatedAt(Instant.now());
         FolderAccess folderAccess = sharingAccessService.requireFolderContentOwner(idea.getFolderId(), actorUserId);
-        return toDto(ideaRepository.save(idea), folderAccess.shared());
+        return toDto(ideaRepository.saveAndFlush(idea), folderAccess.shared());
     }
 
     @Transactional
@@ -126,8 +130,26 @@ public class IdeaService {
         note.setEventType(request.eventType().trim());
         note.setBody(request.body());
         note.setMetadata(copyMetadata(request.metadata()));
-        note.setCreatedAt(Instant.now());
+        Instant now = Instant.now();
+        note.setCreatedAt(now);
+        note.setUpdatedAt(now);
         return toDto(ideaNoteRepository.save(note));
+    }
+
+    @Transactional
+    public IdeaNoteDto updateIdeaNote(UUID actorUserId, UUID noteId, UpdateIdeaNoteRequest request) {
+        IdeaNote note = ideaNoteRepository.findById(noteId)
+                .orElseThrow(() -> notFound("Idea note"));
+        IdeaAccess access = requireIdeaAccess(note.getIdeaId(), actorUserId);
+        if (!canEditIdeaNote(access, note, actorUserId)) {
+            throw notFound("Idea note");
+        }
+        ensureVersion(note.getVersion(), request.version(), "Idea note");
+        note.setEventType(request.eventType().trim());
+        note.setBody(request.body());
+        note.setMetadata(copyMetadata(request.metadata()));
+        note.setUpdatedAt(Instant.now());
+        return toDto(ideaNoteRepository.saveAndFlush(note));
     }
 
     @Transactional(readOnly = true)
@@ -305,6 +327,7 @@ public class IdeaService {
                 idea.getStatus(),
                 idea.getDisplayOrder(),
                 idea.isArchived(),
+                idea.isAllowAuthorNoteEdits(),
                 shared,
                 idea.getCreatorUserId(),
                 creator.email(),
@@ -326,7 +349,9 @@ public class IdeaService {
                 note.getAuthorUserId(),
                 author.email(),
                 author.name(),
-                note.getCreatedAt()
+                note.getVersion(),
+                note.getCreatedAt(),
+                note.getUpdatedAt()
         );
     }
 
@@ -374,6 +399,11 @@ public class IdeaService {
         if (actual != expected) {
             throw new ApiException(HttpStatus.CONFLICT, "conflict", entityName + " was updated by another request.");
         }
+    }
+
+    private boolean canEditIdeaNote(IdeaAccess access, IdeaNote note, UUID actorUserId) {
+        return access.folderAccess().owner()
+                || (access.idea().isAllowAuthorNoteEdits() && note.getAuthorUserId().equals(actorUserId));
     }
 
     private ApiException notFound(String entityName) {

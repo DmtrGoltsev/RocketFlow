@@ -87,9 +87,33 @@ class PlanningRepository(
             JSONObject()
                 .put("title", draft.title)
                 .put("body", draft.body)
+                .put("status", draft.status)
+                .put("allowAuthorNoteEdits", draft.allowAuthorNoteEdits)
         )
         val idea = result.value.toIdea(shared = isSharedFolder(result.session.user.id, folderId))
         localStore.upsertRemoteIdeas(result.session.user.id, listOf(idea))
+        val refreshed = pullRemote(result.session)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun updateIdea(session: AuthSession, idea: PlanningIdea, draft: IdeaDraft): PlanningLoadResult {
+        val result = authRepository.authorizedPatch(
+            session,
+            "/ideas/${idea.id}",
+            JSONObject()
+                .put("title", draft.title)
+                .put("body", draft.body)
+                .put("status", draft.status)
+                .put("displayOrder", idea.displayOrder)
+                .put("archived", idea.archived)
+                .put("allowAuthorNoteEdits", draft.allowAuthorNoteEdits)
+                .put("version", idea.version)
+        )
+        val updated = result.value.toIdea(shared = idea.shared)
+        localStore.upsertRemoteIdeas(result.session.user.id, listOf(updated))
         val refreshed = pullRemote(result.session)
         return PlanningLoadResult(
             session = refreshed,
@@ -102,11 +126,29 @@ class PlanningRepository(
             session,
             "/ideas/$ideaId/notes",
             JSONObject()
-                .put("eventType", "note")
+                .put("eventType", draft.eventType)
                 .put("body", draft.body)
-                .put("metadata", JSONObject())
+                .put("metadata", draft.metadataObject())
         )
         localStore.upsertRemoteIdeaNotes(result.session.user.id, listOf(result.value.toIdeaNote(ideaId)))
+        val refreshed = pullRemote(result.session)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun updateIdeaNote(session: AuthSession, note: IdeaNote, draft: IdeaNoteDraft): PlanningLoadResult {
+        val result = authRepository.authorizedPatch(
+            session,
+            "/idea-notes/${note.id}",
+            JSONObject()
+                .put("eventType", draft.eventType)
+                .put("body", draft.body)
+                .put("metadata", draft.metadataObject())
+                .put("version", note.version)
+        )
+        localStore.upsertRemoteIdeaNotes(result.session.user.id, listOf(result.value.toIdeaNote(note.ideaId)))
         val refreshed = pullRemote(result.session)
         return PlanningLoadResult(
             session = refreshed,
@@ -763,8 +805,11 @@ class PlanningRepository(
             folderId = text("folderId").ifBlank { optJSONObject("folder")?.text("id").orEmpty() },
             title = text("title").ifBlank { text("name") },
             body = text("body").ifBlank { text("description") },
+            status = text("status").ifBlank { "active" },
+            displayOrder = optInt("displayOrder", 0),
             archived = optBoolean("archived", false),
             shared = shared,
+            allowAuthorNoteEdits = optBoolean("allowAuthorNoteEdits", false),
             version = optLong("version", 0),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
             updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },
@@ -778,11 +823,15 @@ class PlanningRepository(
         return IdeaNote(
             id = getString("id"),
             ideaId = text("ideaId").ifBlank { ideaIdFallback },
+            eventType = text("eventType").ifBlank { "note" },
             body = text("body"),
+            metadataJson = (optJSONObject("metadata") ?: JSONObject()).toString(),
             authorUserId = nullableText("authorUserId") ?: author?.nullableText("id"),
             authorEmail = nullableText("authorEmail") ?: author?.nullableText("email"),
             authorName = nullableText("authorName") ?: author?.nullableText("displayName") ?: author?.nullableText("name"),
-            createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() }
+            version = optLong("version", 0),
+            createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
+            updatedAt = text("updatedAt").ifBlank { text("createdAt").ifBlank { PlanningLocalStore.nowIso() } }
         )
     }
 
@@ -843,6 +892,14 @@ class PlanningRepository(
             put(key, value)
         }
         return this
+    }
+
+    private fun IdeaNoteDraft.metadataObject(): JSONObject {
+        return try {
+            JSONObject(metadataJson)
+        } catch (_: Exception) {
+            JSONObject()
+        }
     }
 
     private fun JSONObject.tagIds(): List<String> {

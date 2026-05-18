@@ -69,6 +69,11 @@ public class IdeaController {
         return ideaService.createIdeaNote(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(ideaId), request);
     }
 
+    @PatchMapping("/idea-notes/{noteId}")
+    public IdeaNoteDto updateIdeaNote(@PathVariable String noteId, @Valid @RequestBody UpdateIdeaNoteRequest request) {
+        return ideaService.updateIdeaNote(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(noteId), request);
+    }
+
     @GetMapping("/folders/{folderId}/notes")
     public FolderNoteListResponse listFolderNotes(@PathVariable String folderId) {
         return ideaService.listFolderNotes(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(folderId));

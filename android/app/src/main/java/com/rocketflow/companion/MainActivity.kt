@@ -164,19 +164,23 @@ class MainActivity : Activity() {
         val folder: String,
         val goal: String,
         val task: String,
-        val idea: String = "Idea",
-        val folderNote: String = "Folder note",
-        val list: String = "List",
+        val idea: String,
+        val folderNote: String,
+        val list: String,
         val create: String,
         val newFolder: String,
         val newGoal: String,
         val newTask: String,
-        val newIdea: String = "New idea",
-        val newFolderNote: String = "New folder note",
-        val newList: String = "New list",
-        val addNote: String = "Add note",
+        val newIdea: String,
+        val newFolderNote: String,
+        val newList: String,
+        val addNote: String,
+        val editNote: String,
         val addItem: String = "Add item",
-        val ideaHistory: String = "History",
+        val ideaHistory: String,
+        val allowAuthorNoteEdits: String,
+        val allowAuthorNoteEditsHint: String,
+        val noteRequired: String,
         val edit: String,
         val delete: String,
         val cancel: String,
@@ -1073,6 +1077,14 @@ class MainActivity : Activity() {
                 }
             )
             content.addView(pathLine(ideaPath(idea)))
+            content.addView(propertyRow(c.status, idea.status.ifBlank { "active" }, clickable = canEditIdea(idea)) {
+                showIdeaDialog(idea.folderId, idea)
+            })
+            if (canEditIdea(idea)) {
+                content.addView(propertyRow(c.allowAuthorNoteEdits, if (idea.allowAuthorNoteEdits) c.remindersOn else c.remindersOff, clickable = true) {
+                    saveIdea(idea.folderId, idea, idea.toDraft(allowAuthorNoteEdits = !idea.allowAuthorNoteEdits))
+                })
+            }
             content.addView(sectionLabel(c.notes))
             content.addView(
                 TextView(this).apply {
@@ -1089,7 +1101,7 @@ class MainActivity : Activity() {
             if (notes.isEmpty()) {
                 content.addView(hintRow(c.nothingHere, indentLevel = 0))
             } else {
-                notes.forEach { note -> content.addView(ideaHistoryRow(note)) }
+                notes.forEach { note -> content.addView(ideaHistoryRow(idea, note)) }
             }
         }
 
@@ -1283,14 +1295,14 @@ class MainActivity : Activity() {
 
     private fun decayPolicySummary(policy: PriorityDecayPolicy): String {
         val enabled = if (policy.enabled) copy().remindersOn else copy().remindersOff
-        return "$enabled � ${thresholdLabel(policy.thresholdPreset)} � -${policy.decayAmount}"
+        return "$enabled / ${thresholdLabel(policy.thresholdPreset)} / -${policy.decayAmount}"
     }
 
     private fun thresholdLabel(preset: String): String {
         return when (preset) {
-            "day" -> if (currentLanguage == "en") "day" else "����"
-            "week" -> if (currentLanguage == "en") "week" else "������"
-            "month" -> if (currentLanguage == "en") "month" else "�����"
+            "day" -> if (currentLanguage == "en") "day" else "\u0434\u0435\u043d\u044c"
+            "week" -> if (currentLanguage == "en") "week" else "\u043d\u0435\u0434\u0435\u043b\u044f"
+            "month" -> if (currentLanguage == "en") "month" else "\u043c\u0435\u0441\u044f\u0446"
             else -> preset
         }
     }
@@ -1406,6 +1418,9 @@ class MainActivity : Activity() {
                 }
                 Screen.IdeaDetail -> {
                     selectedIdeaDetail?.let { idea ->
+                        if (canEditIdea(idea)) {
+                            addView(iconButton(R.drawable.ic_edit, c.edit) { showIdeaDialog(idea.folderId, idea) })
+                        }
                         addView(iconButton(R.drawable.ic_add, c.addNote) { showIdeaNoteDialog(idea) })
                     }
                 }
@@ -1677,16 +1692,26 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun ideaHistoryRow(note: IdeaNote): LinearLayout {
+    private fun ideaHistoryRow(idea: PlanningIdea, note: IdeaNote): LinearLayout {
         val author = note.authorName ?: note.authorEmail ?: copy().creator
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10), 0, dp(10))
             addView(
-                TextView(context).apply {
-                    text = "$author - ${formatDateTime(note.createdAt)}"
-                    textSize = 12.5f
-                    setTextColor(color(Ui.MUTED))
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        TextView(context).apply {
+                            text = "$author - ${formatDateTime(note.updatedAt)}"
+                            textSize = 12.5f
+                            setTextColor(color(Ui.MUTED))
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        }
+                    )
+                    if (canEditIdeaNote(idea, note)) {
+                        addView(iconButton(R.drawable.ic_edit, copy().editNote) { showIdeaNoteDialog(idea, note) })
+                    }
                 }
             )
             addView(
@@ -2438,46 +2463,70 @@ class MainActivity : Activity() {
         focusDialogInput(dialog, titleInput)
     }
 
-    private fun showIdeaDialog(folderId: String) {
+    private fun showIdeaDialog(folderId: String, idea: PlanningIdea? = null) {
         val c = copy()
         val folder = folders.firstOrNull { it.id == folderId } ?: sharedFolders.firstOrNull { it.id == folderId }
-        val titleInput = dialogInput(c.titleField, "", inputPurpose = TextInputPurpose.Name)
-        val notesInput = dialogInput(c.notesField, "", multiline = true, inputPurpose = TextInputPurpose.Notes)
+        val titleInput = dialogInput(c.titleField, idea?.title.orEmpty(), inputPurpose = TextInputPurpose.Name)
+        val notesInput = dialogInput(c.notesField, idea?.body.orEmpty(), multiline = true, inputPurpose = TextInputPurpose.Notes)
+        val statusInput = dialogInput(c.status, idea?.status ?: "active", inputPurpose = TextInputPurpose.Text)
+        val authorEditInput = CheckBox(this).apply {
+            text = c.allowAuthorNoteEdits
+            isChecked = idea?.allowAuthorNoteEdits ?: false
+            setTextColor(color(Ui.TEXT))
+            textSize = 15f
+            setPadding(0, dp(8), 0, dp(2))
+        }
+        val authorEditHint = TextView(this).apply {
+            text = c.allowAuthorNoteEditsHint
+            textSize = 12.5f
+            setTextColor(color(Ui.MUTED))
+            setPadding(0, 0, 0, dp(4))
+        }
         val dialog = AlertDialog.Builder(this)
-            .setTitle(c.newIdea)
-            .setView(dialogForm(dialogContextLine(c.folder, folder?.name ?: c.folder), titleInput, notesInput))
+            .setTitle(if (idea == null) c.newIdea else c.edit)
+            .setView(dialogForm(dialogContextLine(c.folder, folder?.name ?: c.folder), titleInput, notesInput, statusInput, authorEditInput, authorEditHint))
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.save) { _, _ ->
                 val draft = IdeaDraft(
                     title = titleInput.text.toString().trim(),
-                    body = notesInput.text.toString().trim()
+                    body = notesInput.text.toString().trim(),
+                    status = statusInput.text.toString().trim().ifBlank { idea?.status ?: "active" },
+                    allowAuthorNoteEdits = authorEditInput.isChecked
                 )
                 if (draft.title.isBlank()) {
                     message = c.titleRequired
                     render()
                     return@setPositiveButton
                 }
-                saveIdea(folderId, draft)
+                saveIdea(folderId, idea, draft)
             }
             .show()
         focusDialogInput(dialog, titleInput)
     }
 
-    private fun showIdeaNoteDialog(idea: PlanningIdea) {
+    private fun showIdeaNoteDialog(idea: PlanningIdea, note: IdeaNote? = null) {
         val c = copy()
-        val input = dialogInput(c.notesField, "", multiline = true, inputPurpose = TextInputPurpose.Notes)
+        val input = dialogInput(c.notesField, note?.body.orEmpty(), multiline = true, inputPurpose = TextInputPurpose.Notes)
         val dialog = AlertDialog.Builder(this)
-            .setTitle(c.addNote)
+            .setTitle(if (note == null) c.addNote else c.editNote)
             .setView(dialogForm(input))
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.save) { _, _ ->
-                val draft = IdeaNoteDraft(input.text.toString().trim())
+                val draft = IdeaNoteDraft(
+                    body = input.text.toString().trim(),
+                    eventType = note?.eventType ?: "note",
+                    metadataJson = note?.metadataJson ?: "{}"
+                )
                 if (draft.body.isBlank()) {
-                    message = c.notesField
+                    message = c.noteRequired
                     render()
                     return@setPositiveButton
                 }
-                saveIdeaNote(idea, draft)
+                if (note == null) {
+                    saveIdeaNote(idea, draft)
+                } else {
+                    updateIdeaNote(idea, note, draft)
+                }
             }
             .show()
         focusDialogInput(dialog, input)
@@ -2936,22 +2985,51 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun saveIdea(folderId: String, draft: IdeaDraft) {
+    private fun saveIdea(folderId: String, idea: PlanningIdea?, draft: IdeaDraft) {
         val session = currentSession ?: return
         setBusy(true)
         message = null
         scope.launch {
             try {
-                val result = planningRepository.createIdea(session, folderId, draft)
+                val result = if (idea == null) {
+                    planningRepository.createIdea(session, folderId, draft)
+                } else {
+                    planningRepository.updateIdea(session, idea, draft)
+                }
                 applyPlanningResult(result)
-                val savedIdea = result.snapshot.ideas.firstOrNull { it.folderId == folderId && it.title == draft.title }
-                    ?: result.snapshot.sharedIdeas.firstOrNull { it.folderId == folderId && it.title == draft.title }
+                val savedIdea = if (idea == null) {
+                    result.snapshot.ideas.firstOrNull { it.folderId == folderId && it.title == draft.title }
+                        ?: result.snapshot.sharedIdeas.firstOrNull { it.folderId == folderId && it.title == draft.title }
+                } else {
+                    result.snapshot.ideas.firstOrNull { it.id == idea.id }
+                        ?: result.snapshot.sharedIdeas.firstOrNull { it.id == idea.id }
+                }
                 selectedFolderId = folderId
                 selectedGoalId = null
                 selectedTaskId = null
                 selectedTaskDetail = null
                 selectedIdeaId = savedIdea?.id
                 selectedIdeaDetail = savedIdea
+                currentScreen = Screen.IdeaDetail
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun updateIdeaNote(idea: PlanningIdea, note: IdeaNote, draft: IdeaNoteDraft) {
+        val session = currentSession ?: return
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val result = planningRepository.updateIdeaNote(session, note, draft)
+                applyPlanningResult(result)
+                selectedIdeaId = idea.id
+                selectedIdeaDetail = findIdea(idea.id)
+                currentScreen = Screen.IdeaDetail
             } catch (error: Exception) {
                 message = humanError(error)
             } finally {
@@ -4502,7 +4580,7 @@ class MainActivity : Activity() {
         val body = if (currentLanguage == "en") {
             "RocketFlow saved the reminder and scheduled a safe fallback. Allow exact alarms in Android settings for alarm-like delivery."
         } else {
-            "RocketFlow сохранил напоминание и поставил безопасный fallback. Разрешите точные будильники в настройках Android для срабатывания как будильник."
+            "RocketFlow сохранил напоминание и поставил безопасный резервный таймер. Разрешите точные будильники в настройках Android."
         }
         val settings = if (currentLanguage == "en") "Settings" else "Настройки"
         AlertDialog.Builder(this)
@@ -4703,6 +4781,30 @@ class MainActivity : Activity() {
 
     private fun notificationRegistrationLabel(): String {
         return if (currentDeviceRegistration?.active == true) copy().remindersOn else copy().remindersOff
+    }
+
+    private fun canEditIdea(idea: PlanningIdea): Boolean {
+        return !idea.shared
+    }
+
+    private fun canEditIdeaNote(idea: PlanningIdea, note: IdeaNote): Boolean {
+        val user = currentSession?.user ?: return false
+        return canEditIdea(idea) ||
+            (idea.allowAuthorNoteEdits && (note.authorUserId == user.id || note.authorEmail == user.email))
+    }
+
+    private fun PlanningIdea.toDraft(
+        title: String = this.title,
+        body: String = this.body,
+        status: String = this.status,
+        allowAuthorNoteEdits: Boolean = this.allowAuthorNoteEdits
+    ): IdeaDraft {
+        return IdeaDraft(
+            title = title,
+            body = body,
+            status = status.ifBlank { "active" },
+            allowAuthorNoteEdits = allowAuthorNoteEdits
+        )
     }
 
     private fun PlanningTask.toDraft(
@@ -5010,10 +5112,22 @@ class MainActivity : Activity() {
                 folder = "Folder",
                 goal = "Goal",
                 task = "Task",
+                idea = "Idea",
+                folderNote = "Folder note",
+                list = "List",
                 create = "Create",
                 newFolder = "New folder",
                 newGoal = "New goal",
                 newTask = "New task",
+                newIdea = "New idea",
+                newFolderNote = "New folder note",
+                newList = "New list",
+                addNote = "Add note",
+                editNote = "Edit note",
+                ideaHistory = "History",
+                allowAuthorNoteEdits = "Authors can edit their own history notes",
+                allowAuthorNoteEditsHint = "The idea owner can always edit the history.",
+                noteRequired = "Enter a note.",
                 edit = "Edit",
                 delete = "Delete",
                 cancel = "Cancel",
@@ -5167,10 +5281,23 @@ class MainActivity : Activity() {
                 folder = "Папка",
                 goal = "Цель",
                 task = "Задача",
+                idea = "\u0418\u0434\u0435\u044f",
+                folderNote = "\u0417\u0430\u043c\u0435\u0442\u043a\u0430 \u043f\u0430\u043f\u043a\u0438",
+                list = "\u0421\u043f\u0438\u0441\u043e\u043a",
                 create = "Создать",
                 newFolder = "Новая папка",
                 newGoal = "Новая цель",
                 newTask = "Новая задача",
+                newIdea = "\u041d\u043e\u0432\u0430\u044f \u0438\u0434\u0435\u044f",
+                newFolderNote = "\u041d\u043e\u0432\u0430\u044f \u0437\u0430\u043c\u0435\u0442\u043a\u0430 \u043f\u0430\u043f\u043a\u0438",
+                newList = "\u041d\u043e\u0432\u044b\u0439 \u0441\u043f\u0438\u0441\u043e\u043a",
+                addNote = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0437\u0430\u043c\u0435\u0442\u043a\u0443",
+                editNote = "\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0437\u0430\u043c\u0435\u0442\u043a\u0443",
+                addItem = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0443\u043d\u043a\u0442",
+                ideaHistory = "\u0418\u0441\u0442\u043e\u0440\u0438\u044f",
+                allowAuthorNoteEdits = "\u0410\u0432\u0442\u043e\u0440\u044b \u043c\u043e\u0433\u0443\u0442 \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u0432\u043e\u0438 \u0437\u0430\u043c\u0435\u0442\u043a\u0438 \u0438\u0441\u0442\u043e\u0440\u0438\u0438",
+                allowAuthorNoteEditsHint = "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446 \u0438\u0434\u0435\u0438 \u0432\u0441\u0435\u0433\u0434\u0430 \u043c\u043e\u0436\u0435\u0442 \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0438\u0441\u0442\u043e\u0440\u0438\u044e.",
+                noteRequired = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0437\u0430\u043c\u0435\u0442\u043a\u0443.",
                 edit = "Изменить",
                 delete = "Удалить",
                 cancel = "Отмена",
@@ -5257,7 +5384,7 @@ class MainActivity : Activity() {
                 noDate = "Нет",
                 pickDate = "Выбрать дату",
                 clearDate = "Очистить",
-                invalidDate = "Используйте day, week или month и число больше 0.",
+                invalidDate = "Укажите день, неделю или месяц и число больше 0.",
                 today = "Сегодня",
                 tomorrow = "Завтра",
                 reschedule = "Перенести",

@@ -67,8 +67,11 @@ data class PlanningIdea(
     val folderId: String,
     val title: String,
     val body: String,
+    val status: String,
+    val displayOrder: Int,
     val archived: Boolean,
     val shared: Boolean,
+    val allowAuthorNoteEdits: Boolean,
     val version: Long,
     val createdAt: String,
     val updatedAt: String,
@@ -79,11 +82,15 @@ data class PlanningIdea(
 data class IdeaNote(
     val id: String,
     val ideaId: String,
+    val eventType: String,
     val body: String,
+    val metadataJson: String,
     val authorUserId: String?,
     val authorEmail: String?,
     val authorName: String?,
-    val createdAt: String
+    val version: Long,
+    val createdAt: String,
+    val updatedAt: String
 )
 
 data class FolderNote(
@@ -176,11 +183,15 @@ data class TaskDraft(
 
 data class IdeaDraft(
     val title: String,
-    val body: String
+    val body: String,
+    val status: String = "active",
+    val allowAuthorNoteEdits: Boolean = false
 )
 
 data class IdeaNoteDraft(
-    val body: String
+    val body: String,
+    val eventType: String = "note",
+    val metadataJson: String = "{}"
 )
 
 data class FolderNoteDraft(

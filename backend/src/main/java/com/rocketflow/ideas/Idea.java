@@ -40,6 +40,9 @@ public class Idea {
     @Column(nullable = false)
     private boolean archived;
 
+    @Column(name = "allow_author_note_edits", nullable = false)
+    private boolean allowAuthorNoteEdits;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -67,6 +70,8 @@ public class Idea {
     public void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
     public boolean isArchived() { return archived; }
     public void setArchived(boolean archived) { this.archived = archived; }
+    public boolean isAllowAuthorNoteEdits() { return allowAuthorNoteEdits; }
+    public void setAllowAuthorNoteEdits(boolean allowAuthorNoteEdits) { this.allowAuthorNoteEdits = allowAuthorNoteEdits; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
