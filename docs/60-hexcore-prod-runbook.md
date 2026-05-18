@@ -9,7 +9,7 @@
 - IPv4: `45.10.110.42`.
 - ОС: Ubuntu 26.04 LTS.
 - Ресурсы: 1 CPU, 2 GB RAM, 20 GB SSD.
-- Публичный health endpoint: `http://45.10.110.42/api/health`.
+- Публичный health endpoint: `http://45.10.110.42/rocket-api/health`.
 
 ## Что установлено
 
@@ -21,11 +21,11 @@
 - Systemd-сервис backend: `rocketflow-backend`.
 - Ежедневный backup PostgreSQL: `rocketflow-backup.timer`.
 
-Backend слушает только `127.0.0.1:8080`. Снаружи API открыт через Nginx на `http://45.10.110.42/api/...`.
+Backend слушает только `127.0.0.1:8080`. Снаружи API открыт через Nginx на `http://45.10.110.42/rocket-api/...`.
 
 Web-приложение отдается Nginx с того же сервера:
 
-`http://45.10.110.42/`
+`http://45.10.110.42/rocket/`
 
 ## Текущий backend
 
@@ -52,7 +52,7 @@ Web-релизы загружаются в:
 С локального компьютера:
 
 ```powershell
-Invoke-RestMethod -Uri http://45.10.110.42/api/health
+Invoke-RestMethod -Uri http://45.10.110.42/rocket-api/health
 ```
 
 На сервере:
@@ -61,8 +61,8 @@ Invoke-RestMethod -Uri http://45.10.110.42/api/health
 systemctl status rocketflow-backend
 journalctl -u rocketflow-backend -n 100 --no-pager
 curl http://127.0.0.1:8080/api/health
-curl http://127.0.0.1/api/health
-curl http://127.0.0.1/
+curl http://127.0.0.1/rocket-api/health
+curl http://127.0.0.1/rocket/
 ```
 
 ## Backup
@@ -101,7 +101,7 @@ Workflow:
 
 Опционально можно передать `health_url` при ручном запуске workflow:
 
-`http://45.10.110.42/api/health`
+`http://45.10.110.42/rocket-api/health`
 
 ## SSH
 

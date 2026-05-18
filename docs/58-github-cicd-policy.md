@@ -21,7 +21,7 @@ Production deploy работает только через HexCore-сервер:
 - backend runtime: jar + `systemd`, без Docker;
 - web runtime: статическая сборка Vite через Nginx;
 - backend service: `rocketflow-backend`;
-- health check: `http://45.10.110.42/api/health`.
+- health check: `http://45.10.110.42/rocket-api/health`.
 
 Workflow запускается:
 
@@ -60,7 +60,7 @@ Workflow запускается:
 4. Делать merge только после зелёных checks.
 5. После merge GitHub запускает deploy на HexCore.
 6. Workflow выкладывает backend jar и web build.
-7. Workflow проверяет `http://45.10.110.42/api/health` и доступность web root.
+7. Workflow проверяет `http://45.10.110.42/rocket-api/health` и доступность web root `http://45.10.110.42/rocket/`.
 
 ## Текущие ограничения
 

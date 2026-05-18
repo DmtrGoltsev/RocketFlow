@@ -1,19 +1,17 @@
 const STATIC_CACHE = 'rocketflow-static-v1';
+const APP_BASE = '/rocket/';
 const APP_SHELL = [
-  '/',
-  '/manifest.webmanifest',
-  '/icons/icon-180.png',
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
+  APP_BASE,
+  `${APP_BASE}manifest.webmanifest`,
+  `${APP_BASE}icons/icon-180.png`,
+  `${APP_BASE}icons/icon-192.png`,
+  `${APP_BASE}icons/icon-512.png`,
 ];
 
 const SENSITIVE_PATHS = [
-  '/api',
-  '/auth',
-  '/login',
-  '/logout',
-  '/session',
-  '/token',
+  '/rocket-api',
+  '/finance',
+  '/finance-api',
 ];
 
 self.addEventListener('install', (event) => {
@@ -70,7 +68,7 @@ async function networkFirst(request) {
     if (cached) {
       return cached;
     }
-    return cache.match('/');
+    return cache.match(APP_BASE);
   }
 }
 
@@ -91,6 +89,10 @@ async function cacheFirst(request) {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
+  if (url.origin !== self.location.origin || !url.pathname.startsWith(APP_BASE)) {
+    return;
+  }
+
   if (shouldBypassCache(event.request, url)) {
     event.respondWith(fetchNoStore(event.request));
     return;
@@ -101,7 +103,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/icons/')) {
+  if (url.pathname.startsWith(`${APP_BASE}assets/`) || url.pathname.startsWith(`${APP_BASE}icons/`)) {
     event.respondWith(cacheFirst(event.request));
   }
 });

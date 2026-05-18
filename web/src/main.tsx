@@ -6,9 +6,12 @@ import './styles/index.css';
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((error: unknown) => {
-      console.error('Service worker registration failed', error);
-    });
+    const baseUrl = import.meta.env.BASE_URL || '/';
+    navigator.serviceWorker
+      .register(`${baseUrl}sw.js`, { scope: baseUrl })
+      .catch((error: unknown) => {
+        console.error('Service worker registration failed', error);
+      });
   });
 }
 

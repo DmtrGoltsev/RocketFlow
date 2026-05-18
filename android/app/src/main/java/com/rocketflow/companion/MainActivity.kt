@@ -5704,9 +5704,13 @@ class MainActivity : Activity() {
     }
 
     private fun rocketFlowWebBaseUrl(): String {
-        return BuildConfig.ROCKETFLOW_API_BASE_URL
+        val baseUrl = BuildConfig.ROCKETFLOW_API_BASE_URL
             .trimEnd('/')
-            .removeSuffix("/api")
+        return when {
+            baseUrl.endsWith("/rocket-api") -> baseUrl.removeSuffix("/rocket-api") + "/rocket"
+            baseUrl.endsWith("/api") -> baseUrl.removeSuffix("/api")
+            else -> baseUrl
+        }
     }
 
     private fun copyToClipboard(label: String, value: String) {

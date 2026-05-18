@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       health_url:
-        description: "Опциональный health URL, например http://45.10.110.42/api/health"
+        description: "Опциональный health URL, например http://45.10.110.42/rocket-api/health"
         required: false
         type: string
 
@@ -54,7 +54,7 @@ jobs:
       - name: Собрать web для HexCore
         working-directory: web
         env:
-          VITE_API_BASE_URL: /api
+          VITE_API_BASE_URL: /rocket-api
         run: |
           npm ci
           npm run build
@@ -126,7 +126,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          health_url="${INPUT_HEALTH_URL:-http://${HEXCORE_PROD_SSH_HOST}/api/health}"
+          health_url="${INPUT_HEALTH_URL:-http://${HEXCORE_PROD_SSH_HOST}/rocket-api/health}"
 
           for attempt in {1..40}; do
             if curl --fail --silent --show-error "${health_url}" | grep -q '"status":"UP"'; then
@@ -146,4 +146,4 @@ jobs:
           HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error "http://${HEXCORE_PROD_SSH_HOST}/" | grep -qi '<div id="root"'
+          curl --fail --silent --show-error "http://${HEXCORE_PROD_SSH_HOST}/rocket/" | grep -qi '<div id="root"'
