@@ -59,6 +59,7 @@ export interface ShareInvitationDto {
   targetId: string;
   targetEmail: string;
   targetUserId?: string | null;
+  fullAccess?: boolean;
   status: InvitationStatus;
   createdAt: string;
   expiresAt: string;
@@ -67,6 +68,7 @@ export interface ShareInvitationDto {
 export type SharedFolderDto = FolderDto & {
   shared?: boolean;
   canAccessFolderContent?: boolean;
+  fullAccess?: boolean;
 };
 
 export interface SharedResourcesResponse {
@@ -88,6 +90,7 @@ export interface ShareInvitationActionResponse {
 export interface ShareRequestPayload {
   email: string;
   userId?: string;
+  fullAccess?: boolean;
 }
 
 export interface ShareLinkResolveResponse {

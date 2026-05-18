@@ -1,15 +1,23 @@
 export type TaskType = 'green' | 'red';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
+export type GoalStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
 export type DayOfWeek = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
 export type TaskRecurrenceMode = 'daily' | 'weekly' | 'monthly';
 export type TaskTimeAnchor = 'planned' | 'due';
+export type LinkEntityType = 'goal' | 'task' | 'idea' | 'note';
+export type EntityRelationType = 'related' | 'dependency';
 
 export interface FolderDto {
   id: string;
+  parentFolderId: string | null;
+  ownerUserId?: string | null;
   name: string;
   description: string;
   displayOrder: number;
   archived: boolean;
+  shared?: boolean;
+  fullAccess?: boolean;
+  canAccessFolderContent?: boolean;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -18,10 +26,13 @@ export interface FolderDto {
 export interface GoalDto {
   id: string;
   folderId: string;
+  ownerUserId?: string | null;
   name: string;
   description: string;
+  status: GoalStatus;
   archived: boolean;
   shared: boolean;
+  fullAccess?: boolean;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -46,6 +57,7 @@ export interface TaskRecurrenceDto {
 export interface TaskDto {
   id: string;
   goalId: string;
+  ownerUserId?: string | null;
   title: string;
   description: string;
   type: TaskType;
@@ -55,6 +67,7 @@ export interface TaskDto {
   dueTime: string | null;
   archived: boolean;
   shared: boolean;
+  fullAccess?: boolean;
   creatorUserId: string | null;
   creatorEmail: string | null;
   creatorName: string | null;
@@ -68,6 +81,7 @@ export interface TaskDto {
 export interface IdeaDto {
   id: string;
   folderId: string;
+  ownerUserId?: string | null;
   title: string;
   body: string;
   status: string;
@@ -75,6 +89,7 @@ export interface IdeaDto {
   archived: boolean;
   allowAuthorNoteEdits: boolean;
   shared: boolean;
+  fullAccess?: boolean;
   creatorUserId: string | null;
   creatorEmail: string | null;
   creatorName: string | null;
@@ -97,40 +112,50 @@ export interface IdeaNoteDto {
   updatedAt: string;
 }
 
-export type FolderNoteKind = 'note' | 'list';
-
-export interface FolderNoteItemDto {
-  id: string;
-  folderNoteId: string;
-  text: string;
-  checked: boolean;
-  displayOrder: number;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface FolderNoteDto {
+export interface NoteDto {
   id: string;
   folderId: string;
-  kind: FolderNoteKind;
+  ownerUserId?: string | null;
+  authorUserId: string | null;
+  authorEmail: string | null;
+  authorName: string | null;
   title: string;
   body: string;
   displayOrder: number;
   archived: boolean;
   shared: boolean;
-  authorUserId: string | null;
-  authorEmail: string | null;
-  authorName: string | null;
+  fullAccess?: boolean;
   version: number;
-  items: FolderNoteItemDto[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface EntityRefDto {
+  type: LinkEntityType;
+  id: string;
+  title: string;
+  subtitle: string | null;
+  status: string | null;
+  path: string | null;
+  archived: boolean;
+}
+
+export interface EntityLinkDto {
+  id: string;
+  source: EntityRefDto;
+  target: EntityRefDto;
+  relationType: EntityRelationType;
+  createdByUserId: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
 }
 
 export interface FolderUpsertPayload {
   name: string;
   description: string;
+  parentFolderId?: string | null;
   displayOrder?: number;
   archived?: boolean;
   version?: number;
@@ -139,6 +164,7 @@ export interface FolderUpsertPayload {
 export interface GoalUpsertPayload {
   name: string;
   description: string;
+  status?: GoalStatus;
   archived?: boolean;
   version?: number;
 }
@@ -178,25 +204,77 @@ export interface IdeaNoteUpdatePayload {
   version: number;
 }
 
-export interface FolderNoteUpsertPayload {
+export interface NoteUpsertPayload {
   title: string;
   body: string;
-  kind?: FolderNoteKind;
   displayOrder?: number;
   archived?: boolean;
   version?: number;
 }
 
-export interface FolderNoteItemCreatePayload {
-  text: string;
-  checked?: boolean;
+export interface EntityLinkCreatePayload {
+  sourceType: LinkEntityType;
+  sourceId: string;
+  targetType: LinkEntityType;
+  targetId: string;
+  relationType: EntityRelationType;
 }
 
-export interface FolderNoteItemUpdatePayload {
-  text: string;
-  checked: boolean;
-  displayOrder: number;
+export interface EntityLinkUpdatePayload {
+  relationType: EntityRelationType;
   version: number;
+}
+
+export interface FolderMovePayload {
+  targetFolderId: string | null;
+  version: number;
+}
+
+export interface FolderClonePayload {
+  targetFolderId: string | null;
+  name?: string;
+  includeChildren?: false;
+}
+
+export interface GoalMovePayload {
+  targetFolderId: string;
+  version: number;
+}
+
+export interface GoalClonePayload {
+  targetFolderId: string;
+  name?: string;
+}
+
+export interface TaskMoveToGoalPayload {
+  targetGoalId: string;
+  version: number;
+}
+
+export interface TaskClonePayload {
+  targetGoalId: string;
+  title?: string;
+  includeTags?: false;
+}
+
+export interface IdeaMovePayload {
+  targetFolderId: string;
+  version: number;
+}
+
+export interface IdeaClonePayload {
+  targetFolderId: string;
+  title?: string;
+}
+
+export interface NoteMovePayload {
+  targetFolderId: string;
+  version: number;
+}
+
+export interface NoteClonePayload {
+  targetFolderId: string;
+  title?: string;
 }
 
 export interface TaskRecurrenceUpsertPayload {

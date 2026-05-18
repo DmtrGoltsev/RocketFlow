@@ -22,11 +22,13 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             CREATE TABLE IF NOT EXISTS folders (
                 user_id TEXT NOT NULL,
                 id TEXT NOT NULL,
+                parent_folder_id TEXT,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
                 display_order INTEGER NOT NULL,
                 archived INTEGER NOT NULL,
                 shared INTEGER NOT NULL DEFAULT 0,
+                full_access INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -45,9 +47,11 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 folder_id TEXT NOT NULL,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'todo',
                 archived INTEGER NOT NULL,
                 shared INTEGER NOT NULL,
                 can_create_tasks INTEGER NOT NULL DEFAULT 0,
+                full_access INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -73,6 +77,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 due_time TEXT,
                 archived INTEGER NOT NULL,
                 shared INTEGER NOT NULL,
+                full_access INTEGER NOT NULL DEFAULT 0,
                 creator_user_id TEXT,
                 creator_email TEXT,
                 creator_name TEXT,
@@ -92,8 +97,8 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         createTaskTagsTable(db)
         createIdeasTable(db)
         createIdeaNotesTable(db)
-        createFolderNotesTable(db)
-        createFolderNoteItemsTable(db)
+        createNotesTable(db)
+        createEntityLinksTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -120,11 +125,14 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 6) {
                 createIdeasTable(db)
                 createIdeaNotesTable(db)
-                createFolderNotesTable(db)
-                createFolderNoteItemsTable(db)
             }
             if (oldVersion < 7) {
                 addIdeaContractColumns(db)
+            }
+            if (oldVersion < 8) {
+                addHierarchyContractColumns(db)
+                createNotesTable(db)
+                createEntityLinksTable(db)
             }
             db.setTransactionSuccessful()
         } finally {
@@ -143,8 +151,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             createIdeasTable(db)
             createIdeaNotesTable(db)
             addIdeaContractColumns(db)
-            createFolderNotesTable(db)
-            createFolderNoteItemsTable(db)
+            addHierarchyContractColumns(db)
+            createNotesTable(db)
+            createEntityLinksTable(db)
         }
     }
 
@@ -155,20 +164,22 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         val allTasks = queryTasks(db, userId, includeDeleted = false)
         val allIdeas = queryIdeas(db, userId, includeDeleted = false)
         val ideaNotes = queryIdeaNotes(db, userId)
-        val allFolderNotes = queryFolderNotes(db, userId, includeDeleted = false)
+        val allNotes = queryNotes(db, userId, includeDeleted = false)
+        val entityLinks = queryEntityLinks(db, userId)
         return PlanningSnapshot(
             folders = folders.filter { !it.shared && !it.archived },
             goals = allGoals.filter { !it.shared && !it.archived },
             tasks = allTasks.filter { !it.shared && !it.archived },
             ideas = allIdeas.filter { !it.shared && !it.archived },
             ideaNotes = ideaNotes.filter { note -> allIdeas.any { !it.shared && it.id == note.ideaId } },
-            folderNotes = allFolderNotes.filter { !it.shared && !it.archived },
+            notes = allNotes.filter { !it.shared && !it.archived },
+            entityLinks = entityLinks.filter { !it.archived },
             sharedFolders = folders.filter { it.shared && !it.archived },
             sharedGoals = allGoals.filter { it.shared && !it.archived },
             sharedTasks = allTasks.filter { it.shared && !it.archived },
             sharedIdeas = allIdeas.filter { it.shared && !it.archived },
             sharedIdeaNotes = ideaNotes.filter { note -> allIdeas.any { it.shared && it.id == note.ideaId } },
-            sharedFolderNotes = allFolderNotes.filter { it.shared && !it.archived },
+            sharedNotes = allNotes.filter { it.shared && !it.archived },
             taskTags = queryTaskTags(db, userId, includeDeleted = false),
             pendingCount = countPending(userId),
             offline = offline,
@@ -210,11 +221,13 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 userId = userId,
                 folder = PlanningFolder(
                     id = id,
+                    parentFolderId = draft.parentFolderId,
                     name = draft.name,
                     description = draft.description,
-                    displayOrder = nextFolderOrder(userId),
+                    displayOrder = nextFolderOrder(userId, draft.parentFolderId),
                     archived = false,
-                    shared = false,
+                    shared = isSharedFolder(userId, draft.parentFolderId),
+                    fullAccess = true,
                     version = 0,
                     createdAt = now,
                     updatedAt = now,
@@ -229,7 +242,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun updateFolder(userId: String, folder: PlanningFolder, draft: FolderDraft) {
-        if (folder.shared) {
+        if (folder.shared && !folder.fullAccess) {
             return
         }
         val action = if (folder.syncState == SyncState.PendingCreate) ACTION_CREATE else ACTION_UPDATE
@@ -238,6 +251,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             ContentValues().apply {
                 put("name", draft.name)
                 put("description", draft.description)
+                put("parent_folder_id", draft.parentFolderId ?: folder.parentFolderId)
                 put("updated_at", nowIso())
                 put("pending_action", action)
                 putNull("last_error")
@@ -248,7 +262,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun deleteFolder(userId: String, folder: PlanningFolder) {
-        if (folder.shared) {
+        if (folder.shared && !folder.fullAccess) {
             return
         }
         val db = writableDatabase
@@ -258,7 +272,8 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folder.id))
                 db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
                 db.delete(TABLE_IDEAS, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
-                db.delete(TABLE_FOLDER_NOTES, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
+                db.delete(TABLE_NOTES, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
+                db.delete(TABLE_FOLDERS, "user_id = ? AND parent_folder_id = ?", arrayOf(userId, folder.id))
                 db.delete(TABLE_FOLDERS, "user_id = ? AND id = ?", arrayOf(userId, folder.id))
             } else {
                 markFolderTreeDeleted(db, userId, folder.id)
@@ -282,9 +297,11 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     folderId = folderId,
                     name = draft.name,
                     description = draft.description,
+                    status = draft.status,
                     archived = false,
-                    shared = false,
+                    shared = isSharedFolder(userId, folderId),
                     canCreateTasks = true,
+                    fullAccess = true,
                     version = 0,
                     createdAt = now,
                     updatedAt = now,
@@ -299,7 +316,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun updateGoal(userId: String, goal: PlanningGoal, draft: GoalDraft) {
-        if (goal.shared) {
+        if (goal.shared && !goal.fullAccess) {
             return
         }
         val action = if (goal.syncState == SyncState.PendingCreate) ACTION_CREATE else ACTION_UPDATE
@@ -308,6 +325,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             ContentValues().apply {
                 put("name", draft.name)
                 put("description", draft.description)
+                put("status", draft.status)
                 put("updated_at", nowIso())
                 put("pending_action", action)
                 putNull("last_error")
@@ -318,7 +336,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun deleteGoal(userId: String, goal: PlanningGoal) {
-        if (goal.shared) {
+        if (goal.shared && !goal.fullAccess) {
             return
         }
         val db = writableDatabase
@@ -357,6 +375,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     dueTime = draft.dueTime,
                     archived = false,
                     shared = shared,
+                    fullAccess = !shared || isFullAccessGoal(userId, goalId),
                     creatorUserId = userId,
                     creatorEmail = null,
                     creatorName = null,
@@ -377,7 +396,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun updateTask(userId: String, task: PlanningTask, draft: TaskDraft) {
-        if (task.shared) {
+        if (task.shared && !task.fullAccess) {
             if (!sharedTaskUpdateChangesOnlyStatus(task, draft) || task.status == draft.status) {
                 return
             }
@@ -418,7 +437,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun deleteTask(userId: String, task: PlanningTask) {
-        if (task.shared) {
+        if (task.shared && !task.fullAccess) {
             return
         }
         if (task.syncState == SyncState.PendingCreate) {
@@ -520,25 +539,35 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    fun upsertRemoteFolderNotes(userId: String, notes: List<FolderNote>) {
+    fun upsertRemoteNotes(userId: String, notes: List<PlanningNote>) {
         val db = writableDatabase
         db.beginTransaction()
         try {
             notes.forEach { note ->
                 db.insertWithOnConflict(
-                    TABLE_FOLDER_NOTES,
+                    TABLE_NOTES,
                     null,
-                    folderNoteValues(userId, note.copy(syncState = SyncState.Synced, lastError = null), null, false),
+                    noteValues(userId, note.copy(syncState = SyncState.Synced, lastError = null), null, false),
                     SQLiteDatabase.CONFLICT_REPLACE
                 )
-                note.items.forEach { item ->
-                    db.insertWithOnConflict(
-                        TABLE_FOLDER_NOTE_ITEMS,
-                        null,
-                        folderNoteItemValues(userId, item),
-                        SQLiteDatabase.CONFLICT_REPLACE
-                    )
-                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun upsertRemoteEntityLinks(userId: String, links: List<EntityLink>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            links.forEach { link ->
+                db.insertWithOnConflict(
+                    TABLE_ENTITY_LINKS,
+                    null,
+                    entityLinkValues(userId, link),
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
             }
             db.setTransactionSuccessful()
         } finally {
@@ -639,7 +668,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         goals: List<PlanningGoal>,
         tasks: List<PlanningTask>,
         ideas: List<PlanningIdea> = emptyList(),
-        folderNotes: List<FolderNote> = emptyList()
+        notes: List<PlanningNote> = emptyList()
     ) {
         val db = writableDatabase
         db.beginTransaction()
@@ -648,7 +677,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             removeMissingSharedRows(db, TABLE_GOALS, userId, goals.map { it.id })
             removeMissingSharedRows(db, TABLE_FOLDERS, userId, folders.map { it.id })
             removeMissingSharedRows(db, TABLE_IDEAS, userId, ideas.map { it.id })
-            removeMissingSharedRows(db, TABLE_FOLDER_NOTES, userId, folderNotes.map { it.id })
+            removeMissingSharedRows(db, TABLE_NOTES, userId, notes.map { it.id })
 
             folders.forEach { folder ->
                 if (!hasLocalPending(db, TABLE_FOLDERS, userId, folder.id)) {
@@ -688,21 +717,13 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     SQLiteDatabase.CONFLICT_REPLACE
                 )
             }
-            folderNotes.forEach { note ->
+            notes.forEach { note ->
                 db.insertWithOnConflict(
-                    TABLE_FOLDER_NOTES,
+                    TABLE_NOTES,
                     null,
-                    folderNoteValues(userId, note.copy(shared = true, syncState = SyncState.Synced, lastError = null), null, false),
+                    noteValues(userId, note.copy(shared = true, syncState = SyncState.Synced, lastError = null), null, false),
                     SQLiteDatabase.CONFLICT_REPLACE
                 )
-                note.items.forEach { item ->
-                    db.insertWithOnConflict(
-                        TABLE_FOLDER_NOTE_ITEMS,
-                        null,
-                        folderNoteItemValues(userId, item),
-                        SQLiteDatabase.CONFLICT_REPLACE
-                    )
-                }
             }
             db.setTransactionSuccessful()
         } finally {
@@ -721,7 +742,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 arrayOf(userId, localId)
             )
             if (localId != remote.id) {
-                db.update(TABLE_GOALS, ContentValues().apply { put("folder_id", remote.id) }, "user_id = ? AND folder_id = ?", arrayOf(userId, localId))
+            db.update(TABLE_GOALS, ContentValues().apply { put("folder_id", remote.id) }, "user_id = ? AND folder_id = ?", arrayOf(userId, localId))
+            db.update(TABLE_NOTES, ContentValues().apply { put("folder_id", remote.id) }, "user_id = ? AND folder_id = ?", arrayOf(userId, localId))
+            db.update(TABLE_FOLDERS, ContentValues().apply { put("parent_folder_id", remote.id) }, "user_id = ? AND parent_folder_id = ?", arrayOf(userId, localId))
             }
             db.setTransactionSuccessful()
         } finally {
@@ -801,8 +824,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folderId))
             db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
             db.delete(TABLE_IDEAS, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
-            db.delete(TABLE_FOLDER_NOTE_ITEMS, "user_id = ? AND note_id IN (SELECT id FROM folder_notes WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folderId))
-            db.delete(TABLE_FOLDER_NOTES, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
+            db.delete(TABLE_NOTES, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
             db.delete(TABLE_FOLDERS, "user_id = ? AND id = ?", arrayOf(userId, folderId))
             db.setTransactionSuccessful()
         } finally {
@@ -824,6 +846,10 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     fun removeTask(userId: String, taskId: String) {
         writableDatabase.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, taskId))
+    }
+
+    fun removeNote(userId: String, noteId: String) {
+        writableDatabase.delete(TABLE_NOTES, "user_id = ? AND id = ?", arrayOf(userId, noteId))
     }
 
     fun markSyncError(userId: String, table: String, id: String, error: String, conflict: Boolean) {
@@ -928,30 +954,11 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    private fun queryFolderNotes(db: SQLiteDatabase, userId: String, includeDeleted: Boolean): List<FolderNote> {
-        val items = queryFolderNoteItems(db, userId).groupBy { it.noteId }
+    private fun queryNotes(db: SQLiteDatabase, userId: String, includeDeleted: Boolean): List<PlanningNote> {
         return db.query(
-            TABLE_FOLDER_NOTES,
+            TABLE_NOTES,
             null,
             if (includeDeleted) "user_id = ?" else "user_id = ? AND locally_deleted = 0",
-            arrayOf(userId),
-            null,
-            null,
-            "created_at ASC"
-        ).use { cursor ->
-            buildList {
-                while (cursor.moveToNext()) {
-                    add(cursor.toFolderNote(items[cursor.string("id")].orEmpty()))
-                }
-            }
-        }
-    }
-
-    private fun queryFolderNoteItems(db: SQLiteDatabase, userId: String): List<FolderNoteItem> {
-        return db.query(
-            TABLE_FOLDER_NOTE_ITEMS,
-            null,
-            "user_id = ?",
             arrayOf(userId),
             null,
             null,
@@ -959,7 +966,25 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         ).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
-                    add(cursor.toFolderNoteItem())
+                    add(cursor.toNote())
+                }
+            }
+        }
+    }
+
+    private fun queryEntityLinks(db: SQLiteDatabase, userId: String): List<EntityLink> {
+        return db.query(
+            TABLE_ENTITY_LINKS,
+            null,
+            "user_id = ?",
+            arrayOf(userId),
+            null,
+            null,
+            "created_at ASC"
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(cursor.toEntityLink())
                 }
             }
         }
@@ -1020,11 +1045,14 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             arrayOf(userId, folderId)
         )
         db.update(
-            TABLE_FOLDER_NOTES,
+            TABLE_NOTES,
             pendingDeleteValues(),
             "user_id = ? AND folder_id = ? AND shared = 0",
             arrayOf(userId, folderId)
         )
+        queryFolders(db, userId, includeDeleted = true)
+            .filter { it.parentFolderId == folderId && !it.shared }
+            .forEach { child -> markFolderTreeDeleted(db, userId, child.id) }
     }
 
     private fun markGoalTreeDeleted(db: SQLiteDatabase, userId: String, goalId: String) {
@@ -1063,10 +1091,16 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             (draft.remindersJson ?: task.remindersJson) == task.remindersJson
     }
 
-    private fun nextFolderOrder(userId: String): Int {
+    private fun nextFolderOrder(userId: String, parentFolderId: String?): Int {
+        val where = if (parentFolderId == null) {
+            "user_id = ? AND parent_folder_id IS NULL"
+        } else {
+            "user_id = ? AND parent_folder_id = ?"
+        }
+        val args = if (parentFolderId == null) arrayOf(userId) else arrayOf(userId, parentFolderId)
         return readableDatabase.rawQuery(
-            "SELECT COALESCE(MAX(display_order), -1) + 1 FROM $TABLE_FOLDERS WHERE user_id = ?",
-            arrayOf(userId)
+            "SELECT COALESCE(MAX(display_order), -1) + 1 FROM $TABLE_FOLDERS WHERE $where",
+            args
         ).use { cursor ->
             if (cursor.moveToFirst()) cursor.getInt(0) else 0
         }
@@ -1112,6 +1146,35 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    private fun isFullAccessGoal(userId: String, goalId: String): Boolean {
+        return readableDatabase.query(
+            TABLE_GOALS,
+            arrayOf("full_access"),
+            "user_id = ? AND id = ? AND locally_deleted = 0",
+            arrayOf(userId, goalId),
+            null,
+            null,
+            null
+        ).use { cursor ->
+            cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow("full_access")) == 1
+        }
+    }
+
+    private fun isSharedFolder(userId: String, folderId: String?): Boolean {
+        if (folderId.isNullOrBlank()) return false
+        return readableDatabase.query(
+            TABLE_FOLDERS,
+            arrayOf("shared"),
+            "user_id = ? AND id = ? AND locally_deleted = 0",
+            arrayOf(userId, folderId),
+            null,
+            null,
+            null
+        ).use { cursor ->
+            cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow("shared")) == 1
+        }
+    }
+
     private fun folderValues(
         userId: String,
         folder: PlanningFolder,
@@ -1121,11 +1184,13 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         return ContentValues().apply {
             put("user_id", userId)
             put("id", folder.id)
+            put("parent_folder_id", folder.parentFolderId)
             put("name", folder.name)
             put("description", folder.description)
             put("display_order", folder.displayOrder)
             put("archived", folder.archived.toInt())
             put("shared", folder.shared.toInt())
+            put("full_access", folder.fullAccess.toInt())
             put("version", folder.version)
             put("created_at", folder.createdAt)
             put("updated_at", folder.updatedAt)
@@ -1147,9 +1212,11 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("folder_id", goal.folderId)
             put("name", goal.name)
             put("description", goal.description)
+            put("status", goal.status)
             put("archived", goal.archived.toInt())
             put("shared", goal.shared.toInt())
             put("can_create_tasks", goal.canCreateTasks.toInt())
+            put("full_access", goal.fullAccess.toInt())
             put("version", goal.version)
             put("created_at", goal.createdAt)
             put("updated_at", goal.updatedAt)
@@ -1199,6 +1266,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("due_time", task.dueTime)
             put("archived", task.archived.toInt())
             put("shared", task.shared.toInt())
+            put("full_access", task.fullAccess.toInt())
             put("creator_user_id", task.creatorUserId)
             put("creator_email", task.creatorEmail)
             put("creator_name", task.creatorName)
@@ -1230,6 +1298,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("display_order", idea.displayOrder)
             put("archived", idea.archived.toInt())
             put("shared", idea.shared.toInt())
+            put("full_access", idea.fullAccess.toInt())
             put("allow_author_note_edits", idea.allowAuthorNoteEdits.toInt())
             put("version", idea.version)
             put("created_at", idea.createdAt)
@@ -1257,9 +1326,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    private fun folderNoteValues(
+    private fun noteValues(
         userId: String,
-        note: FolderNote,
+        note: PlanningNote,
         pendingAction: String?,
         locallyDeleted: Boolean
     ): ContentValues {
@@ -1267,11 +1336,15 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("user_id", userId)
             put("id", note.id)
             put("folder_id", note.folderId)
+            put("author_user_id", note.authorUserId)
+            put("author_email", note.authorEmail)
+            put("author_name", note.authorName)
             put("title", note.title)
             put("body", note.body)
-            put("kind", note.kind)
+            put("display_order", note.displayOrder)
             put("archived", note.archived.toInt())
             put("shared", note.shared.toInt())
+            put("full_access", note.fullAccess.toInt())
             put("version", note.version)
             put("created_at", note.createdAt)
             put("updated_at", note.updatedAt)
@@ -1281,28 +1354,37 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    private fun folderNoteItemValues(userId: String, item: FolderNoteItem): ContentValues {
+    private fun entityLinkValues(userId: String, link: EntityLink): ContentValues {
         return ContentValues().apply {
             put("user_id", userId)
-            put("id", item.id)
-            put("note_id", item.noteId)
-            put("body", item.body)
-            put("checked", item.checked.toInt())
-            put("display_order", item.displayOrder)
-            put("version", item.version)
-            put("created_at", item.createdAt)
-            put("updated_at", item.updatedAt)
+            put("id", link.id)
+            put("source_type", link.sourceType)
+            put("source_id", link.sourceId)
+            put("target_type", link.targetType)
+            put("target_id", link.targetId)
+            put("relation_type", link.relationType)
+            put("source_title", link.source?.title)
+            put("source_subtitle", link.source?.subtitle)
+            put("target_title", link.target?.title)
+            put("target_subtitle", link.target?.subtitle)
+            put("created_by_user_id", link.createdByUserId)
+            put("archived", link.archived.toInt())
+            put("version", link.version)
+            put("created_at", link.createdAt)
+            put("updated_at", link.updatedAt)
         }
     }
 
     private fun Cursor.toFolder(): PlanningFolder {
         return PlanningFolder(
             id = string("id"),
+            parentFolderId = optionalStringOrNull("parent_folder_id"),
             name = string("name"),
             description = string("description"),
             displayOrder = int("display_order"),
             archived = boolean("archived"),
             shared = optionalBoolean("shared"),
+            fullAccess = optionalBoolean("full_access"),
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
@@ -1317,9 +1399,11 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             folderId = string("folder_id"),
             name = string("name"),
             description = string("description"),
+            status = optionalStringOrNull("status") ?: "todo",
             archived = boolean("archived"),
             shared = boolean("shared"),
             canCreateTasks = optionalBoolean("can_create_tasks"),
+            fullAccess = optionalBoolean("full_access"),
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
@@ -1351,6 +1435,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             dueTime = stringOrNull("due_time"),
             archived = boolean("archived"),
             shared = boolean("shared"),
+            fullAccess = optionalBoolean("full_access"),
             creatorUserId = optionalStringOrNull("creator_user_id"),
             creatorEmail = optionalStringOrNull("creator_email"),
             creatorName = optionalStringOrNull("creator_name"),
@@ -1375,6 +1460,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             displayOrder = optionalInt("display_order"),
             archived = boolean("archived"),
             shared = boolean("shared"),
+            fullAccess = optionalBoolean("full_access"),
             allowAuthorNoteEdits = optionalBoolean("allow_author_note_edits"),
             version = long("version"),
             createdAt = string("created_at"),
@@ -1400,17 +1486,20 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
-    private fun Cursor.toFolderNote(items: List<FolderNoteItem>): FolderNote {
-        return FolderNote(
+    private fun Cursor.toNote(): PlanningNote {
+        return PlanningNote(
             id = string("id"),
             folderId = string("folder_id"),
+            authorUserId = optionalStringOrNull("author_user_id"),
+            authorEmail = optionalStringOrNull("author_email"),
+            authorName = optionalStringOrNull("author_name"),
             title = string("title"),
             body = string("body"),
-            kind = string("kind"),
+            displayOrder = optionalInt("display_order"),
             archived = boolean("archived"),
             shared = boolean("shared"),
+            fullAccess = optionalBoolean("full_access"),
             version = long("version"),
-            items = items,
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
             syncState = syncState(stringOrNull("pending_action")),
@@ -1418,14 +1507,19 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
-    private fun Cursor.toFolderNoteItem(): FolderNoteItem {
-        return FolderNoteItem(
+    private fun Cursor.toEntityLink(): EntityLink {
+        return EntityLink(
             id = string("id"),
-            noteId = string("note_id"),
-            body = string("body"),
-            checked = boolean("checked"),
-            displayOrder = int("display_order"),
-            version = long("version"),
+            sourceType = string("source_type"),
+            sourceId = string("source_id"),
+            targetType = string("target_type"),
+            targetId = string("target_id"),
+            relationType = string("relation_type"),
+            source = EntityRef(string("source_type"), string("source_id"), optionalStringOrNull("source_title") ?: "", optionalStringOrNull("source_subtitle")),
+            target = EntityRef(string("target_type"), string("target_id"), optionalStringOrNull("target_title") ?: "", optionalStringOrNull("target_subtitle")),
+            createdByUserId = optionalStringOrNull("created_by_user_id"),
+            archived = optionalBoolean("archived"),
+            version = optionalLong("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at")
         )
@@ -1547,6 +1641,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 display_order INTEGER NOT NULL DEFAULT 0,
                 archived INTEGER NOT NULL,
                 shared INTEGER NOT NULL,
+                full_access INTEGER NOT NULL DEFAULT 0,
                 allow_author_note_edits INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
@@ -1592,18 +1687,31 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         addColumnIfMissing(db, TABLE_IDEA_NOTES, "updated_at", "TEXT NOT NULL DEFAULT ''")
     }
 
-    private fun createFolderNotesTable(db: SQLiteDatabase) {
+    private fun addHierarchyContractColumns(db: SQLiteDatabase) {
+        addColumnIfMissing(db, TABLE_FOLDERS, "parent_folder_id", "TEXT")
+        addColumnIfMissing(db, TABLE_FOLDERS, "full_access", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_GOALS, "status", "TEXT NOT NULL DEFAULT 'todo'")
+        addColumnIfMissing(db, TABLE_GOALS, "full_access", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_TASKS, "full_access", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_IDEAS, "full_access", "INTEGER NOT NULL DEFAULT 0")
+    }
+
+    private fun createNotesTable(db: SQLiteDatabase) {
         db.execSQL(
             """
-            CREATE TABLE IF NOT EXISTS folder_notes (
+            CREATE TABLE IF NOT EXISTS notes (
                 user_id TEXT NOT NULL,
                 id TEXT NOT NULL,
                 folder_id TEXT NOT NULL,
+                author_user_id TEXT,
+                author_email TEXT,
+                author_name TEXT,
                 title TEXT NOT NULL,
                 body TEXT NOT NULL,
-                kind TEXT NOT NULL,
+                display_order INTEGER NOT NULL DEFAULT 0,
                 archived INTEGER NOT NULL,
                 shared INTEGER NOT NULL,
+                full_access INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -1616,17 +1724,24 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
-    private fun createFolderNoteItemsTable(db: SQLiteDatabase) {
+    private fun createEntityLinksTable(db: SQLiteDatabase) {
         db.execSQL(
             """
-            CREATE TABLE IF NOT EXISTS folder_note_items (
+            CREATE TABLE IF NOT EXISTS entity_links (
                 user_id TEXT NOT NULL,
                 id TEXT NOT NULL,
-                note_id TEXT NOT NULL,
-                body TEXT NOT NULL,
-                checked INTEGER NOT NULL,
-                display_order INTEGER NOT NULL,
-                version INTEGER NOT NULL,
+                source_type TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                source_title TEXT,
+                source_subtitle TEXT,
+                target_title TEXT,
+                target_subtitle TEXT,
+                created_by_user_id TEXT,
+                archived INTEGER NOT NULL DEFAULT 0,
+                version INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (user_id, id)
@@ -1646,7 +1761,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 7
+        private const val DATABASE_VERSION = 8
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"
@@ -1654,8 +1769,8 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         const val TABLE_TASK_TAGS = "task_tags"
         const val TABLE_IDEAS = "ideas"
         const val TABLE_IDEA_NOTES = "idea_notes"
-        const val TABLE_FOLDER_NOTES = "folder_notes"
-        const val TABLE_FOLDER_NOTE_ITEMS = "folder_note_items"
+        const val TABLE_NOTES = "notes"
+        const val TABLE_ENTITY_LINKS = "entity_links"
 
         private const val ACTION_CREATE = "create"
         private const val ACTION_UPDATE = "update"

@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.common.ApiException;
+import com.rocketflow.links.EntityLinkService;
 import com.rocketflow.recurrence.RecurrenceService;
 import com.rocketflow.reminders.ReminderService;
 import com.rocketflow.sharing.SharingAccessService;
@@ -34,6 +35,7 @@ public class TaskService {
     private final TaskTagLinkRepository taskTagLinkRepository;
     private final RecurrenceService recurrenceService;
     private final ReminderService reminderService;
+    private final EntityLinkService entityLinkService;
 
     public TaskService(
             TaskRepository taskRepository,
@@ -42,7 +44,8 @@ public class TaskService {
             TaskTagRepository taskTagRepository,
             TaskTagLinkRepository taskTagLinkRepository,
             RecurrenceService recurrenceService,
-            ReminderService reminderService
+            ReminderService reminderService,
+            EntityLinkService entityLinkService
     ) {
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
@@ -51,6 +54,7 @@ public class TaskService {
         this.taskTagLinkRepository = taskTagLinkRepository;
         this.recurrenceService = recurrenceService;
         this.reminderService = reminderService;
+        this.entityLinkService = entityLinkService;
     }
 
     @Transactional(readOnly = true)
@@ -67,6 +71,7 @@ public class TaskService {
                         task,
                         tagsByTaskId.getOrDefault(task.getId(), List.of()),
                         goalAccess.shared() || directlySharedTaskIds.contains(task.getId()),
+                        goalAccess.fullAccess(),
                         recurrenceByTaskId.get(task.getId())))
                 .toList());
     }
@@ -97,6 +102,7 @@ public class TaskService {
                 saved,
                 resolveTags(saved.getId()),
                 goalAccess.shared(),
+                goalAccess.fullAccess(),
                 recurrenceService.findDto(saved.getId()));
     }
 
@@ -107,6 +113,7 @@ public class TaskService {
                 access.task(),
                 resolveTags(access.task().getId()),
                 access.shared(),
+                access.fullAccess(),
                 recurrenceService.findDto(access.task().getId()));
     }
 
@@ -115,7 +122,8 @@ public class TaskService {
         TaskAccess access = sharingAccessService.requireTaskAccess(taskId, actorUserId);
         Task task = access.task();
         ensureVersion(task.getVersion(), request.version(), "Task");
-        if (!access.owner()) {
+        ensureTaskCanUseStatus(task, request.status());
+        if (!access.fullAccess()) {
             ensureSharedTaskUpdateAllowed(task, request);
             task.setTitle(request.title().trim());
             task.setDescription(request.description());
@@ -131,6 +139,7 @@ public class TaskService {
                     task,
                     resolveTags(task.getId()),
                     access.shared(),
+                    access.fullAccess(),
                     recurrenceService.findDto(task.getId()));
         }
 
@@ -152,7 +161,64 @@ public class TaskService {
                 saved,
                 resolveTags(saved.getId()),
                 access.shared(),
+                access.fullAccess(),
                 recurrenceService.findDto(saved.getId()));
+    }
+
+    @Transactional
+    public TaskDto moveToGoal(UUID actorUserId, UUID taskId, MoveTaskToGoalRequest request) {
+        TaskAccess access = sharingAccessService.requireTaskFullAccess(taskId, actorUserId);
+        GoalAccess targetAccess = sharingAccessService.requireGoalTaskCreateAccess(request.targetGoalId(), actorUserId);
+        if (!targetAccess.fullAccess()) {
+            throw notFound("Goal");
+        }
+        Task task = access.task();
+        ensureVersion(task.getVersion(), request.version(), "Task");
+        if (!task.getOwnerUserId().equals(targetAccess.goal().getOwnerUserId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Task cannot be moved across owners.");
+        }
+        task.setGoalId(targetAccess.goal().getId());
+        task.setUpdatedAt(Instant.now());
+        Task saved = taskRepository.save(task);
+        return toDto(saved, resolveTags(saved.getId()), targetAccess.shared(), targetAccess.fullAccess(), recurrenceService.findDto(saved.getId()));
+    }
+
+    @Transactional
+    public TaskDto clone(UUID actorUserId, UUID taskId, CloneTaskRequest request) {
+        TaskAccess sourceAccess = sharingAccessService.requireTaskAccess(taskId, actorUserId);
+        GoalAccess targetAccess = sharingAccessService.requireGoalTaskCreateAccess(request.targetGoalId(), actorUserId);
+        if (!targetAccess.fullAccess()) {
+            throw notFound("Goal");
+        }
+        Task source = sourceAccess.task();
+        if (!source.getOwnerUserId().equals(targetAccess.goal().getOwnerUserId())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Task cannot be cloned across owners.");
+        }
+        Instant now = Instant.now();
+        Task clone = new Task();
+        clone.setId(UUID.randomUUID());
+        clone.setGoalId(targetAccess.goal().getId());
+        clone.setOwnerUserId(source.getOwnerUserId());
+        clone.setCreatorUserId(actorUserId);
+        clone.setTitle(request.title() == null || request.title().isBlank() ? source.getTitle() : request.title().trim());
+        clone.setDescription(source.getDescription());
+        clone.setType(source.getType());
+        clone.setPriority(source.getPriority());
+        clone.setStatus(source.getStatus());
+        clone.setPlannedTime(source.getPlannedTime());
+        clone.setDueTime(source.getDueTime());
+        clone.setCompletedAt(resolveCompletedAt(source.getStatus(), null));
+        clone.setArchived(false);
+        clone.setCreatedAt(now);
+        clone.setUpdatedAt(now);
+        Task saved = taskRepository.save(clone);
+        if (Boolean.TRUE.equals(request.includeTags())) {
+            replaceTags(saved.getId(), saved.getOwnerUserId(), taskTagLinkRepository.findByTaskId(source.getId())
+                    .stream()
+                    .map(TaskTagLink::getTagId)
+                    .toList());
+        }
+        return toDto(saved, resolveTags(saved.getId()), targetAccess.shared(), targetAccess.fullAccess(), recurrenceService.findDto(saved.getId()));
     }
 
     @Transactional
@@ -169,7 +235,7 @@ public class TaskService {
 
     @Transactional
     public void softDelete(UUID actorUserId, UUID taskId) {
-        Task task = sharingAccessService.requireTaskOwner(taskId, actorUserId).task();
+        Task task = sharingAccessService.requireTaskFullAccess(taskId, actorUserId).task();
         task.setArchived(true);
         task.setUpdatedAt(Instant.now());
         taskRepository.save(task);
@@ -184,6 +250,7 @@ public class TaskService {
             Task task,
             List<TagDto> tags,
             boolean shared,
+            boolean fullAccess,
             RecurrenceDto recurrence
     ) {
         CreatorDetails creator = creatorDetails(task.getCreatorUserId());
@@ -199,6 +266,7 @@ public class TaskService {
                 task.getDueTime(),
                 task.isArchived(),
                 shared,
+                fullAccess,
                 task.getCreatorUserId(),
                 creator.email(),
                 creator.name(),
@@ -272,6 +340,12 @@ public class TaskService {
             return currentCompletedAt != null ? currentCompletedAt : Instant.now();
         }
         return null;
+    }
+
+    private void ensureTaskCanUseStatus(Task task, String requestedStatus) {
+        if ("done".equals(requestedStatus) && !"done".equals(task.getStatus())) {
+            entityLinkService.ensureTaskCanBeDone(task.getId());
+        }
     }
 
     private void ensureSharedTaskUpdateAllowed(Task task, UpdateTaskRequest request) {

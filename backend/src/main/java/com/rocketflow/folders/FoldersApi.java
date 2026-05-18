@@ -15,11 +15,13 @@ public final class FoldersApi {
 
     public record FolderDto(
             UUID id,
+            UUID parentFolderId,
             String name,
             String description,
             int displayOrder,
             boolean archived,
             boolean shared,
+            boolean fullAccess,
             long version,
             Instant createdAt,
             Instant updatedAt
@@ -31,7 +33,8 @@ public final class FoldersApi {
 
     public record CreateFolderRequest(
             @NotBlank @Size(max = 160) String name,
-            @Size(max = 1000) String description
+            @Size(max = 1000) String description,
+            UUID parentFolderId
     ) {
     }
 
@@ -42,5 +45,11 @@ public final class FoldersApi {
             @NotNull Boolean archived,
             @NotNull Long version
     ) {
+    }
+
+    public record MoveFolderRequest(UUID targetFolderId, @NotNull Long version) {
+    }
+
+    public record CloneFolderRequest(UUID targetFolderId, @Size(max = 160) String name, Boolean includeChildren) {
     }
 }

@@ -13,4 +13,8 @@ public interface FolderRepository extends JpaRepository<Folder, UUID> {
     Optional<Folder> findByIdAndOwnerUserId(UUID id, UUID ownerUserId);
 
     long countByOwnerUserId(UUID ownerUserId);
+
+    long countByOwnerUserIdAndParentFolderId(UUID ownerUserId, UUID parentFolderId);
+
+    long countByOwnerUserIdAndParentFolderIdIsNull(UUID ownerUserId);
 }

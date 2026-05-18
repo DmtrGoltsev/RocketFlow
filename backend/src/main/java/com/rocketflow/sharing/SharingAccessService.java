@@ -2,8 +2,13 @@ package com.rocketflow.sharing;
 
 import static com.rocketflow.sharing.SharingValues.*;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -50,10 +55,11 @@ public class SharingAccessService {
         Folder folder = folderRepository.findById(folderId)
                 .orElseThrow(() -> notFound("Folder"));
         if (folder.getOwnerUserId().equals(actorUserId)) {
-            return new FolderAccess(folder, true, hasActiveFolderShares(folderId));
+            return new FolderAccess(folder, true, hasActiveFolderShares(folderId), true);
         }
-        if (folderShareRepository.existsByFolderIdAndCollaboratorUserIdAndStatus(folderId, actorUserId, SHARE_ACTIVE)) {
-            return new FolderAccess(folder, false, true);
+        Optional<FolderShare> inheritedShare = findInheritedFolderShare(folder, actorUserId);
+        if (inheritedShare.isPresent()) {
+            return new FolderAccess(folder, false, true, inheritedShare.get().isFullAccess());
         }
         throw notFound("Folder");
     }
@@ -70,7 +76,7 @@ public class SharingAccessService {
         if (!folder.getOwnerUserId().equals(actorUserId)) {
             throw notFound("Folder");
         }
-        return new FolderAccess(folder, true, hasActiveFolderShares(folderId));
+        return new FolderAccess(folder, true, hasActiveFolderShares(folderId), true);
     }
 
     @Transactional(readOnly = true)
@@ -79,22 +85,29 @@ public class SharingAccessService {
     }
 
     @Transactional(readOnly = true)
+    public FolderAccess requireFolderFullAccess(UUID folderId, UUID actorUserId) {
+        FolderAccess access = requireFolderAccess(folderId, actorUserId);
+        if (!access.fullAccess()) {
+            throw notFound("Folder");
+        }
+        return access;
+    }
+
+    @Transactional(readOnly = true)
     public GoalAccess requireGoalAccess(UUID goalId, UUID actorUserId) {
         Goal goal = goalRepository.findById(goalId)
                 .orElseThrow(() -> notFound("Goal"));
         if (goal.getOwnerUserId().equals(actorUserId)) {
-            return new GoalAccess(goal, true, hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(goalId));
+            return new GoalAccess(goal, true, hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(goalId), true);
         }
-        boolean folderAccess = folderShareRepository.existsByFolderIdAndCollaboratorUserIdAndStatus(
-                goal.getFolderId(),
-                actorUserId,
-                SHARE_ACTIVE
-        );
-        if (folderAccess) {
-            return new GoalAccess(goal, false, true);
+
+        Optional<FolderShare> folderShare = findInheritedFolderShare(goal.getFolderId(), actorUserId);
+        if (folderShare.isPresent()) {
+            return new GoalAccess(goal, false, true, folderShare.get().isFullAccess());
         }
-        if (goalShareRepository.existsByGoalIdAndCollaboratorUserIdAndStatus(goalId, actorUserId, SHARE_ACTIVE)) {
-            return new GoalAccess(goal, false, true);
+        Optional<GoalShare> goalShare = goalShareRepository.findByGoalIdAndCollaboratorUserIdAndStatus(goalId, actorUserId, SHARE_ACTIVE);
+        if (goalShare.isPresent()) {
+            return new GoalAccess(goal, false, true, goalShare.get().isFullAccess());
         }
         throw notFound("Goal");
     }
@@ -106,7 +119,16 @@ public class SharingAccessService {
         if (!goal.getOwnerUserId().equals(actorUserId)) {
             throw notFound("Goal");
         }
-        return new GoalAccess(goal, true, hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(goalId));
+        return new GoalAccess(goal, true, hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(goalId), true);
+    }
+
+    @Transactional(readOnly = true)
+    public GoalAccess requireGoalFullAccess(UUID goalId, UUID actorUserId) {
+        GoalAccess access = requireGoalAccess(goalId, actorUserId);
+        if (!access.fullAccess()) {
+            throw notFound("Goal");
+        }
+        return access;
     }
 
     @Transactional(readOnly = true)
@@ -114,20 +136,15 @@ public class SharingAccessService {
         Goal goal = goalRepository.findById(goalId)
                 .orElseThrow(() -> notFound("Goal"));
         if (goal.getOwnerUserId().equals(actorUserId)) {
-            return new GoalAccess(goal, true, hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(goalId));
+            return new GoalAccess(goal, true, hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(goalId), true);
         }
-        boolean folderAccess = folderShareRepository.existsByFolderIdAndCollaboratorUserIdAndStatus(
-                goal.getFolderId(),
-                actorUserId,
-                SHARE_ACTIVE
-        );
-        boolean goalAccess = goalShareRepository.existsByGoalIdAndCollaboratorUserIdAndStatus(
-                goalId,
-                actorUserId,
-                SHARE_ACTIVE
-        );
-        if (folderAccess || goalAccess) {
-            return new GoalAccess(goal, false, true);
+        Optional<FolderShare> folderShare = findInheritedFolderShare(goal.getFolderId(), actorUserId);
+        if (folderShare.isPresent()) {
+            return new GoalAccess(goal, false, true, folderShare.get().isFullAccess());
+        }
+        Optional<GoalShare> goalShare = goalShareRepository.findByGoalIdAndCollaboratorUserIdAndStatus(goalId, actorUserId, SHARE_ACTIVE);
+        if (goalShare.isPresent()) {
+            return new GoalAccess(goal, false, true, goalShare.get().isFullAccess());
         }
         throw notFound("Goal");
     }
@@ -136,35 +153,28 @@ public class SharingAccessService {
     public TaskAccess requireTaskAccess(UUID taskId, UUID actorUserId) {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> notFound("Task"));
+        Goal goal = goalRepository.findById(task.getGoalId())
+                .orElseThrow(() -> notFound("Goal"));
         if (task.getOwnerUserId().equals(actorUserId)) {
-            Goal goal = goalRepository.findById(task.getGoalId())
-                    .orElseThrow(() -> notFound("Goal"));
             return new TaskAccess(
                     task,
                     true,
-                    hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(task.getGoalId()) || hasActiveTaskShares(taskId)
+                    hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(task.getGoalId()) || hasActiveTaskShares(taskId),
+                    true
             );
         }
 
-        Goal goal = goalRepository.findById(task.getGoalId())
-                .orElseThrow(() -> notFound("Goal"));
-        boolean folderAccess = folderShareRepository.existsByFolderIdAndCollaboratorUserIdAndStatus(
-                goal.getFolderId(),
-                actorUserId,
-                SHARE_ACTIVE
-        );
-        boolean goalAccess = goalShareRepository.existsByGoalIdAndCollaboratorUserIdAndStatus(
-                task.getGoalId(),
-                actorUserId,
-                SHARE_ACTIVE
-        );
-        boolean taskAccess = taskShareRepository.existsByTaskIdAndCollaboratorUserIdAndStatus(
-                taskId,
-                actorUserId,
-                SHARE_ACTIVE
-        );
-        if (folderAccess || goalAccess || taskAccess) {
-            return new TaskAccess(task, false, true);
+        Optional<FolderShare> folderShare = findInheritedFolderShare(goal.getFolderId(), actorUserId);
+        if (folderShare.isPresent()) {
+            return new TaskAccess(task, false, true, folderShare.get().isFullAccess());
+        }
+        Optional<GoalShare> goalShare = goalShareRepository.findByGoalIdAndCollaboratorUserIdAndStatus(task.getGoalId(), actorUserId, SHARE_ACTIVE);
+        if (goalShare.isPresent()) {
+            return new TaskAccess(task, false, true, goalShare.get().isFullAccess());
+        }
+        Optional<TaskShare> taskShare = taskShareRepository.findByTaskIdAndCollaboratorUserIdAndStatus(taskId, actorUserId, SHARE_ACTIVE);
+        if (taskShare.isPresent()) {
+            return new TaskAccess(task, false, true, taskShare.get().isFullAccess());
         }
         throw notFound("Task");
     }
@@ -181,8 +191,35 @@ public class SharingAccessService {
         return new TaskAccess(
                 task,
                 true,
-                hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(task.getGoalId()) || hasActiveTaskShares(taskId)
+                hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(task.getGoalId()) || hasActiveTaskShares(taskId),
+                true
         );
+    }
+
+    @Transactional(readOnly = true)
+    public TaskAccess requireTaskFullAccess(UUID taskId, UUID actorUserId) {
+        TaskAccess access = requireTaskAccess(taskId, actorUserId);
+        if (!access.fullAccess()) {
+            throw notFound("Task");
+        }
+        return access;
+    }
+
+    @Transactional(readOnly = true)
+    public List<FolderAccess> accessibleSharedFolders(UUID actorUserId) {
+        Map<UUID, FolderAccess> result = new LinkedHashMap<>();
+        for (FolderShare share : folderShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE)) {
+            Folder root = folderRepository.findById(share.getFolderId()).orElse(null);
+            if (root == null) {
+                continue;
+            }
+            for (Folder folder : folderRepository.findByOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(root.getOwnerUserId())) {
+                if (isSameOrDescendant(folder, root.getId())) {
+                    result.putIfAbsent(folder.getId(), new FolderAccess(folder, false, true, share.isFullAccess()));
+                }
+            }
+        }
+        return new ArrayList<>(result.values());
     }
 
     @Transactional(readOnly = true)
@@ -224,16 +261,55 @@ public class SharingAccessService {
         return taskShareRepository.countByTaskIdAndStatus(taskId, SHARE_ACTIVE) > 0;
     }
 
+    private Optional<FolderShare> findInheritedFolderShare(UUID folderId, UUID actorUserId) {
+        Folder folder = folderRepository.findById(folderId).orElse(null);
+        if (folder == null) {
+            return Optional.empty();
+        }
+        return findInheritedFolderShare(folder, actorUserId);
+    }
+
+    private Optional<FolderShare> findInheritedFolderShare(Folder folder, UUID actorUserId) {
+        UUID currentId = folder.getId();
+        while (currentId != null) {
+            Optional<FolderShare> share = folderShareRepository.findByFolderIdAndCollaboratorUserIdAndStatus(
+                    currentId,
+                    actorUserId,
+                    SHARE_ACTIVE
+            );
+            if (share.isPresent()) {
+                return share;
+            }
+            currentId = folderRepository.findById(currentId)
+                    .map(Folder::getParentFolderId)
+                    .orElse(null);
+        }
+        return Optional.empty();
+    }
+
+    private boolean isSameOrDescendant(Folder folder, UUID ancestorFolderId) {
+        UUID currentId = folder.getId();
+        while (currentId != null) {
+            if (currentId.equals(ancestorFolderId)) {
+                return true;
+            }
+            currentId = folderRepository.findById(currentId)
+                    .map(Folder::getParentFolderId)
+                    .orElse(null);
+        }
+        return false;
+    }
+
     private ApiException notFound(String entityName) {
         return new ApiException(HttpStatus.NOT_FOUND, "not_found", entityName + " was not found.");
     }
 
-    public record GoalAccess(Goal goal, boolean owner, boolean shared) {
+    public record GoalAccess(Goal goal, boolean owner, boolean shared, boolean fullAccess) {
     }
 
-    public record TaskAccess(Task task, boolean owner, boolean shared) {
+    public record TaskAccess(Task task, boolean owner, boolean shared, boolean fullAccess) {
     }
 
-    public record FolderAccess(Folder folder, boolean owner, boolean shared) {
+    public record FolderAccess(Folder folder, boolean owner, boolean shared, boolean fullAccess) {
     }
 }

@@ -54,6 +54,7 @@ public final class TasksApi {
             Instant dueTime,
             boolean archived,
             boolean shared,
+            boolean fullAccess,
             UUID creatorUserId,
             String creatorEmail,
             String creatorName,
@@ -97,6 +98,12 @@ public final class TasksApi {
     }
 
     public record MoveTaskRequest(@NotNull Instant plannedTime) {
+    }
+
+    public record MoveTaskToGoalRequest(@NotNull UUID targetGoalId, @NotNull Long version) {
+    }
+
+    public record CloneTaskRequest(@NotNull UUID targetGoalId, @Size(max = 200) String title, Boolean includeTags) {
     }
 
     public record MoveTaskResponse(

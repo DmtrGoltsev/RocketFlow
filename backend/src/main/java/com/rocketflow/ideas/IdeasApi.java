@@ -7,7 +7,6 @@ import java.util.UUID;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public final class IdeasApi {
@@ -89,67 +88,9 @@ public final class IdeasApi {
     ) {
     }
 
-    public record FolderNoteItemDto(
-            UUID id,
-            UUID folderNoteId,
-            String text,
-            boolean checked,
-            int displayOrder,
-            long version,
-            Instant createdAt,
-            Instant updatedAt
-    ) {
+    public record MoveIdeaRequest(@NotNull UUID targetFolderId, @NotNull Long version) {
     }
 
-    public record FolderNoteDto(
-            UUID id,
-            UUID folderId,
-            String kind,
-            String title,
-            String body,
-            int displayOrder,
-            boolean archived,
-            boolean shared,
-            UUID authorUserId,
-            String authorEmail,
-            String authorName,
-            long version,
-            List<FolderNoteItemDto> items,
-            Instant createdAt,
-            Instant updatedAt
-    ) {
-    }
-
-    public record FolderNoteListResponse(List<FolderNoteDto> items) {
-    }
-
-    public record CreateFolderNoteRequest(
-            @NotBlank @Pattern(regexp = "note|list") String kind,
-            @NotBlank @Size(max = 200) String title,
-            @Size(max = 4000) String body
-    ) {
-    }
-
-    public record UpdateFolderNoteRequest(
-            @NotBlank @Size(max = 200) String title,
-            @Size(max = 4000) String body,
-            @NotNull Integer displayOrder,
-            @NotNull Boolean archived,
-            @NotNull Long version
-    ) {
-    }
-
-    public record CreateFolderNoteItemRequest(
-            @NotBlank @Size(max = 1000) String text,
-            Boolean checked
-    ) {
-    }
-
-    public record UpdateFolderNoteItemRequest(
-            @NotBlank @Size(max = 1000) String text,
-            @NotNull Boolean checked,
-            @NotNull Integer displayOrder,
-            @NotNull Long version
-    ) {
+    public record CloneIdeaRequest(@NotNull UUID targetFolderId, @Size(max = 200) String title) {
     }
 }

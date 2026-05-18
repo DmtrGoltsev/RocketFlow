@@ -13,6 +13,8 @@ public interface FolderShareRepository extends JpaRepository<FolderShare, UUID> 
 
     boolean existsByFolderIdAndCollaboratorUserIdAndStatus(UUID folderId, UUID collaboratorUserId, String status);
 
+    Optional<FolderShare> findByFolderIdAndCollaboratorUserIdAndStatus(UUID folderId, UUID collaboratorUserId, String status);
+
     long countByFolderIdAndStatus(UUID folderId, String status);
 
     Optional<FolderShare> findByInvitationId(UUID invitationId);

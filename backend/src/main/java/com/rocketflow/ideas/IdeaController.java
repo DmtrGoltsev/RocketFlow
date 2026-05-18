@@ -74,42 +74,14 @@ public class IdeaController {
         return ideaService.updateIdeaNote(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(noteId), request);
     }
 
-    @GetMapping("/folders/{folderId}/notes")
-    public FolderNoteListResponse listFolderNotes(@PathVariable String folderId) {
-        return ideaService.listFolderNotes(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(folderId));
+    @PostMapping("/ideas/{ideaId}/move")
+    public IdeaDto moveIdea(@PathVariable String ideaId, @Valid @RequestBody MoveIdeaRequest request) {
+        return ideaService.moveIdea(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(ideaId), request);
     }
 
-    @PostMapping("/folders/{folderId}/notes")
+    @PostMapping("/ideas/{ideaId}/clone")
     @ResponseStatus(HttpStatus.CREATED)
-    public FolderNoteDto createFolderNote(@PathVariable String folderId, @Valid @RequestBody CreateFolderNoteRequest request) {
-        return ideaService.createFolderNote(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(folderId), request);
-    }
-
-    @PatchMapping("/folder-notes/{noteId}")
-    public FolderNoteDto updateFolderNote(@PathVariable String noteId, @Valid @RequestBody UpdateFolderNoteRequest request) {
-        return ideaService.updateFolderNote(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(noteId), request);
-    }
-
-    @DeleteMapping("/folder-notes/{noteId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteFolderNote(@PathVariable String noteId) {
-        ideaService.softDeleteFolderNote(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(noteId));
-    }
-
-    @PostMapping("/folder-notes/{noteId}/items")
-    @ResponseStatus(HttpStatus.CREATED)
-    public FolderNoteItemDto createFolderNoteItem(@PathVariable String noteId, @Valid @RequestBody CreateFolderNoteItemRequest request) {
-        return ideaService.createFolderNoteItem(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(noteId), request);
-    }
-
-    @PatchMapping("/folder-note-items/{itemId}")
-    public FolderNoteItemDto updateFolderNoteItem(@PathVariable String itemId, @Valid @RequestBody UpdateFolderNoteItemRequest request) {
-        return ideaService.updateFolderNoteItem(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(itemId), request);
-    }
-
-    @DeleteMapping("/folder-note-items/{itemId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteFolderNoteItem(@PathVariable String itemId) {
-        ideaService.deleteFolderNoteItem(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(itemId));
+    public IdeaDto cloneIdea(@PathVariable String ideaId, @Valid @RequestBody CloneIdeaRequest request) {
+        return ideaService.cloneIdea(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(ideaId), request);
     }
 }

@@ -51,6 +51,17 @@ public class GoalController {
         return goalService.update(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(goalId), request);
     }
 
+    @PostMapping("/api/goals/{goalId}/move")
+    public GoalDto move(@PathVariable String goalId, @Valid @RequestBody MoveGoalRequest request) {
+        return goalService.move(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(goalId), request);
+    }
+
+    @PostMapping("/api/goals/{goalId}/clone")
+    @ResponseStatus(HttpStatus.CREATED)
+    public GoalDto clone(@PathVariable String goalId, @Valid @RequestBody CloneGoalRequest request) {
+        return goalService.clone(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(goalId), request);
+    }
+
     @DeleteMapping("/api/goals/{goalId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable String goalId) {

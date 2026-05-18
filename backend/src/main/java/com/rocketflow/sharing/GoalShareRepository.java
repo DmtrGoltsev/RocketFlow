@@ -13,6 +13,8 @@ public interface GoalShareRepository extends JpaRepository<GoalShare, UUID> {
 
     boolean existsByGoalIdAndCollaboratorUserIdAndStatus(UUID goalId, UUID collaboratorUserId, String status);
 
+    Optional<GoalShare> findByGoalIdAndCollaboratorUserIdAndStatus(UUID goalId, UUID collaboratorUserId, String status);
+
     long countByGoalIdAndStatus(UUID goalId, String status);
 
     Optional<GoalShare> findByInvitationId(UUID invitationId);

@@ -28,6 +28,9 @@ public class Goal {
     @Column(length = 1000)
     private String description;
 
+    @Column(nullable = false, length = 32)
+    private String status;
+
     @Column(nullable = false)
     private boolean archived;
 
@@ -50,6 +53,8 @@ public class Goal {
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
     public boolean isArchived() { return archived; }
     public void setArchived(boolean archived) { this.archived = archived; }
     public Instant getCreatedAt() { return createdAt; }

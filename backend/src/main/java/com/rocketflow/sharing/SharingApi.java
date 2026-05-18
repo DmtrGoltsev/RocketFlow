@@ -17,7 +17,8 @@ public final class SharingApi {
 
     public record ShareRequest(
             @Email @Size(max = 320) String email,
-            UUID userId
+            UUID userId,
+            Boolean fullAccess
     ) {
     }
 
@@ -27,6 +28,7 @@ public final class SharingApi {
             UUID targetId,
             String targetEmail,
             UUID targetUserId,
+            boolean fullAccess,
             String status,
             Instant createdAt,
             Instant expiresAt
@@ -39,13 +41,14 @@ public final class SharingApi {
     public record ShareInvitationActionResponse(UUID id, String status) {
     }
 
-    public record ShareLinkRequest(Instant expiresAt) {
+    public record ShareLinkRequest(Instant expiresAt, Boolean fullAccess) {
     }
 
     public record ShareLinkDto(
             UUID id,
             String targetType,
             UUID targetId,
+            boolean fullAccess,
             String status,
             Instant createdAt,
             Instant expiresAt,
@@ -58,6 +61,7 @@ public final class SharingApi {
             String targetType,
             UUID targetId,
             String token,
+            boolean fullAccess,
             String status,
             Instant createdAt,
             Instant expiresAt
@@ -70,10 +74,10 @@ public final class SharingApi {
     public record ShareLinkActionResponse(UUID id, String status) {
     }
 
-    public record ShareLinkResolveResponse(UUID id, String targetType, UUID targetId, String status, Instant expiresAt) {
+    public record ShareLinkResolveResponse(UUID id, String targetType, UUID targetId, boolean fullAccess, String status, Instant expiresAt) {
     }
 
-    public record ShareLinkAcceptResponse(UUID shareId, String targetType, UUID targetId, String status) {
+    public record ShareLinkAcceptResponse(UUID shareId, String targetType, UUID targetId, boolean fullAccess, String status) {
     }
 
     public record SharedFolderResourceDto(
@@ -83,6 +87,7 @@ public final class SharingApi {
             int displayOrder,
             boolean archived,
             boolean shared,
+            boolean fullAccess,
             boolean canAccessFolderContent,
             long version,
             Instant createdAt,

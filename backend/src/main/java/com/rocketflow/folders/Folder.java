@@ -19,6 +19,9 @@ public class Folder {
     @Column(name = "owner_user_id", nullable = false)
     private UUID ownerUserId;
 
+    @Column(name = "parent_folder_id")
+    private UUID parentFolderId;
+
     @Column(nullable = false, length = 160)
     private String name;
 
@@ -44,6 +47,8 @@ public class Folder {
     public void setId(UUID id) { this.id = id; }
     public UUID getOwnerUserId() { return ownerUserId; }
     public void setOwnerUserId(UUID ownerUserId) { this.ownerUserId = ownerUserId; }
+    public UUID getParentFolderId() { return parentFolderId; }
+    public void setParentFolderId(UUID parentFolderId) { this.parentFolderId = parentFolderId; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }

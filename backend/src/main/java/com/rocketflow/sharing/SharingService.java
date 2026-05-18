@@ -196,44 +196,46 @@ public class SharingService {
         List<GoalShare> goalShares = goalShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE);
         List<TaskShare> taskShares = taskShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE);
 
-        Map<UUID, SharedFolderResourceDto> foldersById = folderShares.stream()
-                .map(FolderShare::getFolderId)
-                .distinct()
-                .map(folderId -> sharingAccessService.requireFolderAccess(folderId, actorUserId).folder())
-                .sorted(Comparator.comparing(Folder::getDisplayOrder).thenComparing(Folder::getCreatedAt))
-                .collect(Collectors.toMap(
-                        Folder::getId,
-                        folder -> toSharedFolderDto(folder, true, true),
-                        (left, right) -> left,
-                        LinkedHashMap::new
-                ));
+        Map<UUID, SharedFolderResourceDto> foldersById = new LinkedHashMap<>();
+        Map<UUID, Boolean> goalFullAccessById = new LinkedHashMap<>();
+        Map<UUID, Boolean> taskFullAccessById = new LinkedHashMap<>();
+        for (FolderShare folderShare : folderShares.stream()
+                .sorted(Comparator.comparing(FolderShare::getCreatedAt))
+                .toList()) {
+            Folder folder = sharingAccessService.requireFolderAccess(folderShare.getFolderId(), actorUserId).folder();
+            foldersById.putIfAbsent(folder.getId(), toSharedFolderDto(folder, true, folderShare.isFullAccess(), true));
+        }
 
         Map<UUID, Goal> folderGoalsById = new LinkedHashMap<>();
         for (FolderShare folderShare : folderShares) {
             Folder folder = sharingAccessService.requireFolderAccess(folderShare.getFolderId(), actorUserId).folder();
             goalRepository.findByFolderIdAndOwnerUserIdOrderByCreatedAtAsc(folder.getId(), folder.getOwnerUserId())
-                    .forEach(goal -> folderGoalsById.put(goal.getId(), goal));
+                    .forEach(goal -> {
+                        folderGoalsById.put(goal.getId(), goal);
+                        goalFullAccessById.putIfAbsent(goal.getId(), folderShare.isFullAccess());
+                    });
         }
 
         Map<UUID, Goal> directGoalsById = new LinkedHashMap<>();
         for (GoalShare goalShare : goalShares) {
             Goal goal = sharingAccessService.requireGoalAccess(goalShare.getGoalId(), actorUserId).goal();
             directGoalsById.put(goal.getId(), goal);
+            goalFullAccessById.put(goal.getId(), goalShare.isFullAccess());
             Folder parentFolder = requireFolder(goal.getFolderId(), goal.getOwnerUserId());
-            foldersById.putIfAbsent(parentFolder.getId(), toSharedFolderDto(parentFolder, true, false));
+            foldersById.putIfAbsent(parentFolder.getId(), toSharedFolderDto(parentFolder, true, false, false));
         }
 
         Map<UUID, GoalDto> goalsById = directGoalsById.values().stream()
                 .sorted(Comparator.comparing(Goal::getCreatedAt))
                 .collect(Collectors.toMap(
                         Goal::getId,
-                        goal -> toGoalDto(goal, true),
+                        goal -> toGoalDto(goal, true, goalFullAccessById.getOrDefault(goal.getId(), false)),
                         (left, right) -> left,
                         LinkedHashMap::new
                 ));
         folderGoalsById.values().stream()
                 .sorted(Comparator.comparing(Goal::getCreatedAt))
-                .forEach(goal -> goalsById.putIfAbsent(goal.getId(), toGoalDto(goal, true)));
+                .forEach(goal -> goalsById.putIfAbsent(goal.getId(), toGoalDto(goal, true, goalFullAccessById.getOrDefault(goal.getId(), false))));
         List<UUID> createTaskGoalIds = new ArrayList<>();
         createTaskGoalIds.addAll(directGoalsById.keySet());
         folderGoalsById.keySet().stream()
@@ -242,21 +244,29 @@ public class SharingService {
 
         Map<UUID, Task> tasksById = new LinkedHashMap<>();
         for (Goal goal : folderGoalsById.values()) {
+            boolean inheritedFullAccess = goalFullAccessById.getOrDefault(goal.getId(), false);
             taskRepository.findByGoalIdAndOwnerUserIdOrderByCreatedAtAsc(goal.getId(), goal.getOwnerUserId())
-                    .forEach(task -> tasksById.put(task.getId(), task));
+                    .forEach(task -> {
+                        tasksById.put(task.getId(), task);
+                        taskFullAccessById.putIfAbsent(task.getId(), inheritedFullAccess);
+                    });
         }
         for (GoalShare goalShare : goalShares) {
             sharingAccessService.requireGoalAccess(goalShare.getGoalId(), actorUserId);
             taskRepository.findByGoalIdAndOwnerUserIdOrderByCreatedAtAsc(goalShare.getGoalId(), goalShare.getOwnerUserId())
-                    .forEach(task -> tasksById.put(task.getId(), task));
+                    .forEach(task -> {
+                        tasksById.put(task.getId(), task);
+                        taskFullAccessById.put(task.getId(), goalShare.isFullAccess());
+                    });
         }
         for (TaskShare taskShare : taskShares) {
             Task task = sharingAccessService.requireTaskAccess(taskShare.getTaskId(), actorUserId).task();
             Goal parentGoal = requireGoal(task.getGoalId(), task.getOwnerUserId());
-            goalsById.putIfAbsent(parentGoal.getId(), toGoalDto(parentGoal, true));
+            goalsById.putIfAbsent(parentGoal.getId(), toGoalDto(parentGoal, true, false));
             Folder parentFolder = requireFolder(parentGoal.getFolderId(), parentGoal.getOwnerUserId());
-            foldersById.putIfAbsent(parentFolder.getId(), toSharedFolderDto(parentFolder, true, false));
+            foldersById.putIfAbsent(parentFolder.getId(), toSharedFolderDto(parentFolder, true, false, false));
             tasksById.put(task.getId(), task);
+            taskFullAccessById.put(task.getId(), taskShare.isFullAccess());
         }
 
         List<Task> sharedTasks = tasksById.values().stream().sorted(Comparator.comparing(Task::getCreatedAt)).toList();
@@ -269,6 +279,7 @@ public class SharingService {
             taskDtos.add(toTaskDto(
                     task,
                     true,
+                    taskFullAccessById.getOrDefault(task.getId(), false),
                     recurrenceByTaskId.get(task.getId()),
                     remindersByTaskId.getOrDefault(task.getId(), List.of())
             ));
@@ -336,6 +347,7 @@ public class SharingService {
         invitation.setTargetId(targetId);
         invitation.setTargetEmail(normalizedEmail);
         invitation.setTargetUserId(targetUser.getId());
+        invitation.setFullAccess(Boolean.TRUE.equals(request.fullAccess()));
         invitation.setStatus(INVITATION_PENDING);
         invitation.setCreatedAt(now);
         invitation.setUpdatedAt(now);
@@ -383,7 +395,7 @@ public class SharingService {
     public ShareLinkResolveResponse resolveShareLink(UUID actorUserId, String token) {
         requireUser(actorUserId);
         ShareLink link = requireUsableShareLink(token);
-        return new ShareLinkResolveResponse(link.getId(), link.getTargetType(), link.getTargetId(), link.getStatus(), link.getExpiresAt());
+        return new ShareLinkResolveResponse(link.getId(), link.getTargetType(), link.getTargetId(), link.isFullAccess(), link.getStatus(), link.getExpiresAt());
     }
 
     @Transactional
@@ -398,17 +410,17 @@ public class SharingService {
         UUID shareId;
         if (TARGET_FOLDER.equals(link.getTargetType())) {
             FolderAccess folderAccess = sharingAccessService.requireFolderOwner(link.getTargetId(), link.getOwnerUserId());
-            shareId = createFolderShare(folderAccess.folder(), actorUserId, null, link.getId(), now).getId();
+            shareId = createFolderShare(folderAccess.folder(), actorUserId, null, link.getId(), link.isFullAccess(), now).getId();
         } else if (TARGET_GOAL.equals(link.getTargetType())) {
             GoalAccess goalAccess = sharingAccessService.requireGoalOwner(link.getTargetId(), link.getOwnerUserId());
-            shareId = createGoalShare(goalAccess.goal(), actorUserId, null, link.getId(), now).getId();
+            shareId = createGoalShare(goalAccess.goal(), actorUserId, null, link.getId(), link.isFullAccess(), now).getId();
         } else if (TARGET_TASK.equals(link.getTargetType())) {
             TaskAccess taskAccess = sharingAccessService.requireTaskOwner(link.getTargetId(), link.getOwnerUserId());
-            shareId = createTaskShare(taskAccess.task(), actorUserId, null, link.getId(), now).getId();
+            shareId = createTaskShare(taskAccess.task(), actorUserId, null, link.getId(), link.isFullAccess(), now).getId();
         } else {
             throw notFound("Share link");
         }
-        return new ShareLinkAcceptResponse(shareId, link.getTargetType(), link.getTargetId(), SHARE_ACTIVE);
+        return new ShareLinkAcceptResponse(shareId, link.getTargetType(), link.getTargetId(), link.isFullAccess(), SHARE_ACTIVE);
     }
 
     @Transactional
@@ -444,6 +456,7 @@ public class SharingService {
         link.setTargetType(targetType);
         link.setTargetId(targetId);
         link.setTokenHash(tokenHasher.hash(token));
+        link.setFullAccess(request != null && Boolean.TRUE.equals(request.fullAccess()));
         link.setStatus(LINK_ACTIVE);
         link.setCreatedAt(now);
         link.setUpdatedAt(now);
@@ -454,6 +467,7 @@ public class SharingService {
                 saved.getTargetType(),
                 saved.getTargetId(),
                 token,
+                saved.isFullAccess(),
                 saved.getStatus(),
                 saved.getCreatedAt(),
                 saved.getExpiresAt()
@@ -489,20 +503,20 @@ public class SharingService {
 
     private void createFolderShareFromInvitation(ShareInvitation invitation, UUID actorUserId, Instant now) {
         FolderAccess folderAccess = sharingAccessService.requireFolderOwner(invitation.getTargetId(), invitation.getInviterUserId());
-        createFolderShare(folderAccess.folder(), actorUserId, invitation.getId(), null, now);
+        createFolderShare(folderAccess.folder(), actorUserId, invitation.getId(), null, invitation.isFullAccess(), now);
     }
 
     private void createGoalShareFromInvitation(ShareInvitation invitation, UUID actorUserId, Instant now) {
         GoalAccess goalAccess = sharingAccessService.requireGoalOwner(invitation.getTargetId(), invitation.getInviterUserId());
-        createGoalShare(goalAccess.goal(), actorUserId, invitation.getId(), null, now);
+        createGoalShare(goalAccess.goal(), actorUserId, invitation.getId(), null, invitation.isFullAccess(), now);
     }
 
     private void createTaskShareFromInvitation(ShareInvitation invitation, UUID actorUserId, Instant now) {
         TaskAccess taskAccess = sharingAccessService.requireTaskOwner(invitation.getTargetId(), invitation.getInviterUserId());
-        createTaskShare(taskAccess.task(), actorUserId, invitation.getId(), null, now);
+        createTaskShare(taskAccess.task(), actorUserId, invitation.getId(), null, invitation.isFullAccess(), now);
     }
 
-    private FolderShare createFolderShare(Folder folder, UUID collaboratorUserId, UUID invitationId, UUID linkId, Instant now) {
+    private FolderShare createFolderShare(Folder folder, UUID collaboratorUserId, UUID invitationId, UUID linkId, boolean fullAccess, Instant now) {
         if (folderShareRepository.existsByFolderIdAndCollaboratorUserIdAndStatus(folder.getId(), collaboratorUserId, SHARE_ACTIVE)) {
             throw new ApiException(HttpStatus.CONFLICT, "conflict", "Access already exists for this folder.");
         }
@@ -514,13 +528,14 @@ public class SharingService {
         share.setCollaboratorUserId(collaboratorUserId);
         share.setInvitationId(invitationId);
         share.setLinkId(linkId);
+        share.setFullAccess(fullAccess);
         share.setStatus(SHARE_ACTIVE);
         share.setCreatedAt(now);
         share.setUpdatedAt(now);
         return folderShareRepository.save(share);
     }
 
-    private GoalShare createGoalShare(Goal goal, UUID collaboratorUserId, UUID invitationId, UUID linkId, Instant now) {
+    private GoalShare createGoalShare(Goal goal, UUID collaboratorUserId, UUID invitationId, UUID linkId, boolean fullAccess, Instant now) {
         if (goalShareRepository.existsByGoalIdAndCollaboratorUserIdAndStatus(goal.getId(), collaboratorUserId, SHARE_ACTIVE)) {
             throw new ApiException(HttpStatus.CONFLICT, "conflict", "Access already exists for this goal.");
         }
@@ -532,13 +547,14 @@ public class SharingService {
         share.setCollaboratorUserId(collaboratorUserId);
         share.setInvitationId(invitationId);
         share.setLinkId(linkId);
+        share.setFullAccess(fullAccess);
         share.setStatus(SHARE_ACTIVE);
         share.setCreatedAt(now);
         share.setUpdatedAt(now);
         return goalShareRepository.save(share);
     }
 
-    private TaskShare createTaskShare(Task task, UUID collaboratorUserId, UUID invitationId, UUID linkId, Instant now) {
+    private TaskShare createTaskShare(Task task, UUID collaboratorUserId, UUID invitationId, UUID linkId, boolean fullAccess, Instant now) {
         if (taskShareRepository.existsByTaskIdAndCollaboratorUserIdAndStatus(task.getId(), collaboratorUserId, SHARE_ACTIVE)) {
             throw new ApiException(HttpStatus.CONFLICT, "conflict", "Access already exists for this task.");
         }
@@ -550,6 +566,7 @@ public class SharingService {
         share.setCollaboratorUserId(collaboratorUserId);
         share.setInvitationId(invitationId);
         share.setLinkId(linkId);
+        share.setFullAccess(fullAccess);
         share.setStatus(SHARE_ACTIVE);
         share.setCreatedAt(now);
         share.setUpdatedAt(now);
@@ -685,6 +702,7 @@ public class SharingService {
                 invitation.getTargetId(),
                 invitation.getTargetEmail(),
                 invitation.getTargetUserId(),
+                invitation.isFullAccess(),
                 invitation.getStatus(),
                 invitation.getCreatedAt(),
                 invitation.getExpiresAt()
@@ -696,6 +714,7 @@ public class SharingService {
                 link.getId(),
                 link.getTargetType(),
                 link.getTargetId(),
+                link.isFullAccess(),
                 link.getStatus(),
                 link.getCreatedAt(),
                 link.getExpiresAt(),
@@ -703,7 +722,7 @@ public class SharingService {
         );
     }
 
-    private SharedFolderResourceDto toSharedFolderDto(Folder folder, boolean shared, boolean canAccessFolderContent) {
+    private SharedFolderResourceDto toSharedFolderDto(Folder folder, boolean shared, boolean fullAccess, boolean canAccessFolderContent) {
         return new SharedFolderResourceDto(
                 folder.getId(),
                 folder.getName(),
@@ -711,6 +730,7 @@ public class SharingService {
                 folder.getDisplayOrder(),
                 folder.isArchived(),
                 shared,
+                fullAccess,
                 canAccessFolderContent,
                 folder.getVersion(),
                 folder.getCreatedAt(),
@@ -718,21 +738,23 @@ public class SharingService {
         );
     }
 
-    private GoalDto toGoalDto(com.rocketflow.goals.Goal goal, boolean shared) {
+    private GoalDto toGoalDto(com.rocketflow.goals.Goal goal, boolean shared, boolean fullAccess) {
         return new GoalDto(
                 goal.getId(),
                 goal.getFolderId(),
                 goal.getName(),
                 goal.getDescription(),
+                goal.getStatus(),
                 goal.isArchived(),
                 shared,
+                fullAccess,
                 goal.getVersion(),
                 goal.getCreatedAt(),
                 goal.getUpdatedAt()
         );
     }
 
-    private TaskDto toTaskDto(Task task, boolean shared, RecurrenceDto recurrence, List<ReminderDto> reminders) {
+    private TaskDto toTaskDto(Task task, boolean shared, boolean fullAccess, RecurrenceDto recurrence, List<ReminderDto> reminders) {
         CreatorDetails creator = creatorDetails(task.getCreatorUserId());
         return new TaskDto(
                 task.getId(),
@@ -746,6 +768,7 @@ public class SharingService {
                 task.getDueTime(),
                 task.isArchived(),
                 shared,
+                fullAccess,
                 task.getCreatorUserId(),
                 creator.email(),
                 creator.name(),

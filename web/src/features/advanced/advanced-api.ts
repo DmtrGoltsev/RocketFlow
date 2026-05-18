@@ -128,6 +128,17 @@ export async function getInvitations(authorizedFetch: AuthorizedFetch) {
   });
 }
 
+export async function createFolderInvitation(
+  authorizedFetch: AuthorizedFetch,
+  folderId: string,
+  payload: ShareRequestPayload,
+) {
+  return requestJson<ShareInvitationDto>(authorizedFetch, `/folders/${folderId}/share`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function createGoalInvitation(
   authorizedFetch: AuthorizedFetch,
   goalId: string,

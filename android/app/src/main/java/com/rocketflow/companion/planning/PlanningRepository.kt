@@ -156,17 +156,16 @@ class PlanningRepository(
         )
     }
 
-    suspend fun createFolderNote(session: AuthSession, folderId: String, draft: FolderNoteDraft): PlanningLoadResult {
+    suspend fun createNote(session: AuthSession, folderId: String, draft: NoteDraft): PlanningLoadResult {
         val result = authRepository.authorizedPost(
             session,
             "/folders/$folderId/notes",
             JSONObject()
                 .put("title", draft.title)
                 .put("body", draft.body)
-                .put("kind", draft.kind)
         )
-        val note = result.value.toFolderNote(shared = isSharedFolder(result.session.user.id, folderId))
-        localStore.upsertRemoteFolderNotes(result.session.user.id, listOf(note))
+        val note = result.value.toNote(shared = isSharedFolder(result.session.user.id, folderId))
+        localStore.upsertRemoteNotes(result.session.user.id, listOf(note))
         val refreshed = pullRemote(result.session)
         return PlanningLoadResult(
             session = refreshed,
@@ -174,31 +173,86 @@ class PlanningRepository(
         )
     }
 
-    suspend fun createFolderNoteItem(session: AuthSession, noteId: String, draft: FolderNoteItemDraft): PlanningLoadResult {
-        val result = authRepository.authorizedPost(
-            session,
-            "/folder-notes/$noteId/items",
-            JSONObject()
-                .put("text", draft.body)
-                .put("checked", draft.checked)
-        )
-        val refreshed = pullRemote(result.session)
-        return PlanningLoadResult(
-            session = refreshed,
-            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
-        )
-    }
-
-    suspend fun updateFolderNoteItem(session: AuthSession, item: FolderNoteItem, checked: Boolean): PlanningLoadResult {
+    suspend fun updateNote(session: AuthSession, note: PlanningNote, draft: NoteDraft): PlanningLoadResult {
         val result = authRepository.authorizedPatch(
             session,
-            "/folder-note-items/${item.id}",
+            "/notes/${note.id}",
             JSONObject()
-                .put("text", item.body)
-                .put("checked", checked)
-                .put("displayOrder", item.displayOrder)
-                .put("version", item.version)
+                .put("title", draft.title)
+                .put("body", draft.body)
+                .put("displayOrder", note.displayOrder)
+                .put("archived", note.archived)
+                .put("version", note.version)
         )
+        localStore.upsertRemoteNotes(result.session.user.id, listOf(result.value.toNote(shared = note.shared)))
+        val refreshed = pullRemote(result.session)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun deleteNote(session: AuthSession, note: PlanningNote): PlanningLoadResult {
+        val refreshedSession = authRepository.authorizedDelete(session, "/notes/${note.id}")
+        localStore.removeNote(refreshedSession.user.id, note.id)
+        val refreshed = pullRemote(refreshedSession)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun createEntityLink(session: AuthSession, draft: EntityLinkDraft): PlanningLoadResult {
+        val result = authRepository.authorizedPost(
+            session,
+            "/entity-links",
+            JSONObject()
+                .put("sourceType", draft.sourceType)
+                .put("sourceId", draft.sourceId)
+                .put("targetType", draft.targetType)
+                .put("targetId", draft.targetId)
+                .put("relationType", draft.relationType)
+        )
+        localStore.upsertRemoteEntityLinks(result.session.user.id, listOf(result.value.toEntityLink()))
+        val refreshed = pullRemote(result.session)
+        return PlanningLoadResult(
+            session = refreshed,
+            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun moveFolder(session: AuthSession, folder: PlanningFolder, targetFolderId: String): PlanningLoadResult =
+        moveEntity(session, "/folders/${folder.id}/move", JSONObject().put("targetFolderId", targetFolderId).put("version", folder.version))
+
+    suspend fun moveGoal(session: AuthSession, goal: PlanningGoal, targetFolderId: String): PlanningLoadResult =
+        moveEntity(session, "/goals/${goal.id}/move", JSONObject().put("targetFolderId", targetFolderId).put("version", goal.version))
+
+    suspend fun moveTask(session: AuthSession, task: PlanningTask, targetGoalId: String): PlanningLoadResult =
+        moveEntity(session, "/tasks/${task.id}/move-to-goal", JSONObject().put("targetGoalId", targetGoalId).put("version", task.version))
+
+    suspend fun moveIdea(session: AuthSession, idea: PlanningIdea, targetFolderId: String): PlanningLoadResult =
+        moveEntity(session, "/ideas/${idea.id}/move", JSONObject().put("targetFolderId", targetFolderId).put("version", idea.version))
+
+    suspend fun moveNote(session: AuthSession, note: PlanningNote, targetFolderId: String): PlanningLoadResult =
+        moveEntity(session, "/notes/${note.id}/move", JSONObject().put("targetFolderId", targetFolderId).put("version", note.version))
+
+    suspend fun cloneFolder(session: AuthSession, folder: PlanningFolder, targetFolderId: String): PlanningLoadResult =
+        moveEntity(session, "/folders/${folder.id}/clone", JSONObject().put("targetFolderId", targetFolderId).put("includeChildren", false))
+
+    suspend fun cloneGoal(session: AuthSession, goal: PlanningGoal, targetFolderId: String): PlanningLoadResult =
+        moveEntity(session, "/goals/${goal.id}/clone", JSONObject().put("targetFolderId", targetFolderId))
+
+    suspend fun cloneTask(session: AuthSession, task: PlanningTask, targetGoalId: String): PlanningLoadResult =
+        moveEntity(session, "/tasks/${task.id}/clone", JSONObject().put("targetGoalId", targetGoalId).put("includeTags", false))
+
+    suspend fun cloneIdea(session: AuthSession, idea: PlanningIdea, targetFolderId: String): PlanningLoadResult =
+        moveEntity(session, "/ideas/${idea.id}/clone", JSONObject().put("targetFolderId", targetFolderId))
+
+    suspend fun cloneNote(session: AuthSession, note: PlanningNote, targetFolderId: String): PlanningLoadResult =
+        moveEntity(session, "/notes/${note.id}/clone", JSONObject().put("targetFolderId", targetFolderId))
+
+    private suspend fun moveEntity(session: AuthSession, path: String, body: JSONObject): PlanningLoadResult {
+        val result = authRepository.authorizedPost(session, path, body)
         val refreshed = pullRemote(result.session)
         return PlanningLoadResult(
             session = refreshed,
@@ -353,6 +407,7 @@ class PlanningRepository(
                         JSONObject()
                             .put("name", folder.name)
                             .put("description", folder.description)
+                            .putNullable("parentFolderId", folder.parentFolderId)
                     )
                     localStore.applySyncedFolder(userId, folder.id, result.value.toFolder(shared = false))
                     result.session
@@ -365,6 +420,7 @@ class PlanningRepository(
                         JSONObject()
                             .put("name", folder.name)
                             .put("description", folder.description)
+                            .putNullable("parentFolderId", folder.parentFolderId)
                             .put("displayOrder", folder.displayOrder)
                             .put("archived", folder.archived)
                             .put("version", folder.version)
@@ -408,6 +464,7 @@ class PlanningRepository(
                         JSONObject()
                             .put("name", goal.name)
                             .put("description", goal.description)
+                            .put("status", goal.status)
                     )
                     localStore.applySyncedGoal(userId, goal.id, result.value.toGoal(shared = false))
                     result.session
@@ -420,6 +477,7 @@ class PlanningRepository(
                         JSONObject()
                             .put("name", goal.name)
                             .put("description", goal.description)
+                            .put("status", goal.status)
                             .put("archived", goal.archived)
                             .put("version", goal.version)
                     )
@@ -553,7 +611,7 @@ class PlanningRepository(
         val allTasks = mutableListOf<PlanningTask>()
         val allIdeas = mutableListOf<PlanningIdea>()
         val allIdeaNotes = mutableListOf<IdeaNote>()
-        val allFolderNotes = mutableListOf<FolderNote>()
+        val allNotes = mutableListOf<PlanningNote>()
         folders.filterNot { it.archived }.forEach { folder ->
             val goalsResult = syncGet(activeSession, "/folders/${folder.id}/goals")
             activeSession = goalsResult.session
@@ -570,9 +628,9 @@ class PlanningRepository(
                 allIdeaNotes += notesResult.second.toIdeaNotes(idea.id)
             }
 
-            val folderNotesResult = syncOptionalItems(activeSession, "/folders/${folder.id}/notes")
-            activeSession = folderNotesResult.first
-            allFolderNotes += folderNotesResult.second.toFolderNotes(shared = false)
+            val notesResult = syncOptionalItems(activeSession, "/folders/${folder.id}/notes")
+            activeSession = notesResult.first
+            allNotes += notesResult.second.toNotes(shared = false)
 
             goals.filterNot { it.archived }.forEach { goal ->
                 val tasksResult = syncGet(activeSession, "/goals/${goal.id}/tasks")
@@ -584,7 +642,7 @@ class PlanningRepository(
         localStore.upsertRemoteTasks(userId, allTasks)
         localStore.upsertRemoteIdeas(userId, allIdeas)
         localStore.upsertRemoteIdeaNotes(userId, allIdeaNotes)
-        localStore.upsertRemoteFolderNotes(userId, allFolderNotes)
+        localStore.upsertRemoteNotes(userId, allNotes)
 
         val sharedResult = syncGet(activeSession, "/shares/resources")
         activeSession = sharedResult.session
@@ -594,7 +652,7 @@ class PlanningRepository(
         val createTaskGoalIds = sharedResult.value.optJSONArray("createTaskGoalIds").toStringSet()
         val sharedFolders = sharedFolderObjects.toFolders(shared = true).toMutableList()
         val sharedGoals = sharedGoalObjects.toGoals(shared = true)
-            .map { goal -> goal.copy(canCreateTasks = goal.id in createTaskGoalIds) }
+            .map { goal -> goal.copy(canCreateTasks = goal.fullAccess || goal.id in createTaskGoalIds) }
             .toMutableList()
         val sharedTasks = sharedTaskObjects.toTasks(shared = true)
         sharedGoalObjects.forEachObject { goalJson ->
@@ -604,7 +662,7 @@ class PlanningRepository(
             taskJson.optJSONObject("folder")?.toFolder(shared = true)?.let { sharedFolders += it }
             taskJson.optJSONObject("goal")?.let { goalJson ->
                 sharedGoals += goalJson.toGoal(shared = true)
-                    .copy(canCreateTasks = goalJson.text("id") in createTaskGoalIds)
+                    .copy(canCreateTasks = goalJson.optBoolean("fullAccess", false) || goalJson.text("id") in createTaskGoalIds)
                 goalJson.optJSONObject("folder")?.toFolder(shared = true)?.let { sharedFolders += it }
             }
         }
@@ -617,7 +675,7 @@ class PlanningRepository(
 
         val sharedIdeas = mutableListOf<PlanningIdea>()
         val sharedIdeaNotes = mutableListOf<IdeaNote>()
-        val sharedFolderNotes = mutableListOf<FolderNote>()
+        val sharedNotes = mutableListOf<PlanningNote>()
         sharedFolders.distinctBy { it.id }.filterNot { it.archived }.forEach { folder ->
             val ideasResult = syncOptionalItems(activeSession, "/folders/${folder.id}/ideas")
             activeSession = ideasResult.first
@@ -628,13 +686,25 @@ class PlanningRepository(
                 activeSession = notesResult.first
                 sharedIdeaNotes += notesResult.second.toIdeaNotes(idea.id)
             }
-            val folderNotesResult = syncOptionalItems(activeSession, "/folders/${folder.id}/notes")
-            activeSession = folderNotesResult.first
-            sharedFolderNotes += folderNotesResult.second.toFolderNotes(shared = true)
+            val notesResult = syncOptionalItems(activeSession, "/folders/${folder.id}/notes")
+            activeSession = notesResult.first
+            sharedNotes += notesResult.second.toNotes(shared = true)
         }
         localStore.upsertRemoteIdeas(userId, sharedIdeas.distinctBy { it.id })
         localStore.upsertRemoteIdeaNotes(userId, sharedIdeaNotes.distinctBy { it.id })
-        localStore.upsertRemoteFolderNotes(userId, sharedFolderNotes.distinctBy { it.id })
+        localStore.upsertRemoteNotes(userId, sharedNotes.distinctBy { it.id })
+
+        val linkEntities = (allGoals + sharedGoals).map { "goal" to it.id } +
+            (allTasks + sharedTasks).map { "task" to it.id } +
+            (allIdeas + sharedIdeas).map { "idea" to it.id } +
+            (allNotes + sharedNotes).map { "note" to it.id }
+        val allLinks = mutableListOf<EntityLink>()
+        linkEntities.distinct().forEach { (type, id) ->
+            val linksResult = syncOptionalItems(activeSession, "/entity-links?entityType=$type&entityId=$id")
+            activeSession = linksResult.first
+            allLinks += linksResult.second.toEntityLinks()
+        }
+        localStore.upsertRemoteEntityLinks(userId, allLinks.distinctBy { it.id })
 
         return activeSession
     }
@@ -721,12 +791,12 @@ class PlanningRepository(
         return List(length()) { index -> getJSONObject(index).toIdeaNote(ideaId) }
     }
 
-    private fun JSONArray.toFolderNotes(shared: Boolean): List<FolderNote> {
-        return List(length()) { index -> getJSONObject(index).toFolderNote(shared = shared) }
+    private fun JSONArray.toNotes(shared: Boolean): List<PlanningNote> {
+        return List(length()) { index -> getJSONObject(index).toNote(shared = shared) }
     }
 
-    private fun JSONArray.toFolderNoteItems(noteId: String): List<FolderNoteItem> {
-        return List(length()) { index -> getJSONObject(index).toFolderNoteItem(noteId) }
+    private fun JSONArray.toEntityLinks(): List<EntityLink> {
+        return List(length()) { index -> getJSONObject(index).toEntityLink() }
     }
 
     private fun JSONArray.toTaskTags(): List<TaskTag> {
@@ -742,11 +812,13 @@ class PlanningRepository(
     private fun JSONObject.toFolder(shared: Boolean): PlanningFolder {
         return PlanningFolder(
             id = getString("id"),
+            parentFolderId = nullableText("parentFolderId") ?: optJSONObject("parentFolder")?.nullableText("id"),
             name = text("name"),
             description = text("description"),
             displayOrder = optInt("displayOrder", 0),
             archived = optBoolean("archived", false),
             shared = shared,
+            fullAccess = optBoolean("fullAccess", !shared),
             version = optLong("version", 0),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
             updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },
@@ -761,9 +833,11 @@ class PlanningRepository(
             folderId = text("folderId").ifBlank { optJSONObject("folder")?.text("id").orEmpty() },
             name = text("name"),
             description = text("description"),
+            status = text("status").ifBlank { "todo" },
             archived = optBoolean("archived", false),
             shared = shared,
-            canCreateTasks = !shared || optBoolean("canCreateTasks", false),
+            canCreateTasks = !shared || optBoolean("fullAccess", false) || optBoolean("canCreateTasks", false),
+            fullAccess = optBoolean("fullAccess", !shared),
             version = optLong("version", 0),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
             updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },
@@ -785,6 +859,7 @@ class PlanningRepository(
             dueTime = nullableText("dueTime"),
             archived = optBoolean("archived", false),
             shared = shared,
+            fullAccess = optBoolean("fullAccess", !shared),
             creatorUserId = nullableText("creatorUserId"),
             creatorEmail = nullableText("creatorEmail"),
             creatorName = nullableText("creatorName"),
@@ -809,6 +884,7 @@ class PlanningRepository(
             displayOrder = optInt("displayOrder", 0),
             archived = optBoolean("archived", false),
             shared = shared,
+            fullAccess = optBoolean("fullAccess", !shared),
             allowAuthorNoteEdits = optBoolean("allowAuthorNoteEdits", false),
             version = optLong("version", 0),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
@@ -835,18 +911,21 @@ class PlanningRepository(
         )
     }
 
-    private fun JSONObject.toFolderNote(shared: Boolean): FolderNote {
-        val id = getString("id")
-        return FolderNote(
-            id = id,
+    private fun JSONObject.toNote(shared: Boolean): PlanningNote {
+        val author = optJSONObject("author")
+        return PlanningNote(
+            id = getString("id"),
             folderId = text("folderId").ifBlank { optJSONObject("folder")?.text("id").orEmpty() },
+            authorUserId = nullableText("authorUserId") ?: author?.nullableText("id"),
+            authorEmail = nullableText("authorEmail") ?: author?.nullableText("email"),
+            authorName = nullableText("authorName") ?: author?.nullableText("displayName") ?: author?.nullableText("name"),
             title = text("title"),
             body = text("body"),
-            kind = text("kind").ifBlank { if (optJSONArray("items") != null) "list" else "note" },
+            displayOrder = optInt("displayOrder", 0),
             archived = optBoolean("archived", false),
             shared = shared,
+            fullAccess = optBoolean("fullAccess", !shared),
             version = optLong("version", 0),
-            items = (optJSONArray("items") ?: JSONArray()).toFolderNoteItems(id),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
             updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },
             syncState = SyncState.Synced,
@@ -854,16 +933,36 @@ class PlanningRepository(
         )
     }
 
-    private fun JSONObject.toFolderNoteItem(noteIdFallback: String): FolderNoteItem {
-        return FolderNoteItem(
+    private fun JSONObject.toEntityLink(): EntityLink {
+        val sourceObject = optJSONObject("source")
+        val targetObject = optJSONObject("target")
+        val sourceType = text("sourceType").ifBlank { sourceObject?.text("type").orEmpty() }
+        val sourceId = text("sourceId").ifBlank { sourceObject?.text("id").orEmpty() }
+        val targetType = text("targetType").ifBlank { targetObject?.text("type").orEmpty() }
+        val targetId = text("targetId").ifBlank { targetObject?.text("id").orEmpty() }
+        return EntityLink(
             id = getString("id"),
-            noteId = text("folderNoteId").ifBlank { text("noteId").ifBlank { noteIdFallback } },
-            body = text("text").ifBlank { text("body") },
-            checked = optBoolean("checked", false),
-            displayOrder = optInt("displayOrder", 0),
+            sourceType = sourceType,
+            sourceId = sourceId,
+            targetType = targetType,
+            targetId = targetId,
+            relationType = text("relationType").ifBlank { "related" },
+            source = sourceObject?.toEntityRef() ?: EntityRef(sourceType, sourceId, "", null),
+            target = targetObject?.toEntityRef() ?: EntityRef(targetType, targetId, "", null),
+            createdByUserId = nullableText("createdByUserId"),
+            archived = optBoolean("archived", false),
             version = optLong("version", 0),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
             updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() }
+        )
+    }
+
+    private fun JSONObject.toEntityRef(): EntityRef {
+        return EntityRef(
+            type = text("type"),
+            id = text("id"),
+            title = text("title").ifBlank { text("name").ifBlank { text("label") } },
+            subtitle = nullableText("subtitle") ?: nullableText("path")
         )
     }
 

@@ -14,12 +14,13 @@ class SharingRepository(
     suspend fun inviteByEmail(
         session: AuthSession,
         target: ShareTarget,
-        email: String
+        email: String,
+        fullAccess: Boolean = false
     ): SessionBoundResult<ShareInvitation> {
         val result = authRepository.authorizedPost(
             session,
             "/${target.type.invitePathSegment}/${target.id}/share",
-            JSONObject().put("email", email)
+            JSONObject().put("email", email).put("fullAccess", fullAccess)
         )
         return SessionBoundResult(result.session, result.value.toInvitation())
     }
@@ -27,12 +28,13 @@ class SharingRepository(
     suspend fun inviteByUserId(
         session: AuthSession,
         target: ShareTarget,
-        userId: String
+        userId: String,
+        fullAccess: Boolean = false
     ): SessionBoundResult<ShareInvitation> {
         val result = authRepository.authorizedPost(
             session,
             "/${target.type.invitePathSegment}/${target.id}/share",
-            JSONObject().put("userId", userId)
+            JSONObject().put("userId", userId).put("fullAccess", fullAccess)
         )
         return SessionBoundResult(result.session, result.value.toInvitation())
     }
@@ -40,12 +42,14 @@ class SharingRepository(
     suspend fun createLink(
         session: AuthSession,
         target: ShareTarget,
-        expiresAt: String? = null
+        expiresAt: String? = null,
+        fullAccess: Boolean = false
     ): SessionBoundResult<CreatedShareLink> {
         val body = JSONObject()
         if (!expiresAt.isNullOrBlank()) {
             body.put("expiresAt", expiresAt)
         }
+        body.put("fullAccess", fullAccess)
         val result = authRepository.authorizedPost(session, linkPath(target), body)
         return SessionBoundResult(result.session, result.value.toCreatedLink())
     }

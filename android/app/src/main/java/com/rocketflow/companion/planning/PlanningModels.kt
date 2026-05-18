@@ -10,11 +10,13 @@ enum class SyncState {
 
 data class PlanningFolder(
     val id: String,
+    val parentFolderId: String?,
     val name: String,
     val description: String,
     val displayOrder: Int,
     val archived: Boolean,
     val shared: Boolean,
+    val fullAccess: Boolean,
     val version: Long,
     val createdAt: String,
     val updatedAt: String,
@@ -27,9 +29,11 @@ data class PlanningGoal(
     val folderId: String,
     val name: String,
     val description: String,
+    val status: String,
     val archived: Boolean,
     val shared: Boolean,
     val canCreateTasks: Boolean,
+    val fullAccess: Boolean,
     val version: Long,
     val createdAt: String,
     val updatedAt: String,
@@ -49,6 +53,7 @@ data class PlanningTask(
     val dueTime: String?,
     val archived: Boolean,
     val shared: Boolean,
+    val fullAccess: Boolean,
     val creatorUserId: String?,
     val creatorEmail: String?,
     val creatorName: String?,
@@ -71,6 +76,7 @@ data class PlanningIdea(
     val displayOrder: Int,
     val archived: Boolean,
     val shared: Boolean,
+    val fullAccess: Boolean,
     val allowAuthorNoteEdits: Boolean,
     val version: Long,
     val createdAt: String,
@@ -93,28 +99,43 @@ data class IdeaNote(
     val updatedAt: String
 )
 
-data class FolderNote(
+data class PlanningNote(
     val id: String,
     val folderId: String,
+    val authorUserId: String?,
+    val authorEmail: String?,
+    val authorName: String?,
     val title: String,
     val body: String,
-    val kind: String,
+    val displayOrder: Int,
     val archived: Boolean,
     val shared: Boolean,
+    val fullAccess: Boolean,
     val version: Long,
-    val items: List<FolderNoteItem>,
     val createdAt: String,
     val updatedAt: String,
     val syncState: SyncState,
     val lastError: String?
 )
 
-data class FolderNoteItem(
+data class EntityRef(
+    val type: String,
     val id: String,
-    val noteId: String,
-    val body: String,
-    val checked: Boolean,
-    val displayOrder: Int,
+    val title: String,
+    val subtitle: String?
+)
+
+data class EntityLink(
+    val id: String,
+    val sourceType: String,
+    val sourceId: String,
+    val targetType: String,
+    val targetId: String,
+    val relationType: String,
+    val source: EntityRef?,
+    val target: EntityRef?,
+    val createdByUserId: String?,
+    val archived: Boolean,
     val version: Long,
     val createdAt: String,
     val updatedAt: String
@@ -134,13 +155,14 @@ data class PlanningSnapshot(
     val tasks: List<PlanningTask>,
     val ideas: List<PlanningIdea>,
     val ideaNotes: List<IdeaNote>,
-    val folderNotes: List<FolderNote>,
+    val notes: List<PlanningNote>,
+    val entityLinks: List<EntityLink>,
     val sharedFolders: List<PlanningFolder>,
     val sharedGoals: List<PlanningGoal>,
     val sharedTasks: List<PlanningTask>,
     val sharedIdeas: List<PlanningIdea>,
     val sharedIdeaNotes: List<IdeaNote>,
-    val sharedFolderNotes: List<FolderNote>,
+    val sharedNotes: List<PlanningNote>,
     val taskTags: List<TaskTag>,
     val pendingCount: Int,
     val offline: Boolean,
@@ -160,12 +182,14 @@ data class TaskRescheduleResult(
 
 data class FolderDraft(
     val name: String,
-    val description: String
+    val description: String,
+    val parentFolderId: String? = null
 )
 
 data class GoalDraft(
     val name: String,
-    val description: String
+    val description: String,
+    val status: String = "todo"
 )
 
 data class TaskDraft(
@@ -194,15 +218,17 @@ data class IdeaNoteDraft(
     val metadataJson: String = "{}"
 )
 
-data class FolderNoteDraft(
+data class NoteDraft(
     val title: String,
-    val body: String,
-    val kind: String = "note"
+    val body: String
 )
 
-data class FolderNoteItemDraft(
-    val body: String,
-    val checked: Boolean = false
+data class EntityLinkDraft(
+    val sourceType: String,
+    val sourceId: String,
+    val targetType: String,
+    val targetId: String,
+    val relationType: String = "related"
 )
 
 data class TaskTagDraft(

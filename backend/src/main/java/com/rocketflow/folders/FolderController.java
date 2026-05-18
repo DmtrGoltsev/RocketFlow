@@ -34,15 +34,41 @@ public class FolderController {
         return folderService.list(currentUserService.requireAuthenticatedUser().userId());
     }
 
+    @GetMapping("/{folderId}")
+    public FolderDto get(@PathVariable String folderId) {
+        return folderService.get(currentUserService.requireAuthenticatedUser().userId(), java.util.UUID.fromString(folderId));
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public FolderDto create(@Valid @RequestBody CreateFolderRequest request) {
         return folderService.create(currentUserService.requireAuthenticatedUser().userId(), request);
     }
 
+    @PostMapping("/{folderId}/folders")
+    @ResponseStatus(HttpStatus.CREATED)
+    public FolderDto createChild(@PathVariable String folderId, @Valid @RequestBody CreateFolderRequest request) {
+        return folderService.createChild(
+                currentUserService.requireAuthenticatedUser().userId(),
+                java.util.UUID.fromString(folderId),
+                request
+        );
+    }
+
     @PatchMapping("/{folderId}")
     public FolderDto update(@PathVariable String folderId, @Valid @RequestBody UpdateFolderRequest request) {
         return folderService.update(currentUserService.requireAuthenticatedUser().userId(), java.util.UUID.fromString(folderId), request);
+    }
+
+    @PostMapping("/{folderId}/move")
+    public FolderDto move(@PathVariable String folderId, @Valid @RequestBody MoveFolderRequest request) {
+        return folderService.move(currentUserService.requireAuthenticatedUser().userId(), java.util.UUID.fromString(folderId), request);
+    }
+
+    @PostMapping("/{folderId}/clone")
+    @ResponseStatus(HttpStatus.CREATED)
+    public FolderDto clone(@PathVariable String folderId, @Valid @RequestBody CloneFolderRequest request) {
+        return folderService.clone(currentUserService.requireAuthenticatedUser().userId(), java.util.UUID.fromString(folderId), request);
     }
 
     @DeleteMapping("/{folderId}")

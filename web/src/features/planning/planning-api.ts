@@ -1,20 +1,31 @@
 import type {
+  EntityLinkCreatePayload,
+  EntityLinkDto,
+  EntityLinkUpdatePayload,
+  FolderClonePayload,
   FolderDto,
-  FolderNoteDto,
-  FolderNoteItemCreatePayload,
-  FolderNoteItemDto,
-  FolderNoteItemUpdatePayload,
-  FolderNoteUpsertPayload,
+  FolderMovePayload,
   FolderUpsertPayload,
+  GoalClonePayload,
   GoalDto,
+  GoalMovePayload,
   GoalUpsertPayload,
+  IdeaClonePayload,
   IdeaDto,
+  IdeaMovePayload,
   IdeaNoteCreatePayload,
   IdeaNoteDto,
   IdeaNoteUpdatePayload,
   IdeaUpsertPayload,
+  LinkEntityType,
+  NoteClonePayload,
+  NoteDto,
+  NoteMovePayload,
+  NoteUpsertPayload,
   PlanningApiErrorPayload,
+  TaskClonePayload,
   TaskDto,
+  TaskMoveToGoalPayload,
   TaskRecurrenceUpsertPayload,
   TaskUpsertPayload,
 } from './types';
@@ -76,7 +87,7 @@ async function requestJson<TResponse>(
 ): Promise<TResponse> {
   const headers = new Headers(init.headers);
 
-  if (!headers.has('Content-Type')) {
+  if (init.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -111,6 +122,17 @@ export async function createFolder(authorizedFetch: AuthorizedFetch, payload: Fo
   });
 }
 
+export async function createChildFolder(
+  authorizedFetch: AuthorizedFetch,
+  folderId: string,
+  payload: FolderUpsertPayload,
+) {
+  return requestJson<FolderDto>(authorizedFetch, `/folders/${folderId}/folders`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function updateFolder(
   authorizedFetch: AuthorizedFetch,
   folderId: string,
@@ -125,6 +147,28 @@ export async function updateFolder(
 export async function archiveFolder(authorizedFetch: AuthorizedFetch, folderId: string) {
   return requestJson<void>(authorizedFetch, `/folders/${folderId}`, {
     method: 'DELETE',
+  });
+}
+
+export async function moveFolder(
+  authorizedFetch: AuthorizedFetch,
+  folderId: string,
+  payload: FolderMovePayload,
+) {
+  return requestJson<FolderDto>(authorizedFetch, `/folders/${folderId}/move`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function cloneFolder(
+  authorizedFetch: AuthorizedFetch,
+  folderId: string,
+  payload: FolderClonePayload,
+) {
+  return requestJson<FolderDto>(authorizedFetch, `/folders/${folderId}/clone`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 
@@ -170,6 +214,28 @@ export async function archiveGoal(authorizedFetch: AuthorizedFetch, goalId: stri
   });
 }
 
+export async function moveGoal(
+  authorizedFetch: AuthorizedFetch,
+  goalId: string,
+  payload: GoalMovePayload,
+) {
+  return requestJson<GoalDto>(authorizedFetch, `/goals/${goalId}/move`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function cloneGoal(
+  authorizedFetch: AuthorizedFetch,
+  goalId: string,
+  payload: GoalClonePayload,
+) {
+  return requestJson<GoalDto>(authorizedFetch, `/goals/${goalId}/clone`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function listTasks(authorizedFetch: AuthorizedFetch, goalId: string) {
   const response = await requestJson<ListResponse<TaskDto>>(authorizedFetch, `/goals/${goalId}/tasks`, {
     method: 'GET',
@@ -209,6 +275,28 @@ export async function updateTask(
 export async function deleteTask(authorizedFetch: AuthorizedFetch, taskId: string) {
   return requestJson<void>(authorizedFetch, `/tasks/${taskId}`, {
     method: 'DELETE',
+  });
+}
+
+export async function moveTaskToGoal(
+  authorizedFetch: AuthorizedFetch,
+  taskId: string,
+  payload: TaskMoveToGoalPayload,
+) {
+  return requestJson<TaskDto>(authorizedFetch, `/tasks/${taskId}/move-to-goal`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function cloneTask(
+  authorizedFetch: AuthorizedFetch,
+  taskId: string,
+  payload: TaskClonePayload,
+) {
+  return requestJson<TaskDto>(authorizedFetch, `/tasks/${taskId}/clone`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 
@@ -254,6 +342,28 @@ export async function deleteIdea(authorizedFetch: AuthorizedFetch, ideaId: strin
   });
 }
 
+export async function moveIdea(
+  authorizedFetch: AuthorizedFetch,
+  ideaId: string,
+  payload: IdeaMovePayload,
+) {
+  return requestJson<IdeaDto>(authorizedFetch, `/ideas/${ideaId}/move`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function cloneIdea(
+  authorizedFetch: AuthorizedFetch,
+  ideaId: string,
+  payload: IdeaClonePayload,
+) {
+  return requestJson<IdeaDto>(authorizedFetch, `/ideas/${ideaId}/clone`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function listIdeaNotes(authorizedFetch: AuthorizedFetch, ideaId: string) {
   const response = await requestJson<ListResponse<IdeaNoteDto>>(authorizedFetch, `/ideas/${ideaId}/notes`, {
     method: 'GET',
@@ -284,66 +394,106 @@ export async function updateIdeaNote(
   });
 }
 
-export async function listFolderNotes(authorizedFetch: AuthorizedFetch, folderId: string) {
-  const response = await requestJson<ListResponse<FolderNoteDto>>(authorizedFetch, `/folders/${folderId}/notes`, {
+export async function listNotes(authorizedFetch: AuthorizedFetch, folderId: string) {
+  const response = await requestJson<ListResponse<NoteDto>>(authorizedFetch, `/folders/${folderId}/notes`, {
     method: 'GET',
   });
 
   return response.items;
 }
 
-export async function createFolderNote(
+export async function createNote(
   authorizedFetch: AuthorizedFetch,
   folderId: string,
-  payload: FolderNoteUpsertPayload,
+  payload: NoteUpsertPayload,
 ) {
-  return requestJson<FolderNoteDto>(authorizedFetch, `/folders/${folderId}/notes`, {
+  return requestJson<NoteDto>(authorizedFetch, `/folders/${folderId}/notes`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
 }
 
-export async function updateFolderNote(
+export async function getNote(authorizedFetch: AuthorizedFetch, noteId: string) {
+  return requestJson<NoteDto>(authorizedFetch, `/notes/${noteId}`, {
+    method: 'GET',
+  });
+}
+
+export async function updateNote(
   authorizedFetch: AuthorizedFetch,
   noteId: string,
-  payload: FolderNoteUpsertPayload,
+  payload: NoteUpsertPayload,
 ) {
-  return requestJson<FolderNoteDto>(authorizedFetch, `/folder-notes/${noteId}`, {
+  return requestJson<NoteDto>(authorizedFetch, `/notes/${noteId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
 }
 
-export async function deleteFolderNote(authorizedFetch: AuthorizedFetch, noteId: string) {
-  return requestJson<void>(authorizedFetch, `/folder-notes/${noteId}`, {
+export async function deleteNote(authorizedFetch: AuthorizedFetch, noteId: string) {
+  return requestJson<void>(authorizedFetch, `/notes/${noteId}`, {
     method: 'DELETE',
   });
 }
 
-export async function createFolderNoteItem(
+export async function moveNote(
   authorizedFetch: AuthorizedFetch,
   noteId: string,
-  payload: FolderNoteItemCreatePayload,
+  payload: NoteMovePayload,
 ) {
-  return requestJson<FolderNoteItemDto>(authorizedFetch, `/folder-notes/${noteId}/items`, {
+  return requestJson<NoteDto>(authorizedFetch, `/notes/${noteId}/move`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
 }
 
-export async function updateFolderNoteItem(
+export async function cloneNote(
   authorizedFetch: AuthorizedFetch,
-  itemId: string,
-  payload: FolderNoteItemUpdatePayload,
+  noteId: string,
+  payload: NoteClonePayload,
 ) {
-  return requestJson<FolderNoteItemDto>(authorizedFetch, `/folder-note-items/${itemId}`, {
+  return requestJson<NoteDto>(authorizedFetch, `/notes/${noteId}/clone`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listEntityLinks(
+  authorizedFetch: AuthorizedFetch,
+  entityType: LinkEntityType,
+  entityId: string,
+) {
+  const params = new URLSearchParams({ entityType, entityId });
+  const response = await requestJson<ListResponse<EntityLinkDto>>(authorizedFetch, `/entity-links?${params.toString()}`, {
+    method: 'GET',
+  });
+
+  return response.items;
+}
+
+export async function createEntityLink(
+  authorizedFetch: AuthorizedFetch,
+  payload: EntityLinkCreatePayload,
+) {
+  return requestJson<EntityLinkDto>(authorizedFetch, '/entity-links', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateEntityLink(
+  authorizedFetch: AuthorizedFetch,
+  linkId: string,
+  payload: EntityLinkUpdatePayload,
+) {
+  return requestJson<EntityLinkDto>(authorizedFetch, `/entity-links/${linkId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
 }
 
-export async function deleteFolderNoteItem(authorizedFetch: AuthorizedFetch, itemId: string) {
-  return requestJson<void>(authorizedFetch, `/folder-note-items/${itemId}`, {
+export async function deleteEntityLink(authorizedFetch: AuthorizedFetch, linkId: string) {
+  return requestJson<void>(authorizedFetch, `/entity-links/${linkId}`, {
     method: 'DELETE',
   });
 }

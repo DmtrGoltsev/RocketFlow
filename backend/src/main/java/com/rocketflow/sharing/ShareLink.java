@@ -30,6 +30,9 @@ public class ShareLink {
     @Column(nullable = false, length = 16)
     private String status;
 
+    @Column(name = "full_access", nullable = false)
+    private boolean fullAccess;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -88,6 +91,14 @@ public class ShareLink {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public boolean isFullAccess() {
+        return fullAccess;
+    }
+
+    public void setFullAccess(boolean fullAccess) {
+        this.fullAccess = fullAccess;
     }
 
     public Instant getCreatedAt() {

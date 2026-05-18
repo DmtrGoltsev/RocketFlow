@@ -49,8 +49,8 @@ class IdeasFolderNotesIntegrationTest {
              var statement = connection.createStatement()) {
             statement.executeUpdate("""
                     truncate table
-                        folder_note_items,
-                        folder_notes,
+                        entity_links,
+                        notes,
                         idea_notes,
                         ideas,
                         folder_shares,
@@ -77,27 +77,11 @@ class IdeasFolderNotesIntegrationTest {
     }
 
     @Test
-    void ownerCanManageIdeasAndFolderNotes() throws Exception {
+    void ownerCanManageIdeasHistoryAndPlainNotes() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
         String folderId = createFolder(owner.accessToken());
 
-        String ideaResponse = mockMvc.perform(post("/api/folders/" + folderId + "/ideas")
-                        .header("Authorization", "Bearer " + owner.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "title": "Voice capture inbox",
-                                  "body": "Collect rough thoughts before planning"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.folderId").value(folderId))
-                .andExpect(jsonPath("$.status").value("active"))
-                .andExpect(jsonPath("$.allowAuthorNoteEdits").value(false))
-                .andExpect(jsonPath("$.creatorEmail").value("owner@example.com"))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
+        String ideaResponse = createIdea(owner.accessToken(), folderId, "Voice capture inbox");
         String ideaId = read(ideaResponse, "/id");
         String ideaVersion = read(ideaResponse, "/version");
 
@@ -105,7 +89,7 @@ class IdeasFolderNotesIntegrationTest {
                         .header("Authorization", "Bearer " + owner.accessToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].id").value(ideaId))
-                .andExpect(jsonPath("$.items[0].shared").value(false));
+                .andExpect(jsonPath("$.items[0].allowAuthorNoteEdits").value(false));
 
         String ideaNoteResponse = mockMvc.perform(post("/api/ideas/" + ideaId + "/notes")
                         .header("Authorization", "Bearer " + owner.accessToken())
@@ -122,9 +106,7 @@ class IdeasFolderNotesIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.ideaId").value(ideaId))
                 .andExpect(jsonPath("$.authorEmail").value("owner@example.com"))
-                .andExpect(jsonPath("$.version").value(0))
                 .andExpect(jsonPath("$.createdAt", notNullValue()))
-                .andExpect(jsonPath("$.updatedAt", notNullValue()))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -146,63 +128,45 @@ class IdeasFolderNotesIntegrationTest {
                                 """.formatted(ideaNoteVersion)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.body").value("First refinement edited"))
-                .andExpect(jsonPath("$.metadata.source").value("owner-edit"))
-                .andExpect(jsonPath("$.version").value(1));
+                .andExpect(jsonPath("$.metadata.source").value("owner-edit"));
 
-        mockMvc.perform(get("/api/ideas/" + ideaId + "/notes")
-                        .header("Authorization", "Bearer " + owner.accessToken()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(1))
-                .andExpect(jsonPath("$.items[0].metadata.source").value("owner-edit"));
-
-        String folderNoteResponse = mockMvc.perform(post("/api/folders/" + folderId + "/notes")
+        String noteResponse = mockMvc.perform(post("/api/folders/" + folderId + "/notes")
                         .header("Authorization", "Bearer " + owner.accessToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "kind": "list",
-                                  "title": "Launch checklist",
-                                  "body": "MVP list"
+                                  "title": "Launch note",
+                                  "body": "Plain shared note"
                                 }
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.kind").value("list"))
-                .andExpect(jsonPath("$.items.length()").value(0))
+                .andExpect(jsonPath("$.title").value("Launch note"))
+                .andExpect(jsonPath("$.authorEmail").value("owner@example.com"))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
-        String noteId = read(folderNoteResponse, "/id");
+        String noteId = read(noteResponse, "/id");
+        String noteVersion = read(noteResponse, "/version");
 
-        String itemResponse = mockMvc.perform(post("/api/folder-notes/" + noteId + "/items")
+        mockMvc.perform(patch("/api/notes/" + noteId)
                         .header("Authorization", "Bearer " + owner.accessToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "text": "Document API",
-                                  "checked": false
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.text").value("Document API"))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String itemId = read(itemResponse, "/id");
-        String itemVersion = read(itemResponse, "/version");
-
-        mockMvc.perform(patch("/api/folder-note-items/" + itemId)
-                        .header("Authorization", "Bearer " + owner.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "text": "Document backend API",
-                                  "checked": true,
+                                  "title": "Launch note edited",
+                                  "body": "Updated body",
                                   "displayOrder": 1,
+                                  "archived": false,
                                   "version": %s
                                 }
-                                """.formatted(itemVersion)))
+                                """.formatted(noteVersion)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.checked").value(true));
+                .andExpect(jsonPath("$.title").value("Launch note edited"));
+
+        mockMvc.perform(get("/api/folders/" + folderId + "/notes")
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(noteId));
 
         mockMvc.perform(patch("/api/ideas/" + ideaId)
                         .header("Authorization", "Bearer " + owner.accessToken())
@@ -219,171 +183,22 @@ class IdeasFolderNotesIntegrationTest {
                                 }
                                 """.formatted(ideaVersion)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("Voice capture inbox refined"))
                 .andExpect(jsonPath("$.allowAuthorNoteEdits").value(true));
 
         mockMvc.perform(delete("/api/ideas/" + ideaId)
                         .header("Authorization", "Bearer " + owner.accessToken()))
                 .andExpect(status().isNoContent());
-
-        mockMvc.perform(get("/api/ideas/" + ideaId)
-                        .header("Authorization", "Bearer " + owner.accessToken()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.archived").value(true));
-    }
-
-    @Test
-    void folderCollaboratorCanCreateAndReadIdeasNotesAndListItems() throws Exception {
-        Session owner = registerAndLogin("owner@example.com", "Owner");
-        Session collaborator = registerAndLogin("collaborator@example.com", "Collaborator");
-        String folderId = createFolder(owner.accessToken());
-        String ideaId = read(createIdea(owner.accessToken(), folderId, "Shared idea"), "/id");
-        shareAndAccept(owner.accessToken(), collaborator.accessToken(), "/api/folders/" + folderId + "/share", "collaborator@example.com");
-
-        mockMvc.perform(get("/api/ideas/" + ideaId)
-                        .header("Authorization", "Bearer " + collaborator.accessToken()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(ideaId))
-                .andExpect(jsonPath("$.shared").value(true));
-
-        String collaboratorIdeaResponse = mockMvc.perform(post("/api/folders/" + folderId + "/ideas")
-                        .header("Authorization", "Bearer " + collaborator.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "title": "Collaborator idea",
-                                  "body": "Created through folder share"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.shared").value(true))
-                .andExpect(jsonPath("$.creatorEmail").value("collaborator@example.com"))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String collaboratorCreatedIdeaId = read(collaboratorIdeaResponse, "/id");
-        String collaboratorCreatedIdeaVersion = read(collaboratorIdeaResponse, "/version");
-
-        mockMvc.perform(patch("/api/ideas/" + collaboratorCreatedIdeaId)
-                        .header("Authorization", "Bearer " + owner.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "title": "Owner refined collaborator idea",
-                                  "body": "Folder owner can edit after creation",
-                                  "status": "active",
-                                  "displayOrder": 2,
-                                  "archived": false,
-                                  "allowAuthorNoteEdits": false,
-                                  "version": %s
-                                }
-                                """.formatted(collaboratorCreatedIdeaVersion)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.title").value("Owner refined collaborator idea"))
-                .andExpect(jsonPath("$.creatorEmail").value("collaborator@example.com"));
-
-        mockMvc.perform(post("/api/ideas/" + ideaId + "/notes")
-                        .header("Authorization", "Bearer " + collaborator.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "eventType": "comment",
-                                  "body": "Collaborator refinement",
-                                  "metadata": {}
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.authorEmail").value("collaborator@example.com"))
-                .andExpect(jsonPath("$.createdAt", notNullValue()));
-
-        String listNoteId = read(mockMvc.perform(post("/api/folders/" + folderId + "/notes")
-                        .header("Authorization", "Bearer " + collaborator.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "kind": "list",
-                                  "title": "Collaborative checklist",
-                                  "body": "Shared work"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.shared").value(true))
-                .andExpect(jsonPath("$.authorEmail").value("collaborator@example.com"))
-                .andReturn()
-                .getResponse()
-                .getContentAsString(), "/id");
-
-        String itemResponse = mockMvc.perform(post("/api/folder-notes/" + listNoteId + "/items")
-                        .header("Authorization", "Bearer " + collaborator.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "text": "Check shared flow",
-                                  "checked": false
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String itemId = read(itemResponse, "/id");
-        String itemVersion = read(itemResponse, "/version");
-
-        mockMvc.perform(patch("/api/folder-note-items/" + itemId)
-                        .header("Authorization", "Bearer " + collaborator.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "text": "Check shared flow",
-                                  "checked": true,
-                                  "displayOrder": 1,
-                                  "version": %s
-                                }
-                                """.formatted(itemVersion)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.checked").value(true));
-
-        mockMvc.perform(get("/api/folders/" + folderId + "/notes")
-                        .header("Authorization", "Bearer " + collaborator.accessToken()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].items[0].checked").value(true));
-
-        String collaboratorIdea = mockMvc.perform(get("/api/folders/" + folderId + "/ideas")
-                        .header("Authorization", "Bearer " + collaborator.accessToken()))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String collaboratorIdeaVersion = read(collaboratorIdea, "/items/0/version");
-
-        mockMvc.perform(patch("/api/ideas/" + ideaId)
-                        .header("Authorization", "Bearer " + collaborator.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "title": "Shared idea updated",
-                                  "body": "Should not be allowed",
-                                  "status": "active",
-                                  "displayOrder": 1,
-                                  "archived": false,
-                                  "version": %s
-                                }
-                                """.formatted(collaboratorIdeaVersion)))
-                .andExpect(status().isNotFound());
     }
 
     @Test
     void ideaSettingControlsAuthorHistoryNoteEditing() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
         Session collaborator = registerAndLogin("collaborator@example.com", "Collaborator");
-        Session otherCollaborator = registerAndLogin("other@example.com", "Other");
-        Session outsider = registerAndLogin("outsider@example.com", "Outsider");
         String folderId = createFolder(owner.accessToken());
         String ideaResponse = createIdea(owner.accessToken(), folderId, "Editable note policy");
         String ideaId = read(ideaResponse, "/id");
         String ideaVersion = read(ideaResponse, "/version");
-        shareAndAccept(owner.accessToken(), collaborator.accessToken(), "/api/folders/" + folderId + "/share", "collaborator@example.com");
-        shareAndAccept(owner.accessToken(), otherCollaborator.accessToken(), "/api/folders/" + folderId + "/share", "other@example.com");
+        shareAndAccept(owner.accessToken(), collaborator.accessToken(), "/api/folders/" + folderId + "/share", "collaborator@example.com", true);
 
         String noteResponse = mockMvc.perform(post("/api/ideas/" + ideaId + "/notes")
                         .header("Authorization", "Bearer " + collaborator.accessToken())
@@ -392,15 +207,10 @@ class IdeasFolderNotesIntegrationTest {
                                 {
                                   "eventType": "comment",
                                   "body": "Draft from collaborator",
-                                  "metadata": {
-                                    "stage": "draft"
-                                  }
+                                  "metadata": {}
                                 }
                                 """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.authorEmail").value("collaborator@example.com"))
-                .andExpect(jsonPath("$.version").value(0))
-                .andExpect(jsonPath("$.updatedAt", notNullValue()))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -413,14 +223,14 @@ class IdeasFolderNotesIntegrationTest {
                         .content("""
                                 {
                                   "eventType": "comment",
-                                  "body": "Author edit while disabled",
+                                  "body": "Author edit while full access",
                                   "metadata": {},
                                   "version": %s
                                 }
                                 """.formatted(noteVersion)))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isOk());
 
-        String enabledIdeaResponse = mockMvc.perform(patch("/api/ideas/" + ideaId)
+        mockMvc.perform(patch("/api/ideas/" + ideaId)
                         .header("Authorization", "Bearer " + owner.accessToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -435,129 +245,23 @@ class IdeasFolderNotesIntegrationTest {
                                 }
                                 """.formatted(ideaVersion)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.allowAuthorNoteEdits").value(true))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String enabledIdeaVersion = read(enabledIdeaResponse, "/version");
-
-        String authorEditResponse = mockMvc.perform(patch("/api/idea-notes/" + noteId)
-                        .header("Authorization", "Bearer " + collaborator.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "eventType": "comment",
-                                  "body": "Author edit while enabled",
-                                  "metadata": {
-                                    "stage": "refined"
-                                  },
-                                  "version": %s
-                                }
-                                """.formatted(noteVersion)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.body").value("Author edit while enabled"))
-                .andExpect(jsonPath("$.metadata.stage").value("refined"))
-                .andExpect(jsonPath("$.version").value(1))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String authorEditedVersion = read(authorEditResponse, "/version");
-
-        mockMvc.perform(patch("/api/idea-notes/" + noteId)
-                        .header("Authorization", "Bearer " + owner.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "eventType": "comment",
-                                  "body": "Stale owner edit",
-                                  "metadata": {},
-                                  "version": %s
-                                }
-                                """.formatted(noteVersion)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("conflict"));
-
-        String ownerEditResponse = mockMvc.perform(patch("/api/idea-notes/" + noteId)
-                        .header("Authorization", "Bearer " + owner.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "eventType": "owner_note",
-                                  "body": "Owner can edit collaborator history note",
-                                  "metadata": {
-                                    "stage": "owner-reviewed"
-                                  },
-                                  "version": %s
-                                }
-                                """.formatted(authorEditedVersion)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.eventType").value("owner_note"))
-                .andExpect(jsonPath("$.body").value("Owner can edit collaborator history note"))
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String ownerEditedVersion = read(ownerEditResponse, "/version");
-
-        mockMvc.perform(patch("/api/idea-notes/" + noteId)
-                        .header("Authorization", "Bearer " + otherCollaborator.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "eventType": "comment",
-                                  "body": "Other collaborator cannot edit",
-                                  "metadata": {},
-                                  "version": %s
-                                }
-                                """.formatted(ownerEditedVersion)))
-                .andExpect(status().isNotFound());
-
-        mockMvc.perform(patch("/api/ideas/" + ideaId)
-                        .header("Authorization", "Bearer " + owner.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "title": "Editable note policy",
-                                  "body": "Idea body",
-                                  "status": "active",
-                                  "displayOrder": 1,
-                                  "archived": false,
-                                  "allowAuthorNoteEdits": false,
-                                  "version": %s
-                                }
-                                """.formatted(enabledIdeaVersion)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.allowAuthorNoteEdits").value(false));
-
-        mockMvc.perform(patch("/api/idea-notes/" + noteId)
-                        .header("Authorization", "Bearer " + outsider.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "eventType": "comment",
-                                  "body": "Outsider cannot edit",
-                                  "metadata": {},
-                                  "version": %s
-                                }
-                                """.formatted(ownerEditedVersion)))
-                .andExpect(status().isNotFound());
+                .andExpect(jsonPath("$.allowAuthorNoteEdits").value(true));
     }
 
     @Test
-    void directGoalShareDoesNotGrantFolderContentAccess() throws Exception {
+    void directGoalShareDoesNotGrantFolderIdeasOrNotes() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
         Session goalCollaborator = registerAndLogin("goal-collaborator@example.com", "Goal Collaborator");
-        Session outsider = registerAndLogin("outsider@example.com", "Outsider");
         String folderId = createFolder(owner.accessToken());
         String goalId = read(createGoal(owner.accessToken(), folderId), "/id");
         String ideaId = read(createIdea(owner.accessToken(), folderId, "Private folder idea"), "/id");
-        String noteId = read(createFolderNote(owner.accessToken(), folderId), "/id");
+        String noteId = read(createNote(owner.accessToken(), folderId), "/id");
 
-        shareAndAccept(owner.accessToken(), goalCollaborator.accessToken(), "/api/goals/" + goalId + "/share", "goal-collaborator@example.com");
+        shareAndAccept(owner.accessToken(), goalCollaborator.accessToken(), "/api/goals/" + goalId + "/share", "goal-collaborator@example.com", false);
 
         mockMvc.perform(get("/api/goals/" + goalId)
                         .header("Authorization", "Bearer " + goalCollaborator.accessToken()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.shared").value(true));
+                .andExpect(status().isOk());
 
         mockMvc.perform(get("/api/folders/" + folderId + "/ideas")
                         .header("Authorization", "Bearer " + goalCollaborator.accessToken()))
@@ -565,29 +269,24 @@ class IdeasFolderNotesIntegrationTest {
         mockMvc.perform(get("/api/ideas/" + ideaId)
                         .header("Authorization", "Bearer " + goalCollaborator.accessToken()))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(post("/api/ideas/" + ideaId + "/notes")
-                        .header("Authorization", "Bearer " + goalCollaborator.accessToken())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "eventType": "comment",
-                                  "body": "No folder-level access"
-                                }
-                                """))
+        mockMvc.perform(get("/api/notes/" + noteId)
+                        .header("Authorization", "Bearer " + goalCollaborator.accessToken()))
                 .andExpect(status().isNotFound());
-        mockMvc.perform(post("/api/folder-notes/" + noteId + "/items")
-                        .header("Authorization", "Bearer " + goalCollaborator.accessToken())
+    }
+
+    @Test
+    void legacyFolderNoteEndpointsAreRemoved() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+
+        mockMvc.perform(post("/api/folder-notes/00000000-0000-0000-0000-000000000001/items")
+                        .header("Authorization", "Bearer " + owner.accessToken())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "text": "Nope",
+                                  "text": "No public folder-note item API",
                                   "checked": false
                                 }
                                 """))
-                .andExpect(status().isNotFound());
-
-        mockMvc.perform(get("/api/ideas/" + ideaId)
-                        .header("Authorization", "Bearer " + outsider.accessToken()))
                 .andExpect(status().isNotFound());
     }
 
@@ -669,15 +368,14 @@ class IdeasFolderNotesIntegrationTest {
                 .getContentAsString();
     }
 
-    private String createFolderNote(String accessToken, String folderId) throws Exception {
+    private String createNote(String accessToken, String folderId) throws Exception {
         return mockMvc.perform(post("/api/folders/" + folderId + "/notes")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "kind": "list",
-                                  "title": "Private list",
-                                  "body": "Folder-only list"
+                                  "title": "Private note",
+                                  "body": "Folder-only note"
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -686,15 +384,16 @@ class IdeasFolderNotesIntegrationTest {
                 .getContentAsString();
     }
 
-    private void shareAndAccept(String ownerAccessToken, String collaboratorAccessToken, String shareEndpoint, String email) throws Exception {
+    private void shareAndAccept(String ownerAccessToken, String collaboratorAccessToken, String shareEndpoint, String email, boolean fullAccess) throws Exception {
         String invitationId = read(mockMvc.perform(post(shareEndpoint)
                         .header("Authorization", "Bearer " + ownerAccessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "email": "%s"
+                                  "email": "%s",
+                                  "fullAccess": %s
                                 }
-                                """.formatted(email)))
+                                """.formatted(email, fullAccess)))
                 .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse()

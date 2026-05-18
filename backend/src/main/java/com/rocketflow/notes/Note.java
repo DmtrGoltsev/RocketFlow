@@ -1,4 +1,4 @@
-package com.rocketflow.ideas;
+package com.rocketflow.notes;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -10,8 +10,8 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
 @Entity
-@Table(name = "folder_notes")
-public class FolderNote {
+@Table(name = "notes")
+public class Note {
 
     @Id
     private UUID id;
@@ -24,9 +24,6 @@ public class FolderNote {
 
     @Column(name = "author_user_id", nullable = false)
     private UUID authorUserId;
-
-    @Column(nullable = false, length = 16)
-    private String kind;
 
     @Column(nullable = false, length = 200)
     private String title;
@@ -57,8 +54,6 @@ public class FolderNote {
     public void setOwnerUserId(UUID ownerUserId) { this.ownerUserId = ownerUserId; }
     public UUID getAuthorUserId() { return authorUserId; }
     public void setAuthorUserId(UUID authorUserId) { this.authorUserId = authorUserId; }
-    public String getKind() { return kind; }
-    public void setKind(String kind) { this.kind = kind; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getBody() { return body; }

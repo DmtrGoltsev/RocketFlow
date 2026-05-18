@@ -13,6 +13,8 @@ public interface TaskShareRepository extends JpaRepository<TaskShare, UUID> {
 
     boolean existsByTaskIdAndCollaboratorUserIdAndStatus(UUID taskId, UUID collaboratorUserId, String status);
 
+    Optional<TaskShare> findByTaskIdAndCollaboratorUserIdAndStatus(UUID taskId, UUID collaboratorUserId, String status);
+
     long countByTaskIdAndStatus(UUID taskId, String status);
 
     Optional<TaskShare> findByInvitationId(UUID invitationId);

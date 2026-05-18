@@ -96,6 +96,17 @@ public class TaskController {
         return taskScheduleService.moveTask(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(taskId), request);
     }
 
+    @PostMapping("/tasks/{taskId}/move-to-goal")
+    public TaskDto moveTaskToGoal(@PathVariable String taskId, @Valid @RequestBody MoveTaskToGoalRequest request) {
+        return taskService.moveToGoal(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(taskId), request);
+    }
+
+    @PostMapping("/tasks/{taskId}/clone")
+    @ResponseStatus(HttpStatus.CREATED)
+    public TaskDto cloneTask(@PathVariable String taskId, @Valid @RequestBody CloneTaskRequest request) {
+        return taskService.clone(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(taskId), request);
+    }
+
     @PostMapping("/tasks/{taskId}/reschedule")
     public QuickRescheduleResponse quickReschedule(
             @PathVariable String taskId,
