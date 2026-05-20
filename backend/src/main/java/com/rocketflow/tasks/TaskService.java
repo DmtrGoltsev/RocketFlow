@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -125,13 +126,7 @@ public class TaskService {
         ensureTaskCanUseStatus(task, request.status());
         if (!access.fullAccess()) {
             ensureSharedTaskUpdateAllowed(task, request);
-            task.setTitle(request.title().trim());
-            task.setDescription(request.description());
-            task.setType(request.type());
-            task.setPriority(request.priority());
             task.setStatus(request.status());
-            task.setPlannedTime(request.plannedTime());
-            task.setDueTime(request.dueTime());
             task.setCompletedAt(resolveCompletedAt(request.status(), task.getCompletedAt()));
             task.setUpdatedAt(Instant.now());
             task = taskRepository.save(task);
@@ -349,9 +344,29 @@ public class TaskService {
     }
 
     private void ensureSharedTaskUpdateAllowed(Task task, UpdateTaskRequest request) {
-        if (task.isArchived() != request.archived()) {
+        if (!Objects.equals(task.getTitle(), request.title().trim())
+                || !Objects.equals(task.getDescription(), request.description())
+                || !Objects.equals(task.getType(), request.type())
+                || task.getPriority() != request.priority()
+                || !Objects.equals(task.getPlannedTime(), request.plannedTime())
+                || !Objects.equals(task.getDueTime(), request.dueTime())
+                || task.isArchived() != request.archived()
+                || !equalTagIds(task.getId(), request.tagIds())) {
             throw notFound("Task");
         }
+    }
+
+    private boolean equalTagIds(UUID taskId, List<UUID> requestedTagIds) {
+        if (requestedTagIds == null) {
+            return true;
+        }
+        Set<UUID> actualTagIds = taskTagLinkRepository.findByTaskId(taskId).stream()
+                .map(TaskTagLink::getTagId)
+                .collect(Collectors.toSet());
+        Set<UUID> requestedTagIdSet = requestedTagIds.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        return requestedTagIdSet.size() == requestedTagIds.size() && actualTagIds.equals(requestedTagIdSet);
     }
 
     private void ensureVersion(long actual, long expected, String entityName) {

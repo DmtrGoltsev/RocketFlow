@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.rocketflow.companion.network.ApiException
 import com.rocketflow.companion.network.HttpJsonClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -104,7 +105,7 @@ class AuthRepositoryRefreshRaceInstrumentedTest {
 
         val authRepository = repository()
         authRepository.setOnSessionClearedListener { clearedCallbacks.incrementAndGet() }
-        val result = async { authRepository.authorizedGet(initial, "/protected") }
+        val result = async(Dispatchers.Default) { authRepository.authorizedGet(initial, "/protected") }
 
         assertTrue(refreshStarted.await(2, TimeUnit.SECONDS))
         sessionStore.writeSession(newer)
@@ -135,7 +136,7 @@ class AuthRepositoryRefreshRaceInstrumentedTest {
         }.also { it.start() }
 
         val authRepository = repository()
-        val result = async {
+        val result = async(Dispatchers.Default) {
             try {
                 authRepository.authorizedGet(initial, "/protected")
                 fail("Expected cleared store to terminate stale refresh")
@@ -183,7 +184,7 @@ class AuthRepositoryRefreshRaceInstrumentedTest {
         }.also { it.start() }
 
         val authRepository = repository()
-        val result = async { authRepository.authorizedGet(initial, "/protected") }
+        val result = async(Dispatchers.Default) { authRepository.authorizedGet(initial, "/protected") }
 
         assertTrue(refreshStarted.await(2, TimeUnit.SECONDS))
         sessionStore.writeSession(newer)
@@ -241,8 +242,8 @@ class AuthRepositoryRefreshRaceInstrumentedTest {
 
         val refreshRepository = repository(storage)
         val loginRepository = repository(storage)
-        val refresh = async { refreshRepository.authorizedGet(initial, "/protected") }
-        val login = async {
+        val refresh = async(Dispatchers.Default) { refreshRepository.authorizedGet(initial, "/protected") }
+        val login = async(Dispatchers.Default) {
             assertTrue(finalGuardRead.await(2, TimeUnit.SECONDS))
             loginRepository.login("user@example.test", "password")
         }

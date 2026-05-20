@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - release_1
+      - MVP2
   workflow_dispatch:
     inputs:
       health_url:
@@ -23,7 +24,7 @@ jobs:
     name: deploy-backend
     runs-on: ubuntu-24.04
     environment: production
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/release_1'
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/release_1' || github.ref == 'refs/heads/MVP2'
 
     defaults:
       run:
@@ -72,15 +73,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${HEXCORE_PROD_SSH_HOST}" ] || [ -z "${HEXCORE_PROD_SSH_USER}" ] || [ -z "${HEXCORE_PROD_SSH_PRIVATE_KEY}" ]; then
-            echo "Нужны secrets HEXCORE_PROD_SSH_HOST, HEXCORE_PROD_SSH_USER и HEXCORE_PROD_SSH_PRIVATE_KEY." >&2
+          echo "Deploy context:"
+          echo "  event=${GITHUB_EVENT_NAME}"
+          echo "  ref=${GITHUB_REF}"
+          echo "  sha=${GITHUB_SHA}"
+          echo "Push auto deploy is intentionally limited to refs/heads/release_1 and refs/heads/MVP2."
+
+          missing=0
+          for secret_name in HEXCORE_PROD_SSH_HOST HEXCORE_PROD_SSH_USER HEXCORE_PROD_SSH_PRIVATE_KEY; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::error::Required secret ${secret_name} is not configured or is empty."
+              missing=1
+            else
+              echo "Secret ${secret_name}: present"
+            fi
+          done
+
+          if [ "${missing}" -ne 0 ]; then
             exit 1
           fi
 
           install -d -m 700 ~/.ssh
-          printf '%s\n' "${HEXCORE_PROD_SSH_PRIVATE_KEY}" > ~/.ssh/rocketflow_prod_deploy
+          printf '%s\n' "${HEXCORE_PROD_SSH_PRIVATE_KEY}" | tr -d '\r' > ~/.ssh/rocketflow_prod_deploy
           chmod 600 ~/.ssh/rocketflow_prod_deploy
           ssh-keyscan -H "${HEXCORE_PROD_SSH_HOST}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Загрузить backend jar и web build на сервер
         env:
@@ -93,16 +110,25 @@ jobs:
           remote_jar_path="/opt/rocketflow/releases/rocketflow-backend-sha-${GITHUB_SHA::12}.jar"
           web_archive="rocketflow-web-sha-${GITHUB_SHA::12}.tar.gz"
           remote_web_path="/opt/rocketflow/web-releases/${web_archive}"
+          ssh_opts=(
+            -i ~/.ssh/rocketflow_prod_deploy
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=15
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile=~/.ssh/known_hosts
+          )
+
+          ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
+            'set -euo pipefail; echo "SSH smoke: user=$(whoami) host=$(hostname)"; test -w /opt/rocketflow/releases; test -w /opt/rocketflow/web-releases'
 
           scp \
-            -i ~/.ssh/rocketflow_prod_deploy \
-            -o IdentitiesOnly=yes \
+            "${ssh_opts[@]}" \
             "${jar_path}" \
             "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}:${remote_jar_path}"
 
           scp \
-            -i ~/.ssh/rocketflow_prod_deploy \
-            -o IdentitiesOnly=yes \
+            "${ssh_opts[@]}" \
             "${web_archive}" \
             "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}:${remote_web_path}"
 
@@ -112,12 +138,18 @@ jobs:
           HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
         run: |
           set -euo pipefail
+          ssh_opts=(
+            -i ~/.ssh/rocketflow_prod_deploy
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=15
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile=~/.ssh/known_hosts
+          )
 
-          ssh \
-            -i ~/.ssh/rocketflow_prod_deploy \
-            -o IdentitiesOnly=yes \
+          ssh "${ssh_opts[@]}" \
             "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
-            "sudo /usr/local/sbin/rocketflow-promote-latest"
+            "sudo -n /usr/local/sbin/rocketflow-promote-latest"
 
       - name: Проверить production health
         env:
@@ -129,8 +161,8 @@ jobs:
           health_url="${INPUT_HEALTH_URL:-http://${HEXCORE_PROD_SSH_HOST}/rocket-api/health}"
 
           for attempt in {1..40}; do
-            if curl --fail --silent --show-error "${health_url}" | grep -q '"status":"UP"'; then
-              echo "Production backend здоров: ${health_url}"
+            if response="$(curl --fail --silent --show-error "${health_url}")" && grep -q '"status":"UP"' <<< "${response}"; then
+              echo "Production backend health returned UP."
               exit 0
             fi
 
@@ -146,4 +178,9 @@ jobs:
           HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error "http://${HEXCORE_PROD_SSH_HOST}/rocket/" | grep -qi '<div id="root"'
+          if curl --fail --silent --show-error "http://${HEXCORE_PROD_SSH_HOST}/rocket/" | grep -qi '<div id="root"'; then
+            echo "Production web root marker is present."
+          else
+            echo "::error::Production web check failed: root marker was not found or the request failed." >&2
+            exit 1
+          fi

@@ -26,9 +26,9 @@ Production deploy работает только через HexCore-сервер:
 Workflow запускается:
 
 - вручную через `workflow_dispatch`;
-- автоматически на `push` в ветку `release_1`.
+- автоматически на `push` в ветки `release_1` и `MVP2`.
 
-Это и есть деплой после принятия pull request: PR из `MVP2` вливается в `release_1`, GitHub создаёт push в `release_1`, после чего стартует production deploy. На каждый push в `MVP2` production deploy намеренно не запускается.
+`release_1` может оставаться release/promotion веткой: PR из `MVP2` вливается в `release_1`, GitHub создаёт push в `release_1`, после чего стартует production deploy. При этом MVP2 также деплоится напрямую: каждый push в `MVP2` автоматически запускает production deploy.
 
 ## GitHub Secrets
 
@@ -58,7 +58,7 @@ Workflow запускается:
 2. Открыть pull request из `MVP2` в `release_1`.
 3. Дождаться зелёных checks: `backend-verify`, `web-verify`, `android-verify`.
 4. Делать merge только после зелёных checks.
-5. После merge GitHub запускает deploy на HexCore.
+5. После push в `MVP2` или merge в `release_1` GitHub запускает deploy на HexCore.
 6. Workflow выкладывает backend jar и web build.
 7. Workflow проверяет `http://45.10.110.42/rocket-api/health` и доступность web root `http://45.10.110.42/rocket/`.
 

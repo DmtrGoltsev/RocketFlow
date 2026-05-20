@@ -138,7 +138,9 @@ data class EntityLink(
     val archived: Boolean,
     val version: Long,
     val createdAt: String,
-    val updatedAt: String
+    val updatedAt: String,
+    val syncState: SyncState = SyncState.Synced,
+    val lastError: String? = null
 )
 
 data class TaskTag(

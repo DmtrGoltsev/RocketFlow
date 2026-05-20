@@ -223,6 +223,35 @@ class AuthSettingsIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void logoutAllowsBearerOnlyRequestAndRevokesSession() throws Exception {
+        String response = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "logout-user@example.com",
+                                  "password": "strong-password",
+                                  "displayName": "Logout User",
+                                  "timezone": "Europe/Moscow",
+                                  "language": "ru"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        String accessToken = read(response, "/tokens/accessToken");
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/me/settings")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
+    }
+
     private String read(String json, String path) throws Exception {
         JsonNode root = objectMapper.readTree(json);
         JsonNode value = root.at(path);

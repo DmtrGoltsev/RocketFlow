@@ -7,13 +7,13 @@ import {
   Circle,
   Cloud,
   Copy,
+  Flame,
   Folder,
   GitBranch,
-  Lightbulb,
-  Link2,
   MoreHorizontal,
   Move,
   PanelRightClose,
+  PenLine,
   Pencil,
   Plus,
   Save,
@@ -22,6 +22,7 @@ import {
   Target,
   Trash2,
   UserCircle,
+  Waypoints,
   X,
 } from 'lucide-react';
 
@@ -117,6 +118,11 @@ interface Selection {
   taskId: string | null;
   ideaId: string | null;
   noteId: string | null;
+}
+
+interface LinkEntitySelection {
+  type: LinkEntityType;
+  id: string;
 }
 
 interface TaskDraft {
@@ -485,7 +491,6 @@ function usePlanCopy() {
     archiveGoalConfirm: locale === 'ru' ? 'Переместить цель в архив?' : 'Archive this goal?',
     archiveIdeaConfirm: locale === 'ru' ? 'Удалить идею?' : 'Delete this idea?',
     deleteNoteConfirm: locale === 'ru' ? 'Удалить заметку?' : 'Delete this note?',
-    synced: locale === 'ru' ? 'Синхронизировано' : 'Synced',
     save: locale === 'ru' ? 'Сохранить' : 'Save',
     cancel: locale === 'ru' ? 'Отмена' : 'Cancel',
     edit: locale === 'ru' ? 'Изменить' : 'Edit',
@@ -496,8 +501,11 @@ function usePlanCopy() {
     goalName: locale === 'ru' ? 'Новая цель' : 'New goal',
     taskName: locale === 'ru' ? 'Новая задача' : 'New task',
     noteName: locale === 'ru' ? 'Новая заметка' : 'New note',
+    commentName: locale === 'ru' ? 'Новый комментарий' : 'New comment',
     notePlaceholder: locale === 'ru' ? 'Запишите мысль или контекст' : 'Write a thought or context',
     addNote: locale === 'ru' ? 'Добавить заметку' : 'Add note',
+    addComment: locale === 'ru' ? 'Добавить комментарий' : 'Add comment',
+    saveText: locale === 'ru' ? 'Сохранить текст' : 'Save text',
     linkedNotes: locale === 'ru' ? 'Связанные заметки' : 'Linked notes',
     noLinkedNotes: locale === 'ru' ? 'Связанных заметок нет.' : 'No linked notes yet.',
     links: locale === 'ru' ? 'Связи' : 'Links',
@@ -507,11 +515,16 @@ function usePlanCopy() {
     addLink: locale === 'ru' ? 'Добавить связь' : 'Add link',
     deleteLink: locale === 'ru' ? 'Удалить связь' : 'Delete link',
     linkTarget: locale === 'ru' ? 'С чем связать' : 'Link target',
+    linkSearch: locale === 'ru' ? 'Найти по названию' : 'Search by title',
     relationType: locale === 'ru' ? 'Тип связи' : 'Relation type',
     noLinks: locale === 'ru' ? 'Связей пока нет.' : 'No links yet.',
+    noLinkTargets: locale === 'ru' ? 'Подходящих сущностей нет.' : 'No matching entities.',
     dependencyHint: locale === 'ru'
       ? 'Зависимость доступна только между задачами.'
       : 'Dependencies are available only between tasks.',
+    dependencyDirection: locale === 'ru'
+      ? 'Эта задача зависит от выбранной задачи.'
+      : 'This task depends on the selected task.',
     open: locale === 'ru' ? 'Открыть' : 'Open',
     move: locale === 'ru' ? 'Переместить' : 'Move',
     clone: locale === 'ru' ? 'Клонировать' : 'Clone',
@@ -554,9 +567,13 @@ export function TasksRoute() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [createTaskGoalId, setCreateTaskGoalId] = useState<string | null>(null);
   const [createIdeaFolderId, setCreateIdeaFolderId] = useState<string | null>(null);
+  const [createNoteFolderId, setCreateNoteFolderId] = useState<string | null>(null);
+  const [createNoteLinkEntity, setCreateNoteLinkEntity] = useState<LinkEntitySelection | null>(null);
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
   const [detailAddOpen, setDetailAddOpen] = useState(false);
   const [detailMenuOpen, setDetailMenuOpen] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [draft, setDraft] = useState<TaskDraft>(() => toDraft(null));
@@ -571,7 +588,9 @@ export function TasksRoute() {
   const [operationTargetId, setOperationTargetId] = useState('');
   const [operationName, setOperationName] = useState('');
   const [dragEntity, setDragEntity] = useState<EntitySelection | null>(null);
+  const [invalidDropTarget, setInvalidDropTarget] = useState<string | null>(null);
   const [linkTargetKey, setLinkTargetKey] = useState('');
+  const [linkSearch, setLinkSearch] = useState('');
   const [linkRelationType, setLinkRelationType] = useState<EntityRelationType>('related');
   const [shareEmail, setShareEmail] = useState('');
   const [shareFullAccess, setShareFullAccess] = useState(true);
@@ -591,12 +610,14 @@ export function TasksRoute() {
   const selectedFolderTasks = selectedFolderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []);
   const selectedGoalTasks = selectedGoal ? tasksByGoal[selectedGoal.id] ?? [] : [];
   const ideaCreationFolder = createIdeaFolderId ? folders.find((folder) => folder.id === createIdeaFolderId) ?? null : null;
+  const noteCreationFolder = createNoteFolderId ? folders.find((folder) => folder.id === createNoteFolderId) ?? null : null;
   const taskCreationGoal = goals.find((goal) => goal.id === createTaskGoalId) ?? null;
   const taskCreationFolder = taskCreationGoal
     ? folders.find((folder) => folder.id === taskCreationGoal.folderId) ?? null
     : null;
   const isCreatingTask = Boolean(createTaskGoalId);
   const isCreatingIdea = Boolean(createIdeaFolderId);
+  const isCreatingNote = Boolean(createNoteFolderId);
   const panelGoal = isCreatingTask ? taskCreationGoal : selectedGoal;
   const panelFolder = isCreatingTask ? taskCreationFolder : selectedFolder;
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase(locale === 'ru' ? 'ru-RU' : 'en-US');
@@ -685,6 +706,20 @@ export function TasksRoute() {
 
     return refs.filter((ref) => !(ref.type === selectedLinkEntity.type && ref.id === selectedLinkEntity.id));
   }, [folders, goals, ideas, notes, selectedLinkEntity, tasks]);
+  const filteredLinkCandidates = useMemo(() => {
+    const query = linkSearch.trim().toLocaleLowerCase(locale === 'ru' ? 'ru-RU' : 'en-US');
+
+    if (!query) {
+      return currentLinkCandidates;
+    }
+
+    return currentLinkCandidates.filter((ref) => (
+      matchesQuery(ref.title, query, locale) ||
+      matchesQuery(ref.path, query, locale) ||
+      matchesQuery(ref.subtitle, query, locale) ||
+      matchesQuery(ref.type, query, locale)
+    ));
+  }, [currentLinkCandidates, linkSearch, locale]);
   const linkedNotes = selectedLinkEntity && selectedLinkEntity.type !== 'note'
     ? selectedLinks.map((link) => otherLinkRef(link, selectedLinkEntity.type, selectedLinkEntity.id)).filter((ref) => ref.type === 'note')
     : [];
@@ -716,8 +751,12 @@ export function TasksRoute() {
   }, [createIdeaFolderId, planningCopy.ideas.defaultStatus, selectedIdea?.id]);
 
   useEffect(() => {
+    if (createNoteFolderId) {
+      return;
+    }
+
     setNoteDraft(toNoteDraft(selectedNote));
-  }, [selectedNote?.id]);
+  }, [createNoteFolderId, selectedNote?.id]);
 
   useEffect(() => {
     if (!selectedIdea || ideaNotesByIdea[selectedIdea.id]) {
@@ -753,12 +792,56 @@ export function TasksRoute() {
     setNotice(null);
     setDetailAddOpen(false);
     setDetailMenuOpen(false);
+    setIsLinkEditorOpen(false);
+    setLinkSearch('');
+    setLinkTargetKey('');
+    setLinkRelationType('related');
     setOperation(null);
   }
 
   function clearCreation() {
     setCreateTaskGoalId(null);
     setCreateIdeaFolderId(null);
+    setCreateNoteFolderId(null);
+    setCreateNoteLinkEntity(null);
+  }
+
+  function applyLinkToCachedEntities(link: EntityLinkDto, requiredKeys: string[] = []) {
+    const sourceKey = entityKey(link.source.type, link.source.id);
+    const targetKey = entityKey(link.target.type, link.target.id);
+    const keys = new Set([sourceKey, targetKey, ...requiredKeys]);
+
+    setLinksByEntity((current) => {
+      const next = { ...current };
+      keys.forEach((key) => {
+        if (next[key] || requiredKeys.includes(key)) {
+          next[key] = [...next[key], link];
+        }
+      });
+      return next;
+    });
+  }
+
+  function removeLinkFromCachedEntities(link: EntityLinkDto) {
+    const sourceKey = entityKey(link.source.type, link.source.id);
+    const targetKey = entityKey(link.target.type, link.target.id);
+
+    setLinksByEntity((current) => {
+      const next = { ...current };
+      [sourceKey, targetKey].forEach((key) => {
+        if (next[key]) {
+          next[key] = next[key].filter((item) => item.id !== link.id);
+        }
+      });
+      return next;
+    });
+  }
+
+  function showInvalidDrop(targetKey: string) {
+    setInvalidDropTarget(targetKey);
+    window.setTimeout(() => {
+      setInvalidDropTarget((current) => current === targetKey ? null : current);
+    }, 650);
   }
 
   async function runAction(action: () => Promise<void>) {
@@ -1016,25 +1099,57 @@ export function TasksRoute() {
     setIsPanelOpen(true);
   }
 
-  async function handleCreateNote(folderId = selection.folderId) {
+  function handleCreateNote(folderId = selection.folderId, linkEntity: LinkEntitySelection | null = null) {
     const targetFolder = folders.find((folder) => folder.id === folderId) ?? null;
     if (!folderId || !canCreateFolderResource(targetFolder)) {
       return;
     }
 
+    resetTransientState();
+    setCreateTaskGoalId(null);
+    setCreateIdeaFolderId(null);
+    setCreateNoteFolderId(folderId);
+    setCreateNoteLinkEntity(linkEntity);
+    setSelection({ folderId, goalId: null, taskId: null, ideaId: null, noteId: null });
+    setNoteDraft({
+      title: linkEntity ? copy.commentName : planningCopy.notes.defaultTitle,
+      body: '',
+    });
+    setEditingEntity(null);
+    setIsPanelOpen(true);
+  }
+
+  async function handleSaveNewNote() {
+    if (!createNoteFolderId || !noteDraft.title.trim()) {
+      return;
+    }
+
     await runAction(async () => {
-      clearCreation();
-      const note = await createNote(authorizedFetch, folderId, {
-        title: planningCopy.notes.defaultTitle,
+      const note = await createNote(authorizedFetch, createNoteFolderId, {
+        title: noteDraft.title.trim(),
         body: '',
       });
       setNotesByFolder((current) => ({
         ...current,
-        [folderId]: [...(current[folderId] ?? []), note],
+        [createNoteFolderId]: [...(current[createNoteFolderId] ?? []), note],
       }));
-      setSelection({ folderId, goalId: null, taskId: null, ideaId: null, noteId: note.id });
+
+      if (createNoteLinkEntity) {
+        const link = await createEntityLink(authorizedFetch, {
+          sourceType: createNoteLinkEntity.type,
+          sourceId: createNoteLinkEntity.id,
+          targetType: 'note',
+          targetId: note.id,
+          relationType: 'related',
+        });
+        applyLinkToCachedEntities(link, [entityKey(createNoteLinkEntity.type, createNoteLinkEntity.id)]);
+      }
+
+      setCreateNoteFolderId(null);
+      setCreateNoteLinkEntity(null);
+      setSelection({ folderId: createNoteFolderId, goalId: null, taskId: null, ideaId: null, noteId: note.id });
       setNoteDraft(toNoteDraft(note));
-      setEditingEntity({ type: 'note', id: note.id });
+      setEditingEntity(null);
       setIsPanelOpen(true);
     });
   }
@@ -1220,7 +1335,7 @@ export function TasksRoute() {
     await runAction(async () => {
       const updated = await updateNote(authorizedFetch, selectedNote.id, {
         title: noteDraft.title.trim(),
-        body: noteDraft.body.trim(),
+        body: noteDraft.body,
         displayOrder: selectedNote.displayOrder,
         archived: selectedNote.archived,
         version: selectedNote.version,
@@ -1383,13 +1498,11 @@ export function TasksRoute() {
         targetId,
         relationType,
       });
-      const key = entityKey(selectedLinkEntity.type, selectedLinkEntity.id);
-      setLinksByEntity((current) => ({
-        ...current,
-        [key]: [...(current[key] ?? []), link],
-      }));
+      applyLinkToCachedEntities(link, [entityKey(selectedLinkEntity.type, selectedLinkEntity.id)]);
       setLinkTargetKey('');
+      setLinkSearch('');
       setLinkRelationType('related');
+      setIsLinkEditorOpen(false);
     });
   }
 
@@ -1400,11 +1513,7 @@ export function TasksRoute() {
 
     await runAction(async () => {
       await deleteEntityLink(authorizedFetch, link.id);
-      const key = entityKey(selectedLinkEntity.type, selectedLinkEntity.id);
-      setLinksByEntity((current) => ({
-        ...current,
-        [key]: (current[key] ?? []).filter((item) => item.id !== link.id),
-      }));
+      removeLinkFromCachedEntities(link);
     });
   }
 
@@ -1512,12 +1621,14 @@ export function TasksRoute() {
   async function handleDropOnFolder(event: DragEvent, targetFolderId: string) {
     event.preventDefault();
     if (!dragEntity || (dragEntity.type === 'task')) {
+      showInvalidDrop(`folder:${targetFolderId}`);
       return;
     }
 
     const entity = dragEntity;
     const previousTargets = operationTargets(entity);
     if (!previousTargets.some((target) => target.id === targetFolderId)) {
+      showInvalidDrop(`folder:${targetFolderId}`);
       return;
     }
 
@@ -1528,11 +1639,13 @@ export function TasksRoute() {
   async function handleDropOnGoal(event: DragEvent, targetGoalId: string) {
     event.preventDefault();
     if (!dragEntity || dragEntity.type !== 'task') {
+      showInvalidDrop(`goal:${targetGoalId}`);
       return;
     }
 
     const previousTargets = operationTargets(dragEntity);
     if (!previousTargets.some((target) => target.id === targetGoalId)) {
+      showInvalidDrop(`goal:${targetGoalId}`);
       return;
     }
 
@@ -1586,6 +1699,83 @@ export function TasksRoute() {
     return names.join(' / ');
   }
 
+  function folderIdForEntity(entity: LinkEntitySelection | null) {
+    if (!entity) {
+      return null;
+    }
+
+    if (entity.type === 'goal') {
+      return goals.find((goal) => goal.id === entity.id)?.folderId ?? null;
+    }
+
+    if (entity.type === 'task') {
+      const task = tasks.find((item) => item.id === entity.id);
+      const goal = task ? goals.find((item) => item.id === task.goalId) : null;
+      return goal?.folderId ?? null;
+    }
+
+    if (entity.type === 'idea') {
+      return ideas.find((idea) => idea.id === entity.id)?.folderId ?? null;
+    }
+
+    return notes.find((note) => note.id === entity.id)?.folderId ?? null;
+  }
+
+  function entityIcon(type: LinkEntityType, size = 16) {
+    if (type === 'goal') {
+      return <Target aria-hidden="true" size={size} strokeWidth={1.75} />;
+    }
+
+    if (type === 'task') {
+      return <Circle aria-hidden="true" size={size} strokeWidth={1.75} />;
+    }
+
+    if (type === 'idea') {
+      return <Flame aria-hidden="true" size={size} strokeWidth={1.75} />;
+    }
+
+    return <PenLine aria-hidden="true" size={size} strokeWidth={1.75} />;
+  }
+
+  function isSectionOpen(key: string, defaultOpen = true) {
+    return openSections[key] ?? defaultOpen;
+  }
+
+  function toggleSection(key: string, defaultOpen = true) {
+    setOpenSections((current) => ({ ...current, [key]: !(current[key] ?? defaultOpen) }));
+  }
+
+  function openSection(key: string) {
+    setOpenSections((current) => ({ ...current, [key]: true }));
+  }
+
+  function renderSection(
+    key: string,
+    title: string,
+    children: JSX.Element,
+    options: { defaultOpen?: boolean; action?: JSX.Element | null } = {},
+  ) {
+    const open = isSectionOpen(key, options.defaultOpen ?? true);
+
+    return (
+      <section className="detail-disclosure">
+        <div className="detail-disclosure__header">
+          <button
+            className="detail-disclosure__trigger"
+            type="button"
+            aria-expanded={open}
+            onClick={() => toggleSection(key, options.defaultOpen ?? true)}
+          >
+            <ChevronDown className={open ? '' : 'is-closed'} aria-hidden="true" size={14} strokeWidth={1.9} />
+            <span>{title}</span>
+          </button>
+          {options.action ?? null}
+        </div>
+        {open ? children : null}
+      </section>
+    );
+  }
+
   function renderAddMenu(folder: PlanFolder | null, goal: GoalDto | null = null) {
     return (
       <div className="create-menu">
@@ -1613,11 +1803,11 @@ export function TasksRoute() {
                   <span>{copy.goal}</span>
                 </button>
                 <button type="button" role="menuitem" disabled={!canCreateFolderResource(folder)} onClick={() => { setDetailAddOpen(false); handleCreateIdea(folder.id); }}>
-                  <Lightbulb aria-hidden="true" size={16} strokeWidth={1.75} />
+                  <Flame aria-hidden="true" size={16} strokeWidth={1.75} />
                   <span>{copy.idea}</span>
                 </button>
-                <button type="button" role="menuitem" disabled={!canCreateFolderResource(folder)} onClick={() => { setDetailAddOpen(false); void handleCreateNote(folder.id); }}>
-                  <StickyNote aria-hidden="true" size={16} strokeWidth={1.75} />
+                <button type="button" role="menuitem" disabled={!canCreateFolderResource(folder)} onClick={() => { setDetailAddOpen(false); handleCreateNote(folder.id); }}>
+                  <PenLine aria-hidden="true" size={16} strokeWidth={1.75} />
                   <span>{copy.note}</span>
                 </button>
               </>
@@ -1649,7 +1839,13 @@ export function TasksRoute() {
 
     return (
       <header className="detail-panel__header detail-panel__header--centered">
-        <button className="button button--ghost" type="button" onClick={() => setIsPanelOpen(false)}>
+        <button
+          className="button button--ghost"
+          type="button"
+          aria-label={copy.collapse}
+          title={copy.collapse}
+          onClick={() => setIsPanelOpen(false)}
+        >
           {copy.cancel}
         </button>
         <div className="detail-panel__header-title">
@@ -1783,68 +1979,110 @@ export function TasksRoute() {
     }
 
     const dependencyAvailable = selectedLinkEntity.type === 'task' && linkTargetKey.startsWith('task:');
+    const selectedTarget = linkTargetKey
+      ? currentLinkCandidates.find((ref) => `${ref.type}:${ref.id}` === linkTargetKey) ?? null
+      : null;
+    const addLinkAction = (
+      <button
+        className="icon-button detail-disclosure__action"
+        type="button"
+        aria-label={copy.addLink}
+        title={copy.addLink}
+        disabled={saving}
+        onClick={(event) => {
+          event.stopPropagation();
+          openSection('links');
+          setIsLinkEditorOpen((current) => !current);
+        }}
+      >
+        <Waypoints aria-hidden="true" size={17} strokeWidth={1.75} />
+      </button>
+    );
 
-    return (
-      <section className="detail-disclosure">
-        <summary>{copy.links}</summary>
+    return renderSection('links', copy.links, (
+      <>
         <div className="detail-section">
           {selectedLinks.length === 0 ? <p className="muted">{copy.noLinks}</p> : null}
           {selectedLinks.map((link) => {
             const ref = otherLinkRef(link, selectedLinkEntity.type, selectedLinkEntity.id);
             return (
-              <article className="detail-note entity-link-card" key={link.id}>
-                {link.relationType === 'dependency' ? <GitBranch size={16} aria-hidden="true" /> : <Link2 size={16} aria-hidden="true" />}
-                <div>
-                  <strong>{link.relationType === 'dependency' ? copy.dependency : copy.related}: {ref.title}</strong>
-                  <p>{ref.path || ref.subtitle || copy.details}</p>
-                  <div className="cluster">
-                    <button className="button button--ghost" type="button" onClick={() => openEntity(ref)}>
-                      {copy.open}
-                    </button>
-                    <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleDeleteEntityLink(link)}>
-                      <Trash2 size={15} aria-hidden="true" />
-                      <span>{copy.deleteLink}</span>
-                    </button>
+              <article className="entity-link-card" key={link.id}>
+                <button className="entity-link-card__main" type="button" onClick={() => openEntity(ref)}>
+                  {entityIcon(ref.type)}
+                  <div>
+                    <strong>{ref.title}</strong>
+                    <p>{ref.path || ref.subtitle || copy.details}</p>
                   </div>
-                </div>
+                </button>
+                <span className={`relation-chip relation-chip--${link.relationType}`}>
+                  {link.relationType === 'dependency' ? <GitBranch size={12} aria-hidden="true" /> : <Waypoints size={12} aria-hidden="true" />}
+                  {link.relationType === 'dependency' ? copy.dependency : copy.related}
+                </span>
+                <button
+                  className="icon-button entity-link-card__delete"
+                  type="button"
+                  aria-label={copy.deleteLink}
+                  title={copy.deleteLink}
+                  disabled={saving}
+                  onClick={() => void handleDeleteEntityLink(link)}
+                >
+                  <Trash2 size={14} aria-hidden="true" />
+                </button>
               </article>
             );
           })}
         </div>
-        <div className="detail-editor">
-          <label className="field detail-grid__wide">
-            <span>{copy.linkTarget}</span>
-            <select className="field__control" value={linkTargetKey} onChange={(event) => setLinkTargetKey(event.target.value)}>
-              <option value="">{copy.linkTarget}</option>
-              {currentLinkCandidates.map((ref) => (
-                <option key={`${ref.type}:${ref.id}`} value={`${ref.type}:${ref.id}`}>
-                  {ref.title} · {ref.path || ref.subtitle || ref.type}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field detail-grid__wide">
-            <span>{copy.relationType}</span>
-            <select
-              className="field__control"
-              value={dependencyAvailable ? linkRelationType : 'related'}
-              disabled={!dependencyAvailable}
-              onChange={(event) => setLinkRelationType(event.target.value as EntityRelationType)}
-            >
-              <option value="related">{copy.related}</option>
-              <option value="dependency">{copy.dependency}</option>
-            </select>
-          </label>
-          {!dependencyAvailable ? <p className="field__hint detail-grid__wide">{copy.dependencyHint}</p> : null}
-          <div className="cluster detail-grid__wide detail-editor__actions">
-            <button className="button button--primary" type="button" disabled={saving || !linkTargetKey} onClick={() => void handleCreateEntityLink()}>
-              <Link2 aria-hidden="true" size={16} strokeWidth={1.75} />
-              <span>{copy.addLink}</span>
-            </button>
+        {isLinkEditorOpen ? (
+          <div className="detail-editor link-editor">
+            <label className="field detail-grid__wide">
+              <span>{copy.linkSearch}</span>
+              <input
+                className="field__control"
+                type="search"
+                value={linkSearch}
+                placeholder={copy.linkSearch}
+                onChange={(event) => setLinkSearch(event.target.value)}
+              />
+            </label>
+            <label className="field detail-grid__wide">
+              <span>{copy.linkTarget}</span>
+              <select className="field__control" value={linkTargetKey} onChange={(event) => setLinkTargetKey(event.target.value)}>
+                <option value="">{copy.linkTarget}</option>
+                {filteredLinkCandidates.map((ref) => (
+                  <option key={`${ref.type}:${ref.id}`} value={`${ref.type}:${ref.id}`}>
+                    {ref.title} · {ref.path || ref.subtitle || ref.type}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {filteredLinkCandidates.length === 0 ? <p className="field__hint detail-grid__wide">{copy.noLinkTargets}</p> : null}
+            <label className="field detail-grid__wide">
+              <span>{copy.relationType}</span>
+              <select
+                className="field__control"
+                value={dependencyAvailable ? linkRelationType : 'related'}
+                disabled={!dependencyAvailable}
+                onChange={(event) => setLinkRelationType(event.target.value as EntityRelationType)}
+              >
+                <option value="related">{copy.related}</option>
+                <option value="dependency">{copy.dependency}</option>
+              </select>
+            </label>
+            {dependencyAvailable && selectedTarget?.type === 'task' ? (
+              <p className="field__hint detail-grid__wide">{copy.dependencyDirection}</p>
+            ) : (
+              <p className="field__hint detail-grid__wide">{copy.dependencyHint}</p>
+            )}
+            <div className="cluster detail-grid__wide detail-editor__actions">
+              <button className="button button--primary" type="button" disabled={saving || !linkTargetKey} onClick={() => void handleCreateEntityLink()}>
+                <Waypoints aria-hidden="true" size={16} strokeWidth={1.75} />
+                <span>{copy.addLink}</span>
+              </button>
+            </div>
           </div>
-        </div>
-      </section>
-    );
+        ) : null}
+      </>
+    ), { action: addLinkAction });
   }
 
   function renderLinkedNotesPanel() {
@@ -1852,20 +2090,36 @@ export function TasksRoute() {
       return null;
     }
 
-    return (
-      <details className="detail-disclosure">
-        <summary>{copy.linkedNotes}</summary>
+    const folderId = folderIdForEntity(selectedLinkEntity);
+    const sectionKey = `linked-notes:${selectedLinkEntity.type}:${selectedLinkEntity.id}`;
+    const addCommentAction = folderId ? (
+      <button
+        className="icon-button detail-disclosure__action"
+        type="button"
+        aria-label={copy.addComment}
+        title={copy.addComment}
+        disabled={saving}
+        onClick={(event) => {
+          event.stopPropagation();
+          openSection(sectionKey);
+          handleCreateNote(folderId, selectedLinkEntity);
+        }}
+      >
+        <Plus aria-hidden="true" size={17} strokeWidth={1.75} />
+      </button>
+    ) : null;
+
+    return renderSection(sectionKey, copy.linkedNotes, (
         <div className="detail-section">
           {linkedNotes.length === 0 ? <p className="muted">{copy.noLinkedNotes}</p> : null}
           {linkedNotes.map((ref) => (
             <button className="detail-note detail-note--button" type="button" key={ref.id} onClick={() => openEntity(ref)}>
-              <StickyNote size={16} aria-hidden="true" />
+              <PenLine size={16} aria-hidden="true" />
               <span>{ref.title}</span>
             </button>
           ))}
         </div>
-      </details>
-    );
+    ), { defaultOpen: false, action: addCommentAction });
   }
 
   const rowCopy = {
@@ -1920,17 +2174,25 @@ export function TasksRoute() {
     }
 
     const indent = depth * 18;
+    const folderDropKey = `folder:${folder.id}`;
 
     return (
       <div className="plan-tree__group" key={folder.id}>
         <button
           type="button"
-          className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.goalId && !selection.taskId && !selection.ideaId && !selection.noteId ? ' is-selected' : ''}`}
+          className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.goalId && !selection.taskId && !selection.ideaId && !selection.noteId ? ' is-selected' : ''}${invalidDropTarget === folderDropKey ? ' is-drop-invalid' : ''}`}
           style={{ marginLeft: indent, width: `calc(100% - ${indent}px)` }}
           draggable
           onDragStart={() => setDragEntity({ type: 'folder', id: folder.id })}
-          onDragEnd={() => setDragEntity(null)}
-          onDragOver={(event) => dragEntity && dragEntity.type !== 'task' ? event.preventDefault() : undefined}
+          onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
+          onDragOver={(event) => {
+            if (!dragEntity) {
+              return;
+            }
+
+            event.preventDefault();
+            event.dataTransfer.dropEffect = dragEntity.type === 'task' ? 'none' : 'move';
+          }}
           onDrop={(event) => void handleDropOnFolder(event, folder.id)}
           onClick={() => selectFolder(folder.id)}
           role="treeitem"
@@ -1956,11 +2218,11 @@ export function TasksRoute() {
             style={{ marginLeft: 40 + indent, width: `calc(100% - ${40 + indent}px)`, borderLeft: '3px solid #2563eb' }}
             draggable
             onDragStart={() => setDragEntity({ type: 'idea', id: idea.id })}
-            onDragEnd={() => setDragEntity(null)}
+            onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
             onClick={() => selectIdea(idea)}
             role="treeitem"
           >
-            <Lightbulb aria-hidden="true" size={16} strokeWidth={1.75} />
+            <Flame aria-hidden="true" size={16} strokeWidth={1.75} />
             <span className="marker-dot marker-dot--blue" aria-hidden="true" />
             <span className="plan-row__title">{idea.title}</span>
             <span className="plan-row__meta">{copy.idea}</span>
@@ -1975,11 +2237,11 @@ export function TasksRoute() {
             style={{ marginLeft: 40 + indent, width: `calc(100% - ${40 + indent}px)`, borderLeft: '3px solid #94a3b8' }}
             draggable
             onDragStart={() => setDragEntity({ type: 'note', id: note.id })}
-            onDragEnd={() => setDragEntity(null)}
+            onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
             onClick={() => selectNote(note)}
             role="treeitem"
           >
-            <StickyNote aria-hidden="true" size={16} strokeWidth={1.75} />
+            <PenLine aria-hidden="true" size={16} strokeWidth={1.75} />
             <span className="plan-row__title">{note.title}</span>
             <span className="plan-row__meta">{copy.note}</span>
           </button>
@@ -1989,12 +2251,19 @@ export function TasksRoute() {
           <div className="plan-tree__group" key={goal.id}>
             <button
               type="button"
-              className={`plan-row plan-row--goal${selection.goalId === goal.id && !selection.taskId && !selection.ideaId && !selection.noteId ? ' is-selected' : ''}`}
+              className={`plan-row plan-row--goal${selection.goalId === goal.id && !selection.taskId && !selection.ideaId && !selection.noteId ? ' is-selected' : ''}${invalidDropTarget === `goal:${goal.id}` ? ' is-drop-invalid' : ''}`}
               style={{ marginLeft: 20 + indent, width: `calc(100% - ${20 + indent}px)` }}
               draggable
               onDragStart={() => setDragEntity({ type: 'goal', id: goal.id })}
-              onDragEnd={() => setDragEntity(null)}
-              onDragOver={(event) => dragEntity?.type === 'task' ? event.preventDefault() : undefined}
+              onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
+              onDragOver={(event) => {
+                if (!dragEntity) {
+                  return;
+                }
+
+                event.preventDefault();
+                event.dataTransfer.dropEffect = dragEntity.type === 'task' ? 'move' : 'none';
+              }}
               onDrop={(event) => void handleDropOnGoal(event, goal.id)}
               onClick={() => selectGoal(goal)}
               role="treeitem"
@@ -2034,7 +2303,7 @@ export function TasksRoute() {
                   style={{ marginLeft: 40 + indent, width: `calc(100% - ${40 + indent}px)` }}
                   draggable
                   onDragStart={() => setDragEntity({ type: 'task', id: task.id })}
-                  onDragEnd={() => setDragEntity(null)}
+                  onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
                   role="treeitem"
                   aria-selected={selection.taskId === task.id}
                 >
@@ -2103,7 +2372,6 @@ export function TasksRoute() {
             <h1>{copy.plan}</h1>
             <div className="planner-header__meta">
               <span>{doneTasks}/{totalTasks}</span>
-              <span>{copy.synced}</span>
             </div>
           </div>
           <div className="planner-toolbar">
@@ -2151,11 +2419,11 @@ export function TasksRoute() {
                     <span>{copy.task}</span>
                   </button>
                   <button type="button" role="menuitem" disabled={!canCreateFolderResource(selectedFolder)} onClick={() => { setIsCreateMenuOpen(false); handleCreateIdea(); }}>
-                    <Lightbulb aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <Flame aria-hidden="true" size={16} strokeWidth={1.75} />
                     <span>{copy.idea}</span>
                   </button>
-                  <button type="button" role="menuitem" disabled={!canCreateFolderResource(selectedFolder)} onClick={() => { setIsCreateMenuOpen(false); void handleCreateNote(); }}>
-                    <StickyNote aria-hidden="true" size={16} strokeWidth={1.75} />
+                  <button type="button" role="menuitem" disabled={!canCreateFolderResource(selectedFolder)} onClick={() => { setIsCreateMenuOpen(false); handleCreateNote(); }}>
+                    <PenLine aria-hidden="true" size={16} strokeWidth={1.75} />
                     <span>{copy.note}</span>
                   </button>
                 </div>
@@ -2194,7 +2462,7 @@ export function TasksRoute() {
             {renderDetailHeader(selectedIdea.title, null, { type: 'idea', id: selectedIdea.id })}
             <div className="detail-panel__body">
               <div className="detail-panel__badges" aria-label={copy.details}>
-                <span className="meta-chip"><Lightbulb aria-hidden="true" size={14} strokeWidth={1.75} />{copy.idea}</span>
+                <span className="meta-chip"><Flame aria-hidden="true" size={14} strokeWidth={1.75} />{copy.idea}</span>
                 <span className="meta-chip">{copy.status}: {selectedIdea.status}</span>
                 {selectedIdea.shared ? <span className="meta-chip">{selectedIdea.fullAccess ? copy.fullAccess : copy.sharedResource}</span> : null}
               </div>
@@ -2221,8 +2489,8 @@ export function TasksRoute() {
                   </div>
                 </details>
               ) : null}
-              <details className="detail-disclosure" open>
-                <summary>{copy.ideaHistory}</summary>
+              {renderSection('idea-history', copy.ideaHistory, (
+                <>
                 <div className="detail-editor">
                   <label className="field detail-grid__wide"><span>{copy.addNote}</span><textarea className="field__control field__control--area" placeholder={copy.notePlaceholder} value={ideaNoteDraft} onChange={(event) => setIdeaNoteDraft(event.target.value)} /></label>
                   <button className="button button--primary detail-grid__wide" type="button" disabled={saving || !ideaNoteDraft.trim()} onClick={() => void handleCreateIdeaNote()}><Plus aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.addNote}</span></button>
@@ -2249,7 +2517,8 @@ export function TasksRoute() {
                     );
                   })}
                 </dl>
-              </details>
+                </>
+              ))}
               {renderLinkedNotesPanel()}
               {renderLinksPanel()}
               {renderOperationPanel()}
@@ -2260,8 +2529,7 @@ export function TasksRoute() {
             {renderDetailHeader(planningCopy.ideas.createTitle, null, null)}
             <div className="detail-panel__body">
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(ideaCreationFolder.id)}</span></div></div>
-              <details className="detail-disclosure" open>
-                <summary>{copy.details}</summary>
+              {renderSection('create-idea-details', copy.details, (
                 <div className="detail-editor">
                   <label className="field detail-grid__wide"><span>{planningCopy.ideas.titleLabel}</span><input className="field__control" value={ideaDraft.title} onChange={(event) => setIdeaDraft((current) => ({ ...current, title: event.target.value }))} /></label>
                   <label className="field detail-grid__wide"><span>{planningCopy.ideas.bodyLabel}</span><textarea className="field__control field__control--area" value={ideaDraft.description} onChange={(event) => setIdeaDraft((current) => ({ ...current, description: event.target.value }))} /></label>
@@ -2273,7 +2541,26 @@ export function TasksRoute() {
                     <button className="button button--primary" type="button" disabled={saving || !ideaDraft.title.trim()} onClick={() => void handleSaveNewIdea()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
                   </div>
                 </div>
-              </details>
+              ))}
+            </div>
+          </>
+        ) : isCreatingNote && noteCreationFolder ? (
+          <>
+            {renderDetailHeader(planningCopy.notes.createTitle, null, null)}
+            <div className="detail-panel__body">
+              <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(noteCreationFolder.id)}</span></div></div>
+              {renderSection('create-note-details', copy.details, (
+                <div className="detail-editor">
+                  <label className="field detail-grid__wide">
+                    <span>{planningCopy.notes.titleLabel}</span>
+                    <input className="field__control" autoFocus value={noteDraft.title} onChange={(event) => setNoteDraft((current) => ({ ...current, title: event.target.value }))} />
+                  </label>
+                  <div className="cluster detail-grid__wide detail-editor__actions">
+                    <button className="button button--ghost" type="button" disabled={saving} onClick={() => { setCreateNoteFolderId(null); setCreateNoteLinkEntity(null); setNoteDraft(toNoteDraft(null)); }}>{copy.cancel}</button>
+                    <button className="button button--primary" type="button" disabled={saving || !noteDraft.title.trim()} onClick={() => void handleSaveNewNote()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         ) : selectedNote && selectedFolder ? (
@@ -2281,17 +2568,33 @@ export function TasksRoute() {
             {renderDetailHeader(selectedNote.title, null, { type: 'note', id: selectedNote.id })}
             <div className="detail-panel__body">
               <div className="detail-panel__badges" aria-label={copy.details}>
-                <span className="meta-chip"><StickyNote aria-hidden="true" size={14} strokeWidth={1.75} />{copy.note}</span>
+                <span className="meta-chip"><PenLine aria-hidden="true" size={14} strokeWidth={1.75} />{copy.note}</span>
                 {selectedNote.shared ? <span className="meta-chip">{selectedNote.fullAccess ? copy.fullAccess : copy.sharedResource}</span> : null}
               </div>
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(selectedNote.folderId)}</span></div></div>
-              <div className="detail-section"><div className="detail-label">{planningCopy.notes.bodyLabel}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedNote.body || planningCopy.common.noDescription}</p></div></div>
+              <div className="detail-section note-compose">
+                <label className="field detail-grid__wide">
+                  <span>{planningCopy.notes.bodyLabel}</span>
+                  <textarea
+                    className="field__control field__control--area note-body-textarea"
+                    disabled={!canEditSelectedNote}
+                    placeholder={planningCopy.common.noDescription}
+                    value={noteDraft.body}
+                    onChange={(event) => setNoteDraft((current) => ({ ...current, body: event.target.value }))}
+                  />
+                </label>
+                {canEditSelectedNote ? (
+                  <button className="button button--primary detail-save" type="button" disabled={saving || !noteDraft.title.trim()} onClick={() => void handleSaveNote()}>
+                    <Save aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.saveText}</span>
+                  </button>
+                ) : null}
+              </div>
               {editingEntity?.type === 'note' && editingEntity.id === selectedNote.id ? (
                 <details className="detail-disclosure" open>
                   <summary>{copy.edit}</summary>
                   <div className="detail-editor">
                     <label className="field detail-grid__wide"><span>{planningCopy.notes.titleLabel}</span><input className="field__control" disabled={!canEditSelectedNote} value={noteDraft.title} onChange={(event) => setNoteDraft((current) => ({ ...current, title: event.target.value }))} /></label>
-                    <label className="field detail-grid__wide"><span>{planningCopy.notes.bodyLabel}</span><textarea className="field__control field__control--area" disabled={!canEditSelectedNote} value={noteDraft.body} onChange={(event) => setNoteDraft((current) => ({ ...current, body: event.target.value }))} /></label>
                     <div className="cluster detail-grid__wide detail-editor__actions">
                       <button className="button button--primary" type="button" disabled={saving || !canEditSelectedNote || !noteDraft.title.trim()} onClick={() => void handleSaveNote()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
                       <button className="button button--ghost" type="button" disabled={saving || !canEditSelectedNote} onClick={() => void handleDeleteNote()}><Trash2 aria-hidden="true" size={16} strokeWidth={1.75} /><span>{planningCopy.common.delete}</span></button>
@@ -2384,8 +2687,7 @@ export function TasksRoute() {
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(panelFolder.id)} / {panelGoal.name}</span></div></div>
               {selectedCreator ? <div className="detail-section"><div className="detail-label">{copy.creator}</div><div className="breadcrumb"><UserCircle aria-hidden="true" size={15} strokeWidth={1.75} /><span>{selectedCreator}</span></div></div> : null}
               <div className="detail-section"><div className="detail-label">{planningCopy.tasks.descriptionLabel}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedTask?.description || planningCopy.common.noDescription}</p></div></div>
-              <details className="detail-disclosure" open>
-                <summary>{copy.details}</summary>
+              {renderSection('task-details', copy.details, (
                 <div className="detail-editor">
                   <label className="field detail-grid__wide"><span>{planningCopy.tasks.titleLabel}</span><input className="field__control" disabled={!canEditSelectedTaskFields} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} /></label>
                   <label className="field detail-grid__wide"><span>{planningCopy.tasks.descriptionLabel}</span><textarea className="field__control field__control--area" disabled={!canEditSelectedTaskFields} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
@@ -2422,7 +2724,7 @@ export function TasksRoute() {
                     {canArchiveSelectedTask && selectedTask && selectedGoal ? <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleArchiveTask(selectedTask, selectedGoal)}><Archive aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.archive}</span></button> : null}
                   </div>
                 </div>
-              </details>
+              ))}
               {renderLinkedNotesPanel()}
               {renderLinksPanel()}
               {renderSharingPanel()}

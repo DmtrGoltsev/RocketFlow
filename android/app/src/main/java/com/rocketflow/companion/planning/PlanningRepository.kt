@@ -157,68 +157,28 @@ class PlanningRepository(
     }
 
     suspend fun createNote(session: AuthSession, folderId: String, draft: NoteDraft): PlanningLoadResult {
-        val result = authRepository.authorizedPost(
-            session,
-            "/folders/$folderId/notes",
-            JSONObject()
-                .put("title", draft.title)
-                .put("body", draft.body)
-        )
-        val note = result.value.toNote(shared = isSharedFolder(result.session.user.id, folderId))
-        localStore.upsertRemoteNotes(result.session.user.id, listOf(note))
-        val refreshed = pullRemote(result.session)
-        return PlanningLoadResult(
-            session = refreshed,
-            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
-        )
+        localStore.createNote(session.user.id, folderId, draft)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun updateNote(session: AuthSession, note: PlanningNote, draft: NoteDraft): PlanningLoadResult {
-        val result = authRepository.authorizedPatch(
-            session,
-            "/notes/${note.id}",
-            JSONObject()
-                .put("title", draft.title)
-                .put("body", draft.body)
-                .put("displayOrder", note.displayOrder)
-                .put("archived", note.archived)
-                .put("version", note.version)
-        )
-        localStore.upsertRemoteNotes(result.session.user.id, listOf(result.value.toNote(shared = note.shared)))
-        val refreshed = pullRemote(result.session)
-        return PlanningLoadResult(
-            session = refreshed,
-            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
-        )
+        localStore.updateNote(session.user.id, note, draft)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun deleteNote(session: AuthSession, note: PlanningNote): PlanningLoadResult {
-        val refreshedSession = authRepository.authorizedDelete(session, "/notes/${note.id}")
-        localStore.removeNote(refreshedSession.user.id, note.id)
-        val refreshed = pullRemote(refreshedSession)
-        return PlanningLoadResult(
-            session = refreshed,
-            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
-        )
+        localStore.deleteNote(session.user.id, note)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun createEntityLink(session: AuthSession, draft: EntityLinkDraft): PlanningLoadResult {
-        val result = authRepository.authorizedPost(
-            session,
-            "/entity-links",
-            JSONObject()
-                .put("sourceType", draft.sourceType)
-                .put("sourceId", draft.sourceId)
-                .put("targetType", draft.targetType)
-                .put("targetId", draft.targetId)
-                .put("relationType", draft.relationType)
-        )
-        localStore.upsertRemoteEntityLinks(result.session.user.id, listOf(result.value.toEntityLink()))
-        val refreshed = pullRemote(result.session)
-        return PlanningLoadResult(
-            session = refreshed,
-            snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
-        )
+        localStore.createEntityLink(session.user.id, draft)
+        return syncAfterLocalChange(session)
+    }
+
+    suspend fun deleteEntityLink(session: AuthSession, link: EntityLink): PlanningLoadResult {
+        localStore.deleteEntityLink(session.user.id, link)
+        return syncAfterLocalChange(session)
     }
 
     suspend fun moveFolder(session: AuthSession, folder: PlanningFolder, targetFolderId: String): PlanningLoadResult =
@@ -355,6 +315,14 @@ class PlanningRepository(
 
         localStore.pendingTasks(userId).forEach { task ->
             activeSession = pushTask(activeSession, task)
+        }
+
+        localStore.pendingNotes(userId).forEach { note ->
+            activeSession = pushNote(activeSession, note)
+        }
+
+        localStore.pendingEntityLinks(userId).forEach { link ->
+            activeSession = pushEntityLink(activeSession, link)
         }
 
         return activeSession
@@ -577,6 +545,100 @@ class PlanningRepository(
         }
     }
 
+    private suspend fun pushNote(session: AuthSession, note: PlanningNote): AuthSession {
+        val userId = session.user.id
+        return try {
+            when (note.syncState) {
+                SyncState.PendingCreate -> {
+                    val result = authRepository.authorizedPost(
+                        session,
+                        "/folders/${note.folderId}/notes",
+                        JSONObject()
+                            .put("title", note.title)
+                            .put("body", note.body)
+                    )
+                    localStore.applySyncedNote(userId, note.id, result.value.toNote(shared = note.shared))
+                    result.session
+                }
+
+                SyncState.PendingUpdate -> {
+                    val result = authRepository.authorizedPatch(
+                        session,
+                        "/notes/${note.id}",
+                        JSONObject()
+                            .put("title", note.title)
+                            .put("body", note.body)
+                            .put("displayOrder", note.displayOrder)
+                            .put("archived", note.archived)
+                            .put("version", note.version)
+                    )
+                    localStore.applySyncedNote(userId, note.id, result.value.toNote(shared = note.shared))
+                    result.session
+                }
+
+                SyncState.PendingDelete -> {
+                    val refreshed = authRepository.authorizedDelete(session, "/notes/${note.id}")
+                    localStore.removeNote(userId, note.id)
+                    refreshed
+                }
+
+                SyncState.Conflict,
+                SyncState.Synced -> session
+            }
+        } catch (error: ApiException) {
+            if (error.status == 401) {
+                throw error
+            }
+            localStore.markSyncError(
+                userId,
+                PlanningLocalStore.TABLE_NOTES,
+                note.id,
+                error.message,
+                conflict = error.status == 409 || error.code == "conflict"
+            )
+            session
+        }
+    }
+
+    private suspend fun pushEntityLink(session: AuthSession, link: EntityLink): AuthSession {
+        val userId = session.user.id
+        return try {
+            when (link.syncState) {
+                SyncState.PendingCreate -> {
+                    val result = authRepository.authorizedPost(
+                        session,
+                        "/entity-links",
+                        link.toCreateBody()
+                    )
+                    localStore.applySyncedEntityLink(userId, link.id, result.value.toEntityLink())
+                    result.session
+                }
+
+                SyncState.PendingDelete -> {
+                    val refreshed = authRepository.authorizedDelete(session, "/entity-links/${link.id}")
+                    localStore.removeEntityLink(userId, link.id)
+                    refreshed
+                }
+
+                SyncState.PendingUpdate,
+                SyncState.Conflict,
+                SyncState.Synced -> session
+            }
+        } catch (error: ApiException) {
+            if (error.status == 401) {
+                throw error
+            }
+            localStore.markSyncError(
+                userId,
+                PlanningLocalStore.TABLE_ENTITY_LINKS,
+                link.id,
+                error.message,
+                conflict = error.status == 409 || error.code == "conflict"
+            )
+            session
+        }
+    }
+
     private suspend fun syncTaskMetadata(
         session: AuthSession,
         taskId: String,
@@ -699,12 +761,18 @@ class PlanningRepository(
             (allIdeas + sharedIdeas).map { "idea" to it.id } +
             (allNotes + sharedNotes).map { "note" to it.id }
         val allLinks = mutableListOf<EntityLink>()
+        var allLinkPullsSucceeded = true
         linkEntities.distinct().forEach { (type, id) ->
-            val linksResult = syncOptionalItems(activeSession, "/entity-links?entityType=$type&entityId=$id")
-            activeSession = linksResult.first
-            allLinks += linksResult.second.toEntityLinks()
+            val linksResult = syncOptionalItemsWithStatus(activeSession, "/entity-links?entityType=$type&entityId=$id")
+            activeSession = linksResult.session
+            allLinkPullsSucceeded = allLinkPullsSucceeded && linksResult.succeeded
+            allLinks += linksResult.items.toEntityLinks()
         }
-        localStore.upsertRemoteEntityLinks(userId, allLinks.distinctBy { it.id })
+        if (allLinkPullsSucceeded) {
+            localStore.replaceRemoteEntityLinks(userId, allLinks.distinctBy { it.id })
+        } else {
+            localStore.upsertRemoteEntityLinks(userId, allLinks.distinctBy { it.id })
+        }
 
         return activeSession
     }
@@ -730,6 +798,26 @@ class PlanningRepository(
             session to JSONArray()
         }
     }
+
+    private suspend fun syncOptionalItemsWithStatus(session: AuthSession, path: String): OptionalItemsResult {
+        return try {
+            val result = authRepository.authorizedGet(session, path)
+            OptionalItemsResult(result.session, result.value.optJSONArray("items").orEmptyArray(), succeeded = true)
+        } catch (error: ApiException) {
+            if (error.status == 401) {
+                throw error
+            }
+            OptionalItemsResult(session, JSONArray(), succeeded = false)
+        } catch (_: Exception) {
+            OptionalItemsResult(session, JSONArray(), succeeded = false)
+        }
+    }
+
+    private data class OptionalItemsResult(
+        val session: AuthSession,
+        val items: JSONArray,
+        val succeeded: Boolean
+    )
 
     private fun ApiException.withSyncContext(method: String, path: String): ApiException {
         val parts = mutableListOf("$method $path", "HTTP $status")
@@ -769,6 +857,15 @@ class PlanningRepository(
             .put("archived", archived)
             .put("tagIds", JSONArray(tagIds))
             .put("version", version)
+    }
+
+    private fun EntityLink.toCreateBody(): JSONObject {
+        return JSONObject()
+            .put("sourceType", sourceType)
+            .put("sourceId", sourceId)
+            .put("targetType", targetType)
+            .put("targetId", targetId)
+            .put("relationType", relationType)
     }
 
     private fun JSONArray.toFolders(shared: Boolean): List<PlanningFolder> {

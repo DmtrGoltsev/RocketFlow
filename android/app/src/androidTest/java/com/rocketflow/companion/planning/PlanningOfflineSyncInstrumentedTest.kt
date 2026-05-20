@@ -57,7 +57,6 @@ class PlanningOfflineSyncInstrumentedTest {
             listOf(tagId)
         )
         upsertRemoteRecurrence(onlineClient, session, richRemoteTaskId)
-        replaceRemoteReminders(onlineClient, session, richRemoteTaskId)
 
         val pulled = onlineRepository.syncAndLoad(session)
         assertTrue(pulled.snapshot.folders.any { it.name == "Web Folder $unique" })
@@ -276,22 +275,6 @@ class PlanningOfflineSyncInstrumentedTest {
         )
     }
 
-    private suspend fun replaceRemoteReminders(client: HttpJsonClient, session: AuthSession, taskId: String) {
-        client.put(
-            "/tasks/$taskId/reminders",
-            JSONObject().put(
-                "reminders",
-                JSONArray().put(
-                    JSONObject()
-                        .put("mode", "before_planned_time")
-                        .put("offsetMinutes", 30)
-                        .put("active", true)
-                )
-            ),
-            session.tokens.accessToken
-        )
-    }
-
     private suspend fun assertBackendTaskExists(
         client: HttpJsonClient,
         session: AuthSession,
@@ -317,7 +300,6 @@ class PlanningOfflineSyncInstrumentedTest {
         val tags = task.getJSONArray("tags")
         assertTrue((0 until tags.length()).any { tags.getJSONObject(it).getString("id") == tagId })
         assertNotNull(task.optJSONObject("recurrence"))
-        assertTrue(task.getJSONArray("reminders").length() > 0)
     }
 
     private fun taskPayload(

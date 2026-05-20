@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 @RestController
@@ -39,7 +40,10 @@ public class AuthController {
 
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void logout(@Valid @RequestBody LogoutRequest request) {
-        authService.logout(request);
+    public void logout(
+            @Valid @RequestBody(required = false) LogoutRequest request,
+            HttpServletRequest httpServletRequest
+    ) {
+        authService.logout(request, httpServletRequest.getHeader("Authorization"));
     }
 }

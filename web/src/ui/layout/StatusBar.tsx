@@ -62,12 +62,5 @@ export function LogoutButton() {
 }
 
 export function StatusBar() {
-  const { copy } = useAppRuntime();
-
-  return (
-    <div className="status-line">
-      <span className="sync-dot" aria-hidden="true" />
-      <span>{copy('statusRuntime')}</span>
-    </div>
-  );
+  return null;
 }

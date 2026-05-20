@@ -134,6 +134,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 createNotesTable(db)
                 createEntityLinksTable(db)
             }
+            if (oldVersion < 9) {
+                addEntityLinkPendingColumns(db)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -154,6 +157,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             addHierarchyContractColumns(db)
             createNotesTable(db)
             createEntityLinksTable(db)
+            addEntityLinkPendingColumns(db)
         }
     }
 
@@ -165,7 +169,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         val allIdeas = queryIdeas(db, userId, includeDeleted = false)
         val ideaNotes = queryIdeaNotes(db, userId)
         val allNotes = queryNotes(db, userId, includeDeleted = false)
-        val entityLinks = queryEntityLinks(db, userId)
+        val entityLinks = queryEntityLinks(db, userId, includeDeleted = false)
         return PlanningSnapshot(
             folders = folders.filter { !it.shared && !it.archived },
             goals = allGoals.filter { !it.shared && !it.archived },
@@ -457,6 +461,130 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
+    fun createNote(userId: String, folderId: String, draft: NoteDraft): String {
+        val now = nowIso()
+        val id = localId()
+        val shared = isSharedFolder(userId, folderId)
+        writableDatabase.insertOrThrow(
+            TABLE_NOTES,
+            null,
+            noteValues(
+                userId = userId,
+                note = PlanningNote(
+                    id = id,
+                    folderId = folderId,
+                    authorUserId = userId,
+                    authorEmail = null,
+                    authorName = null,
+                    title = draft.title,
+                    body = draft.body,
+                    displayOrder = nextNoteOrder(userId, folderId),
+                    archived = false,
+                    shared = shared,
+                    fullAccess = !shared || isFullAccessFolder(userId, folderId),
+                    version = 0,
+                    createdAt = now,
+                    updatedAt = now,
+                    syncState = SyncState.PendingCreate,
+                    lastError = null
+                ),
+                pendingAction = ACTION_CREATE,
+                locallyDeleted = false
+            )
+        )
+        return id
+    }
+
+    fun updateNote(userId: String, note: PlanningNote, draft: NoteDraft) {
+        if (note.shared && !note.fullAccess) {
+            return
+        }
+        val action = if (note.syncState == SyncState.PendingCreate) ACTION_CREATE else ACTION_UPDATE
+        writableDatabase.update(
+            TABLE_NOTES,
+            ContentValues().apply {
+                put("title", draft.title)
+                put("body", draft.body)
+                put("updated_at", nowIso())
+                put("pending_action", action)
+                putNull("last_error")
+            },
+            "user_id = ? AND id = ?",
+            arrayOf(userId, note.id)
+        )
+    }
+
+    fun deleteNote(userId: String, note: PlanningNote) {
+        if (note.shared && !note.fullAccess) {
+            return
+        }
+        if (note.syncState == SyncState.PendingCreate) {
+            writableDatabase.delete(TABLE_NOTES, "user_id = ? AND id = ?", arrayOf(userId, note.id))
+            return
+        }
+        writableDatabase.update(
+            TABLE_NOTES,
+            ContentValues().apply {
+                put("pending_action", ACTION_DELETE)
+                put("locally_deleted", 1)
+                put("updated_at", nowIso())
+                putNull("last_error")
+            },
+            "user_id = ? AND id = ?",
+            arrayOf(userId, note.id)
+        )
+    }
+
+    fun createEntityLink(userId: String, draft: EntityLinkDraft): String {
+        val now = nowIso()
+        val id = localId()
+        writableDatabase.insertOrThrow(
+            TABLE_ENTITY_LINKS,
+            null,
+            entityLinkValues(
+                userId = userId,
+                link = EntityLink(
+                    id = id,
+                    sourceType = draft.sourceType,
+                    sourceId = draft.sourceId,
+                    targetType = draft.targetType,
+                    targetId = draft.targetId,
+                    relationType = draft.relationType,
+                    source = EntityRef(draft.sourceType, draft.sourceId, "", null),
+                    target = EntityRef(draft.targetType, draft.targetId, "", null),
+                    createdByUserId = userId,
+                    archived = false,
+                    version = 0,
+                    createdAt = now,
+                    updatedAt = now,
+                    syncState = SyncState.PendingCreate,
+                    lastError = null
+                ),
+                pendingAction = ACTION_CREATE,
+                locallyDeleted = false
+            )
+        )
+        return id
+    }
+
+    fun deleteEntityLink(userId: String, link: EntityLink) {
+        if (link.syncState == SyncState.PendingCreate) {
+            writableDatabase.delete(TABLE_ENTITY_LINKS, "user_id = ? AND id = ?", arrayOf(userId, link.id))
+            return
+        }
+        writableDatabase.update(
+            TABLE_ENTITY_LINKS,
+            ContentValues().apply {
+                put("pending_action", ACTION_DELETE)
+                put("locally_deleted", 1)
+                put("updated_at", nowIso())
+                putNull("last_error")
+            },
+            "user_id = ? AND id = ?",
+            arrayOf(userId, link.id)
+        )
+    }
+
     fun findTask(userId: String, taskId: String): PlanningTask? {
         return readableDatabase.query(
             TABLE_TASKS,
@@ -483,6 +611,14 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         return queryTasks(readableDatabase, userId, includeDeleted = true).filter {
             it.syncState.isPending() && (!it.shared || it.syncState == SyncState.PendingCreate || it.syncState == SyncState.PendingUpdate)
         }
+    }
+
+    fun pendingNotes(userId: String): List<PlanningNote> {
+        return queryNotes(readableDatabase, userId, includeDeleted = true).filter { it.syncState.isPending() }
+    }
+
+    fun pendingEntityLinks(userId: String): List<EntityLink> {
+        return queryEntityLinks(readableDatabase, userId, includeDeleted = true).filter { it.syncState.isPending() }
     }
 
     fun pendingTaskTags(userId: String): List<TaskTag> {
@@ -544,12 +680,14 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         db.beginTransaction()
         try {
             notes.forEach { note ->
-                db.insertWithOnConflict(
-                    TABLE_NOTES,
-                    null,
-                    noteValues(userId, note.copy(syncState = SyncState.Synced, lastError = null), null, false),
-                    SQLiteDatabase.CONFLICT_REPLACE
-                )
+                if (!hasLocalPending(db, TABLE_NOTES, userId, note.id)) {
+                    db.insertWithOnConflict(
+                        TABLE_NOTES,
+                        null,
+                        noteValues(userId, note.copy(syncState = SyncState.Synced, lastError = null), null, false),
+                        SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
             }
             db.setTransactionSuccessful()
         } finally {
@@ -562,12 +700,35 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         db.beginTransaction()
         try {
             links.forEach { link ->
-                db.insertWithOnConflict(
-                    TABLE_ENTITY_LINKS,
-                    null,
-                    entityLinkValues(userId, link),
-                    SQLiteDatabase.CONFLICT_REPLACE
-                )
+                if (!hasLocalPending(db, TABLE_ENTITY_LINKS, userId, link.id)) {
+                    db.insertWithOnConflict(
+                        TABLE_ENTITY_LINKS,
+                        null,
+                        entityLinkValues(userId, link.copy(syncState = SyncState.Synced, lastError = null), null, false),
+                        SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun replaceRemoteEntityLinks(userId: String, links: List<EntityLink>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            removeMissingSyncedEntityLinks(db, userId, links.map { it.id })
+            links.forEach { link ->
+                if (!hasLocalPending(db, TABLE_ENTITY_LINKS, userId, link.id)) {
+                    db.insertWithOnConflict(
+                        TABLE_ENTITY_LINKS,
+                        null,
+                        entityLinkValues(userId, link.copy(syncState = SyncState.Synced, lastError = null), null, false),
+                        SQLiteDatabase.CONFLICT_REPLACE
+                    )
+                }
             }
             db.setTransactionSuccessful()
         } finally {
@@ -742,9 +903,10 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 arrayOf(userId, localId)
             )
             if (localId != remote.id) {
-            db.update(TABLE_GOALS, ContentValues().apply { put("folder_id", remote.id) }, "user_id = ? AND folder_id = ?", arrayOf(userId, localId))
-            db.update(TABLE_NOTES, ContentValues().apply { put("folder_id", remote.id) }, "user_id = ? AND folder_id = ?", arrayOf(userId, localId))
-            db.update(TABLE_FOLDERS, ContentValues().apply { put("parent_folder_id", remote.id) }, "user_id = ? AND parent_folder_id = ?", arrayOf(userId, localId))
+                db.update(TABLE_GOALS, ContentValues().apply { put("folder_id", remote.id) }, "user_id = ? AND folder_id = ?", arrayOf(userId, localId))
+                db.update(TABLE_NOTES, ContentValues().apply { put("folder_id", remote.id) }, "user_id = ? AND folder_id = ?", arrayOf(userId, localId))
+                db.update(TABLE_FOLDERS, ContentValues().apply { put("parent_folder_id", remote.id) }, "user_id = ? AND parent_folder_id = ?", arrayOf(userId, localId))
+                updateEntityLinkRefs(db, userId, "folder", localId, remote.id)
             }
             db.setTransactionSuccessful()
         } finally {
@@ -764,6 +926,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             )
             if (localId != remote.id) {
                 db.update(TABLE_TASKS, ContentValues().apply { put("goal_id", remote.id) }, "user_id = ? AND goal_id = ?", arrayOf(userId, localId))
+                updateEntityLinkRefs(db, userId, "goal", localId, remote.id)
             }
             db.setTransactionSuccessful()
         } finally {
@@ -772,9 +935,47 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun applySyncedTask(userId: String, localId: String, remote: PlanningTask) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.update(
+                TABLE_TASKS,
+                taskValues(userId, remote.copy(syncState = SyncState.Synced, lastError = null), null, false),
+                "user_id = ? AND id = ?",
+                arrayOf(userId, localId)
+            )
+            if (localId != remote.id) {
+                updateEntityLinkRefs(db, userId, "task", localId, remote.id)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun applySyncedNote(userId: String, localId: String, remote: PlanningNote) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.update(
+                TABLE_NOTES,
+                noteValues(userId, remote.copy(syncState = SyncState.Synced, lastError = null), null, false),
+                "user_id = ? AND id = ?",
+                arrayOf(userId, localId)
+            )
+            if (localId != remote.id) {
+                updateEntityLinkRefs(db, userId, "note", localId, remote.id)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun applySyncedEntityLink(userId: String, localId: String, remote: EntityLink) {
         writableDatabase.update(
-            TABLE_TASKS,
-            taskValues(userId, remote.copy(syncState = SyncState.Synced, lastError = null), null, false),
+            TABLE_ENTITY_LINKS,
+            entityLinkValues(userId, remote.copy(syncState = SyncState.Synced, lastError = null), null, false),
             "user_id = ? AND id = ?",
             arrayOf(userId, localId)
         )
@@ -850,6 +1051,10 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     fun removeNote(userId: String, noteId: String) {
         writableDatabase.delete(TABLE_NOTES, "user_id = ? AND id = ?", arrayOf(userId, noteId))
+    }
+
+    fun removeEntityLink(userId: String, linkId: String) {
+        writableDatabase.delete(TABLE_ENTITY_LINKS, "user_id = ? AND id = ?", arrayOf(userId, linkId))
     }
 
     fun markSyncError(userId: String, table: String, id: String, error: String, conflict: Boolean) {
@@ -972,11 +1177,11 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    private fun queryEntityLinks(db: SQLiteDatabase, userId: String): List<EntityLink> {
+    private fun queryEntityLinks(db: SQLiteDatabase, userId: String, includeDeleted: Boolean): List<EntityLink> {
         return db.query(
             TABLE_ENTITY_LINKS,
             null,
-            "user_id = ?",
+            if (includeDeleted) "user_id = ?" else "user_id = ? AND locally_deleted = 0",
             arrayOf(userId),
             null,
             null,
@@ -1009,7 +1214,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     private fun countPending(userId: String): Int {
-        return listOf(TABLE_FOLDERS, TABLE_GOALS, TABLE_TASKS, TABLE_TASK_TAGS).sumOf { table ->
+        return listOf(TABLE_FOLDERS, TABLE_GOALS, TABLE_TASKS, TABLE_NOTES, TABLE_ENTITY_LINKS, TABLE_TASK_TAGS).sumOf { table ->
             readableDatabase.rawQuery(
                 "SELECT COUNT(*) FROM $table WHERE user_id = ? AND pending_action IS NOT NULL",
                 arrayOf(userId)
@@ -1106,6 +1311,15 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    private fun nextNoteOrder(userId: String, folderId: String): Int {
+        return readableDatabase.rawQuery(
+            "SELECT COALESCE(MAX(display_order), -1) + 1 FROM $TABLE_NOTES WHERE user_id = ? AND folder_id = ?",
+            arrayOf(userId, folderId)
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
+
     private fun hasLocalPending(db: SQLiteDatabase, table: String, userId: String, id: String): Boolean {
         return db.query(
             table,
@@ -1172,6 +1386,20 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             null
         ).use { cursor ->
             cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow("shared")) == 1
+        }
+    }
+
+    private fun isFullAccessFolder(userId: String, folderId: String): Boolean {
+        return readableDatabase.query(
+            TABLE_FOLDERS,
+            arrayOf("full_access"),
+            "user_id = ? AND id = ? AND locally_deleted = 0",
+            arrayOf(userId, folderId),
+            null,
+            null,
+            null
+        ).use { cursor ->
+            cursor.moveToFirst() && cursor.getInt(cursor.getColumnIndexOrThrow("full_access")) == 1
         }
     }
 
@@ -1354,7 +1582,12 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
-    private fun entityLinkValues(userId: String, link: EntityLink): ContentValues {
+    private fun entityLinkValues(
+        userId: String,
+        link: EntityLink,
+        pendingAction: String?,
+        locallyDeleted: Boolean
+    ): ContentValues {
         return ContentValues().apply {
             put("user_id", userId)
             put("id", link.id)
@@ -1372,6 +1605,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("version", link.version)
             put("created_at", link.createdAt)
             put("updated_at", link.updatedAt)
+            put("pending_action", pendingAction)
+            put("last_error", link.lastError)
+            put("locally_deleted", locallyDeleted.toInt())
         }
     }
 
@@ -1521,7 +1757,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             archived = optionalBoolean("archived"),
             version = optionalLong("version"),
             createdAt = string("created_at"),
-            updatedAt = string("updated_at")
+            updatedAt = string("updated_at"),
+            syncState = syncState(stringOrNull("pending_action")),
+            lastError = stringOrNull("last_error")
         )
     }
 
@@ -1576,6 +1814,34 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             table,
             "user_id = ? AND shared = 1 AND id NOT IN ($placeholders)",
             arrayOf(userId, *keepIds.toTypedArray())
+        )
+    }
+
+    private fun removeMissingSyncedEntityLinks(db: SQLiteDatabase, userId: String, keepIds: List<String>) {
+        if (keepIds.isEmpty()) {
+            db.delete(TABLE_ENTITY_LINKS, "user_id = ? AND pending_action IS NULL", arrayOf(userId))
+            return
+        }
+        val placeholders = keepIds.joinToString(",") { "?" }
+        db.delete(
+            TABLE_ENTITY_LINKS,
+            "user_id = ? AND pending_action IS NULL AND id NOT IN ($placeholders)",
+            arrayOf(userId, *keepIds.toTypedArray())
+        )
+    }
+
+    private fun updateEntityLinkRefs(db: SQLiteDatabase, userId: String, entityType: String, localId: String, remoteId: String) {
+        db.update(
+            TABLE_ENTITY_LINKS,
+            ContentValues().apply { put("source_id", remoteId) },
+            "user_id = ? AND source_type = ? AND source_id = ?",
+            arrayOf(userId, entityType, localId)
+        )
+        db.update(
+            TABLE_ENTITY_LINKS,
+            ContentValues().apply { put("target_id", remoteId) },
+            "user_id = ? AND target_type = ? AND target_id = ?",
+            arrayOf(userId, entityType, localId)
         )
     }
 
@@ -1696,6 +1962,12 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         addColumnIfMissing(db, TABLE_IDEAS, "full_access", "INTEGER NOT NULL DEFAULT 0")
     }
 
+    private fun addEntityLinkPendingColumns(db: SQLiteDatabase) {
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "pending_action", "TEXT")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "last_error", "TEXT")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "locally_deleted", "INTEGER NOT NULL DEFAULT 0")
+    }
+
     private fun createNotesTable(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -1744,6 +2016,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 version INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
+                pending_action TEXT,
+                last_error TEXT,
+                locally_deleted INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, id)
             )
             """.trimIndent()
@@ -1761,7 +2036,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 8
+        private const val DATABASE_VERSION = 9
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"

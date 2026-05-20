@@ -76,7 +76,6 @@ import com.rocketflow.companion.planning.PlanningNote
 import com.rocketflow.companion.planning.PlanningSnapshot
 import com.rocketflow.companion.planning.PlanningSyncReason
 import com.rocketflow.companion.planning.PlanningTask
-import com.rocketflow.companion.planning.SyncState
 import com.rocketflow.companion.planning.TaskDraft
 import com.rocketflow.companion.planning.TaskTag
 import com.rocketflow.companion.planning.TaskTagDraft
@@ -167,6 +166,13 @@ class MainActivity : Activity() {
         val id: String
     )
 
+    private data class LinkCandidate(
+        val type: String,
+        val id: String,
+        val title: String,
+        val subtitle: String
+    )
+
     private data class ManualDragState(
         val payload: EntityDragPayload,
         val source: View,
@@ -205,6 +211,13 @@ class MainActivity : Activity() {
         val ideaHistory: String,
         val links: String = "\u0421\u0432\u044f\u0437\u0438",
         val linkedNotes: String = "\u0421\u0432\u044f\u0437\u0430\u043d\u043d\u044b\u0435 \u0437\u0430\u043c\u0435\u0442\u043a\u0438",
+        val addComment: String = "Add comment",
+        val addLink: String = "Add link",
+        val deleteLink: String = "Delete link",
+        val searchLinks: String = "Search links",
+        val linkSearchHint: String = "Search by title",
+        val selectRelationType: String = "Relation type",
+        val noteBodyHint: String = "Write note text here",
         val related: String = "\u0421\u0432\u044f\u0437\u044c",
         val dependency: String = "\u0417\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u044c",
         val move: String = "\u041f\u0435\u0440\u0435\u043c\u0435\u0441\u0442\u0438\u0442\u044c",
@@ -893,7 +906,7 @@ class MainActivity : Activity() {
 
         val list = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(6), 0, dp(96))
+            setPadding(0, dp(6), 0, dp(144))
         }
 
         val ownFolders = filteredFolders().filter { it.parentFolderId == null }
@@ -929,6 +942,7 @@ class MainActivity : Activity() {
         shell.addView(
             ScrollView(this).apply {
                 setBackgroundColor(color(Ui.CANVAS))
+                clipToPadding = false
                 addView(list)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1012,7 +1026,7 @@ class MainActivity : Activity() {
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(32))
+            setPadding(dp(16), dp(14), dp(16), dp(96))
         }
 
         if (task == null) {
@@ -1044,10 +1058,11 @@ class MainActivity : Activity() {
             )
             content.addView(linksSection("task", task.id))
             content.addView(linkedNotesSection("task", task.id))
-            content.addView(propertyRow(c.details, if (detailsExpanded) c.cancel else "", clickable = true) {
-                detailsExpanded = !detailsExpanded
-                render()
-            })
+            content.addView(expandableSectionHeader(c.details, null, detailsExpanded) {
+                    detailsExpanded = !detailsExpanded
+                    render()
+                }
+            )
             if (detailsExpanded) {
                 content.addView(propertyRow(c.status, localizedStatus(task.status), clickable = true) {
                     showStatusDialog(task)
@@ -1081,13 +1096,13 @@ class MainActivity : Activity() {
                 }
                 content.addView(propertyRow(c.created, formatDateTime(task.createdAt), clickable = false))
                 content.addView(propertyRow(c.updated, formatDateTime(task.updatedAt), clickable = false))
-                content.addView(propertyRow(c.syncDiagnostics, syncLabel(task.syncState), clickable = false))
             }
         }
 
         shell.addView(
             ScrollView(this).apply {
                 addView(content)
+                clipToPadding = false
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
@@ -1112,7 +1127,7 @@ class MainActivity : Activity() {
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(32))
+            setPadding(dp(16), dp(14), dp(16), dp(96))
         }
 
         if (idea == null) {
@@ -1131,6 +1146,8 @@ class MainActivity : Activity() {
                 }
             )
             content.addView(pathLine(ideaPath(idea)))
+            content.addView(linksSection("idea", idea.id))
+            content.addView(linkedNotesSection("idea", idea.id))
             content.addView(propertyRow(c.status, idea.status.ifBlank { "active" }, clickable = canEditIdea(idea)) {
                 showIdeaDialog(idea.folderId, idea)
             })
@@ -1149,8 +1166,6 @@ class MainActivity : Activity() {
                     setPadding(0, dp(8), 0, dp(16))
                 }
             )
-            content.addView(linksSection("idea", idea.id))
-            content.addView(linkedNotesSection("idea", idea.id))
             content.addView(textButton(c.addNote, primary = true) { showIdeaNoteDialog(idea) })
             content.addView(sectionLabel(c.ideaHistory))
             val notes = ideaNotesForIdea(idea.id)
@@ -1165,6 +1180,7 @@ class MainActivity : Activity() {
             ScrollView(this).apply {
                 addView(content)
                 setBackgroundColor(color(Ui.CANVAS))
+                clipToPadding = false
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
@@ -1189,7 +1205,7 @@ class MainActivity : Activity() {
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(32))
+            setPadding(dp(16), dp(14), dp(16), dp(96))
         }
 
         if (note == null) {
@@ -1208,26 +1224,42 @@ class MainActivity : Activity() {
                 }
             )
             content.addView(pathLine(notePath(note)))
-            content.addView(sectionLabel(c.notes))
-            content.addView(
-                TextView(this).apply {
-                    text = note.body.ifBlank { c.noDate }
-                    textSize = 15f
-                    setTextColor(color(if (note.body.isBlank()) Ui.MUTED else Ui.TEXT))
-                    setLineSpacing(dp(2).toFloat(), 1f)
-                    setPadding(0, dp(8), 0, dp(16))
+            if (canWrite(note)) {
+                val bodyInput = dialogInput(c.noteBodyHint, note.body, multiline = true, inputPurpose = TextInputPurpose.Notes).apply {
+                    minLines = 10
+                    maxLines = 18
+                    minHeight = dp(220)
+                    setPadding(dp(12), dp(12), dp(12), dp(12))
                 }
-            )
+                content.addView(bodyInput)
+                content.addView(textButton(c.save, primary = true) {
+                    val nextBody = bodyInput.text.toString()
+                    if (nextBody != note.body) {
+                        saveNote(note.folderId, note, NoteDraft(title = note.title, body = nextBody))
+                    }
+                })
+            } else {
+                content.addView(sectionLabel(c.notes))
+                content.addView(
+                    TextView(this).apply {
+                        text = note.body.ifBlank { c.noDate }
+                        textSize = 15f
+                        setTextColor(color(if (note.body.isBlank()) Ui.MUTED else Ui.TEXT))
+                        setLineSpacing(dp(2).toFloat(), 1f)
+                        setPadding(0, dp(8), 0, dp(16))
+                    }
+                )
+            }
             content.addView(linksSection("note", note.id))
             content.addView(propertyRow(c.created, formatDateTime(note.createdAt), clickable = false))
             content.addView(propertyRow(c.updated, formatDateTime(note.updatedAt), clickable = false))
-            content.addView(propertyRow(c.syncDiagnostics, syncLabel(note.syncState), clickable = false))
         }
 
         shell.addView(
             ScrollView(this).apply {
                 addView(content)
                 setBackgroundColor(color(Ui.CANVAS))
+                clipToPadding = false
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     0,
@@ -1530,6 +1562,7 @@ class MainActivity : Activity() {
                     selectedTaskDetail?.let { task ->
                         if (canWrite(task)) {
                             addView(iconButton(R.drawable.ic_share, c.share) { showShareDialog(task.toShareTarget()) })
+                            addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("task", task.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showTaskDialog(task) })
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                         }
@@ -1538,6 +1571,7 @@ class MainActivity : Activity() {
                 Screen.IdeaDetail -> {
                     selectedIdeaDetail?.let { idea ->
                         if (canEditIdea(idea)) {
+                            addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("idea", idea.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showIdeaDialog(idea.folderId, idea) })
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showIdeaActions(idea) })
                         }
@@ -1547,6 +1581,7 @@ class MainActivity : Activity() {
                 Screen.NoteDetail -> {
                     selectedNoteDetail?.let { note ->
                         if (canWrite(note)) {
+                            addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("note", note.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showNoteDialog(note.folderId, note) })
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showNoteActions(note) })
                         }
@@ -1633,8 +1668,10 @@ class MainActivity : Activity() {
                 if (canWrite(goal)) enableEntityDragSource(dragPayload)
             })
             addView(counterText(if (goalTasks.isEmpty()) "0" else "$doneTasks/${goalTasks.size}"))
-            if (canWrite(goal)) {
+            if (canCreateTasks(goal)) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showGoalActions(goal) })
+            }
+            if (canWrite(goal)) {
                 enableEntityDragSource(dragPayload)
             }
             enableGoalDropTarget(goal)
@@ -1671,7 +1708,7 @@ class MainActivity : Activity() {
         val c = copy()
         val dragPayload = EntityDragPayload("idea", idea.id, idea.title)
         return hierarchyContainer(indentLevel = indentLevel, heightDp = 48, selected = idea.id == selectedIdeaId).apply {
-            addView(iconView(R.drawable.ic_radio_button_unchecked, sizeDp = 24, tint = Ui.INFO))
+            addView(iconView(R.drawable.ic_flame, sizeDp = 24, tint = Ui.INFO))
             addView(markerDot(Ui.INFO, c.idea, sizeDp = 7))
             addView(rowText(idea.title, c.idea, weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD).apply {
                 setOnClickListener { openIdeaDetail(idea.id) }
@@ -1686,8 +1723,8 @@ class MainActivity : Activity() {
         val c = copy()
         val dragPayload = EntityDragPayload("note", note.id, note.title)
         return hierarchyContainer(indentLevel = indentLevel, heightDp = 38, selected = false).apply {
-            addView(iconView(R.drawable.ic_content_copy, sizeDp = 24, tint = Ui.AMBER))
-            addView(rowText(note.title, note.body, weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD).apply {
+            addView(iconView(R.drawable.ic_pen_write, sizeDp = 24, tint = Ui.AMBER))
+            addView(rowText(note.title, c.note, weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD).apply {
                 setOnClickListener { openNoteDetail(note.id) }
                 if (canWrite(note)) enableEntityDragSource(dragPayload)
             })
@@ -2176,11 +2213,11 @@ class MainActivity : Activity() {
             dialog.dismiss()
             showTaskTargetDialog()
         })
-        dialogContent.addView(createOption(R.drawable.ic_radio_button_unchecked, c.idea) {
+        dialogContent.addView(createOption(R.drawable.ic_flame, c.idea) {
             dialog.dismiss()
             showIdeaFolderDialog()
         })
-        dialogContent.addView(createOption(R.drawable.ic_content_copy, c.note) {
+        dialogContent.addView(createOption(R.drawable.ic_pen_write, c.note) {
             dialog.dismiss()
             showNoteFolderDialog()
         })
@@ -2235,7 +2272,7 @@ class MainActivity : Activity() {
     private fun showTaskTargetDialog() {
         val c = copy()
         val availableGoals = goals.filter { goal -> folders.any { it.id == goal.folderId } } +
-            sharedGoals.filter { goal -> canWrite(goal) }
+            sharedGoals.filter { goal -> canCreateTasks(goal) }
         if (availableGoals.isEmpty()) {
             showTaskNeedsGoalDialog()
             return
@@ -2359,7 +2396,7 @@ class MainActivity : Activity() {
         val c = copy()
         AlertDialog.Builder(this)
             .setTitle(folder.name)
-            .setItems(arrayOf(c.details, c.add, c.share, c.edit, c.move, c.clone, c.links, c.delete)) { _, which ->
+            .setItems(arrayOf(c.details, c.add, c.share, c.edit, c.move, c.clone, c.delete)) { _, which ->
                 when (which) {
                     0 -> showFolderDetails(folder)
                     1 -> showFolderAddMenu(folder)
@@ -2375,19 +2412,22 @@ class MainActivity : Activity() {
 
     private fun showGoalActions(goal: PlanningGoal) {
         val c = copy()
+        val actions = buildList<Pair<String, () -> Unit>> {
+            add(c.details to { showGoalDetails(goal) })
+            if (canCreateTasks(goal)) add(c.add to { showTaskDialog(null, goal.id) })
+            if (canWrite(goal)) {
+                add(c.share to { showShareDialog(goal.toShareTarget()) })
+                add(c.edit to { showGoalDialog(goal) })
+                add(c.move to { showMoveGoalDialog(goal) })
+                add(c.clone to { showCloneGoalDialog(goal) })
+                add(c.links to { showCreateLinkDialog("goal", goal.id) })
+                add(c.delete to { confirmDelete(goal.name, deleteGoalMessage(goal)) { deleteGoal(goal) } })
+            }
+        }
         AlertDialog.Builder(this)
             .setTitle(goal.name)
-            .setItems(arrayOf(c.details, c.add, c.share, c.edit, c.move, c.clone, c.delete)) { _, which ->
-                when (which) {
-                    0 -> showGoalDetails(goal)
-                    1 -> showTaskDialog(null, goal.id)
-                    2 -> showShareDialog(goal.toShareTarget())
-                    3 -> showGoalDialog(goal)
-                    4 -> showMoveGoalDialog(goal)
-                    5 -> showCloneGoalDialog(goal)
-                    6 -> showCreateLinkDialog("goal", goal.id)
-                    else -> confirmDelete(goal.name, deleteGoalMessage(goal)) { deleteGoal(goal) }
-                }
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
+                actions[which].second()
             }
             .show()
     }
@@ -2399,7 +2439,6 @@ class MainActivity : Activity() {
         lateinit var dialog: AlertDialog
         val actions = if (canWrite(folder)) {
             detailDialogActions(
-                c.cancel to { dialog.dismiss() },
                 c.add to {
                     dialog.dismiss()
                     showFolderAddMenu(folder)
@@ -2410,7 +2449,7 @@ class MainActivity : Activity() {
                 }
             )
         } else {
-            detailDialogActions(c.cancel to { dialog.dismiss() })
+            detailDialogActions()
         }
         dialog = AlertDialog.Builder(this)
             .setTitle(folder.name)
@@ -2428,26 +2467,30 @@ class MainActivity : Activity() {
 
     private fun showGoalDetails(goal: PlanningGoal) {
         val c = copy()
-        val folder = folders.firstOrNull { it.id == goal.folderId }
+        val folder = findFolder(goal.folderId)
         val taskCount = tasksForGoal(goal.id).size
         val goalLinks = linksForEntity("goal", goal.id)
         val linkedNotes = goalLinks.mapNotNull { linkedNoteFor("goal", goal.id, it) }.distinctBy { it.id }
         lateinit var dialog: AlertDialog
-        val actions = if (canWrite(goal)) {
-            detailDialogActions(
-                c.cancel to { dialog.dismiss() },
-                c.add to {
+        val actions = buildList<Pair<String, () -> Unit>> {
+            if (canCreateTasks(goal)) {
+                add(c.add to {
                     dialog.dismiss()
                     showTaskDialog(null, goal.id)
-                },
-                c.edit to {
+                })
+            }
+            if (canWrite(goal)) {
+                add(c.addLink to {
+                    dialog.dismiss()
+                    showCreateLinkDialog("goal", goal.id)
+                })
+                add(c.edit to {
                     dialog.dismiss()
                     showGoalDialog(goal)
-                }
-            )
-        } else {
-            detailDialogActions(c.cancel to { dialog.dismiss() })
-        }
+                })
+            }
+        }.let { detailDialogActions(*it.toTypedArray()) }
+        val linkRows = goalLinkDialogRows("goal", goal.id, goalLinks, linkedNotes) { dialog }
         dialog = AlertDialog.Builder(this)
             .setTitle(goal.name)
             .setView(
@@ -2458,11 +2501,47 @@ class MainActivity : Activity() {
                     detailDialogText(c.task, taskCount.toString()),
                     detailDialogText(c.links, goalLinks.size.toString()),
                     detailDialogText(c.linkedNotes, linkedNotes.size.toString()),
+                    linkRows,
                     actions
                 )
             )
             .create()
         dialog.show()
+    }
+
+    private fun goalLinkDialogRows(
+        entityType: String,
+        entityId: String,
+        links: List<EntityLink>,
+        linkedNotes: List<PlanningNote>,
+        dialog: () -> AlertDialog
+    ): LinearLayout {
+        val c = copy()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            links.filterNot { linkedNoteFor(entityType, entityId, it) != null }.forEach { link ->
+                val otherType = if (link.sourceType == entityType && link.sourceId == entityId) link.targetType else link.sourceType
+                val otherId = if (link.sourceType == entityType && link.sourceId == entityId) link.targetId else link.sourceId
+                val title = entityTitle(otherType, otherId).ifBlank {
+                    if (link.sourceType == entityType && link.sourceId == entityId) {
+                        link.target?.title.orEmpty()
+                    } else {
+                        link.source?.title.orEmpty()
+                    }
+                }.ifBlank { otherType }
+                val label = if (link.relationType == "dependency") c.dependency else c.related
+                addView(selectionOption(iconForEntity(otherType), title, label) {
+                    dialog().dismiss()
+                    openEntityDetail(otherType, otherId)
+                })
+            }
+            linkedNotes.forEach { note ->
+                addView(selectionOption(R.drawable.ic_pen_write, note.title, notePath(note)) {
+                    dialog().dismiss()
+                    openNoteDetail(note.id)
+                })
+            }
+        }
     }
 
     private fun showTaskActions(task: PlanningTask) {
@@ -2639,29 +2718,70 @@ class MainActivity : Activity() {
             return
         }
         lateinit var dialog: AlertDialog
+        lateinit var results: LinearLayout
+        val searchInput = dialogInput(
+            c.linkSearchHint,
+            "",
+            inputPurpose = TextInputPurpose.Search,
+            imeOptionsOverride = EditorInfo.IME_ACTION_SEARCH
+        )
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(6), dp(6), dp(6), dp(6))
-            addView(sheetHeader(c.links))
+            addView(sheetHeader(c.addLink))
+            addView(searchInput)
+            results = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, dp(6), 0, dp(4))
+            }
+            addView(results)
         }
-        candidates.forEach { (targetType, targetId, title) ->
-            content.addView(selectionOption(iconForEntity(targetType), title, localizedEntityType(targetType)) {
-                dialog.dismiss()
-                if (sourceType == "task" && targetType == "task") {
-                    showRelationTypeDialog(sourceType, sourceId, targetType, targetId)
-                } else {
-                    createEntityLink(EntityLinkDraft(sourceType, sourceId, targetType, targetId, "related"))
-                }
-            })
+
+        fun renderCandidates(query: String) {
+            results.removeAllViews()
+            val filtered = candidates.filter { candidate ->
+                val needle = query.trim().lowercase(Locale.ROOT)
+                needle.isBlank() ||
+                    candidate.title.lowercase(Locale.ROOT).contains(needle) ||
+                    candidate.subtitle.lowercase(Locale.ROOT).contains(needle) ||
+                    localizedEntityType(candidate.type).lowercase(Locale.ROOT).contains(needle)
+            }
+            if (filtered.isEmpty()) {
+                results.addView(hintRow(c.nothingHere, indentLevel = 0))
+                return
+            }
+            filtered.take(80).forEach { candidate ->
+                results.addView(selectionOption(iconForEntity(candidate.type), candidate.title, candidate.subtitle) {
+                    val targetType = candidate.type
+                    val targetId = candidate.id
+                    dialog.dismiss()
+                    if (sourceType == "task" && targetType == "task") {
+                        showRelationTypeDialog(sourceType, sourceId, targetType, targetId)
+                    } else {
+                        createEntityLink(EntityLinkDraft(sourceType, sourceId, targetType, targetId, "related"))
+                    }
+                })
+            }
         }
+
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                renderCandidates(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        renderCandidates("")
+
         dialog = AlertDialog.Builder(this).setView(content).create()
         dialog.show()
+        focusDialogInput(dialog, searchInput)
     }
 
     private fun showRelationTypeDialog(sourceType: String, sourceId: String, targetType: String, targetId: String) {
         val c = copy()
         AlertDialog.Builder(this)
-            .setTitle(c.links)
+            .setTitle(c.selectRelationType)
             .setItems(arrayOf(c.related, c.dependency)) { _, which ->
                 createEntityLink(
                     EntityLinkDraft(
@@ -2678,6 +2798,10 @@ class MainActivity : Activity() {
 
     private fun createEntityLink(draft: EntityLinkDraft) {
         runPlanningAction { planningRepository.createEntityLink(it, draft) }
+    }
+
+    private fun deleteEntityLink(link: EntityLink) {
+        runPlanningAction { planningRepository.deleteEntityLink(it, link) }
     }
 
     private fun showShareDialog(target: ShareTarget) {
@@ -3038,6 +3162,16 @@ class MainActivity : Activity() {
         }
         val goal = goals.firstOrNull { it.id == goalId } ?: sharedGoals.firstOrNull { it.id == goalId }
         val c = copy()
+        if (task == null && goal != null && !canCreateTasks(goal)) {
+            message = c.goalFirst
+            render()
+            return
+        }
+        if (task != null && !canWrite(task)) {
+            message = c.requestFailed
+            render()
+            return
+        }
         val titleInput = dialogInput(c.titleField, task?.title.orEmpty())
         val notesInput = dialogInput(c.notesField, task?.description.orEmpty(), multiline = true)
         val typeGroup = taskTypeGroup(task?.type ?: "green")
@@ -3164,15 +3298,14 @@ class MainActivity : Activity() {
         val c = copy()
         val folder = folders.firstOrNull { it.id == folderId } ?: sharedFolders.firstOrNull { it.id == folderId }
         val titleInput = dialogInput(c.titleField, note?.title.orEmpty(), inputPurpose = TextInputPurpose.Name)
-        val notesInput = dialogInput(c.notesField, note?.body.orEmpty(), multiline = true, inputPurpose = TextInputPurpose.Notes)
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (note == null) c.newNote else c.editNote)
-            .setView(dialogForm(dialogContextLine(c.folder, folder?.name ?: c.folder), titleInput, notesInput))
+            .setView(dialogForm(dialogContextLine(c.folder, folder?.name ?: c.folder), titleInput))
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.save) { _, _ ->
                 val draft = NoteDraft(
                     title = titleInput.text.toString().trim(),
-                    body = notesInput.text.toString().trim()
+                    body = note?.body.orEmpty()
                 )
                 if (draft.title.isBlank()) {
                     message = c.titleRequired
@@ -3631,10 +3764,21 @@ class MainActivity : Activity() {
         val links = linksForEntity(entityType, entityId).filterNot { linkedNoteFor(entityType, entityId, it) != null }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(propertyRow(c.links, if (linksExpanded) c.cancel else links.size.toString(), clickable = true) {
-                linksExpanded = !linksExpanded
-                render()
-            })
+            addView(
+                expandableSectionHeader(
+                    title = c.links,
+                    value = links.size.toString(),
+                    expanded = linksExpanded,
+                    actionIcon = if (canWriteEntity(entityType, entityId)) R.drawable.ic_link_nodes else null,
+                    actionDescription = if (canWriteEntity(entityType, entityId)) c.addLink else null,
+                    onAction = if (canWriteEntity(entityType, entityId)) {
+                        { showCreateLinkDialog(entityType, entityId) }
+                    } else null
+                ) {
+                    linksExpanded = !linksExpanded
+                    render()
+                }
+            )
             if (linksExpanded) {
                 if (links.isEmpty()) {
                     addView(hintRow(c.nothingHere, indentLevel = 0))
@@ -3650,10 +3794,24 @@ class MainActivity : Activity() {
         val linked = linksForEntity(entityType, entityId).mapNotNull { linkedNoteFor(entityType, entityId, it) }.distinctBy { it.id }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(propertyRow(c.linkedNotes, if (linkedNotesExpanded) c.cancel else linked.size.toString(), clickable = true) {
-                linkedNotesExpanded = !linkedNotesExpanded
-                render()
-            })
+            val canAddNote = canWriteEntity(entityType, entityId) && folderIdForEntity(entityType, entityId) != null
+            addView(
+                expandableSectionHeader(
+                    title = c.linkedNotes,
+                    value = linked.size.toString(),
+                    expanded = linkedNotesExpanded,
+                    actionIcon = if (canAddNote) R.drawable.ic_add else null,
+                    actionDescription = if (canAddNote) {
+                        if (entityType == "task") c.addComment else c.addNote
+                    } else null,
+                    onAction = if (canAddNote) {
+                        { showLinkedNoteDialog(entityType, entityId) }
+                    } else null
+                ) {
+                    linkedNotesExpanded = !linkedNotesExpanded
+                    render()
+                }
+            )
             if (linkedNotesExpanded) {
                 if (linked.isEmpty()) {
                     addView(hintRow(c.nothingHere, indentLevel = 0))
@@ -3676,10 +3834,15 @@ class MainActivity : Activity() {
         }.ifBlank { otherType }
         val label = if (link.relationType == "dependency") copy().dependency else copy().related
         return hierarchyContainer(indentLevel = 0, heightDp = 44, selected = false).apply {
-            addView(iconView(if (link.relationType == "dependency") R.drawable.ic_link else R.drawable.ic_content_copy, sizeDp = 22, tint = Ui.ACCENT))
+            addView(iconView(iconForEntity(otherType), sizeDp = 22, tint = Ui.ACCENT))
             addView(rowText(title, label, weight = 1f, titleSize = 14.5f, titleStyle = Typeface.BOLD).apply {
                 setOnClickListener { openEntityDetail(otherType, otherId) }
             })
+            if (canWriteEntity(currentType, currentId)) {
+                addView(smallIconButton(R.drawable.ic_close, copy().deleteLink, Ui.DANGER) {
+                    confirmDelete(title) { deleteEntityLink(link) }
+                })
+            }
         }
     }
 
@@ -3723,6 +3886,7 @@ class MainActivity : Activity() {
 
     private fun saveNote(folderId: String, note: PlanningNote?, draft: NoteDraft) {
         val session = currentSession ?: return
+        val previousNoteIds = allNotes().map { it.id }.toSet()
         setBusy(true)
         message = null
         scope.launch {
@@ -3734,8 +3898,10 @@ class MainActivity : Activity() {
                 }
                 applyPlanningResult(result)
                 selectedFolderId = folderId
-                selectedNoteId = note?.id ?: result.snapshot.notes.firstOrNull { it.folderId == folderId && it.title == draft.title }?.id
-                    ?: result.snapshot.sharedNotes.firstOrNull { it.folderId == folderId && it.title == draft.title }?.id
+                selectedNoteId = note?.id ?: (result.snapshot.notes + result.snapshot.sharedNotes)
+                    .firstOrNull { it.id !in previousNoteIds && it.folderId == folderId }?.id
+                    ?: (result.snapshot.notes + result.snapshot.sharedNotes)
+                        .firstOrNull { it.folderId == folderId && it.title == draft.title }?.id
                 selectedNoteDetail = selectedNoteId?.let(::findNote)
                 if (selectedNoteDetail != null) currentScreen = Screen.NoteDetail
             } catch (error: Exception) {
@@ -4257,26 +4423,15 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun syncIconButton(): ImageButton {
-        val c = copy()
-        val hasError = planningLastSyncError != null
-        val drawable = when {
-            hasError -> R.drawable.ic_warning
-            planningOffline || planningPendingCount > 0 -> R.drawable.ic_cloud_off
-            else -> R.drawable.ic_cloud_done
-        }
-        val description = when {
-            hasError -> c.couldNotSync
-            planningOffline -> c.offline
-            planningPendingCount > 0 -> "${planningPendingCount} ${c.pending}"
-            else -> c.synced
-        }
-        return iconButton(drawable, description) {
-            currentScreen = Screen.Settings
-            diagnosticsExpanded = hasError
-            render()
-        }.apply {
-            setColorFilter(color(if (hasError) Ui.DANGER else Ui.ACCENT))
+    private fun smallIconButton(icon: Int, description: String, tint: String = Ui.TEXT, onClick: () -> Unit): ImageButton {
+        return ImageButton(this).apply {
+            setImageResource(icon)
+            setColorFilter(color(tint))
+            contentDescription = description
+            background = roundedDrawable("#00FFFFFF", radiusDp = 6)
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(dp(34), dp(34))
+            scaleType = ImageView.ScaleType.CENTER
         }
     }
 
@@ -4353,6 +4508,58 @@ class MainActivity : Activity() {
             if (clickable && onClick != null) {
                 background = roundedDrawable("#00FFFFFF", radiusDp = 6)
                 setOnClickListener { onClick() }
+            }
+        }
+    }
+
+    private fun expandableSectionHeader(
+        title: String,
+        value: String?,
+        expanded: Boolean,
+        actionIcon: Int? = null,
+        actionDescription: String? = null,
+        onAction: (() -> Unit)? = null,
+        onToggle: () -> Unit
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(42)
+            setPadding(0, dp(6), 0, dp(2))
+            isClickable = true
+            background = roundedDrawable("#00FFFFFF", radiusDp = 6)
+            setOnClickListener { onToggle() }
+            addView(
+                ImageView(context).apply {
+                    setImageResource(if (expanded) R.drawable.ic_chevron_down else R.drawable.ic_chevron_right)
+                    setColorFilter(color(Ui.MUTED))
+                    contentDescription = title
+                    layoutParams = LinearLayout.LayoutParams(dp(22), dp(22)).apply {
+                        marginEnd = dp(4)
+                    }
+                }
+            )
+            addView(
+                TextView(context).apply {
+                    text = title
+                    textSize = 14.5f
+                    setTextColor(color(Ui.TEXT))
+                    setTypeface(typeface, Typeface.BOLD)
+                    includeFontPadding = false
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+            )
+            value?.takeIf { it.isNotBlank() }?.let {
+                addView(counterText(it).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(34)).apply {
+                        marginEnd = dp(4)
+                    }
+                })
+            }
+            if (actionIcon != null && actionDescription != null && onAction != null) {
+                addView(smallIconButton(actionIcon, actionDescription, Ui.ACCENT) {
+                    onAction()
+                })
             }
         }
     }
@@ -5464,6 +5671,16 @@ class MainActivity : Activity() {
         return listOfNotNull(folderPath(folder), copy().note).joinToString(" / ").ifBlank { copy().plan }
     }
 
+    private fun folderIdForEntity(type: String, id: String): String? {
+        return when (type) {
+            "goal" -> findGoal(id)?.folderId
+            "task" -> findTask(id)?.let { task -> findGoal(task.goalId)?.folderId }
+            "idea" -> findIdea(id)?.folderId
+            "note" -> findNote(id)?.folderId
+            else -> null
+        }
+    }
+
     private fun folderPath(folder: PlanningFolder?): String {
         if (folder == null) return copy().folder
         val names = mutableListOf<String>()
@@ -5511,12 +5728,79 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun linkCandidates(sourceType: String, sourceId: String): List<Triple<String, String, String>> {
+    private fun showLinkedNoteDialog(entityType: String, entityId: String) {
+        val c = copy()
+        val folderId = folderIdForEntity(entityType, entityId)
+        val folder = findFolder(folderId)
+        if (folderId == null || folder == null) {
+            message = c.folderFirst
+            render()
+            return
+        }
+        val titleInput = dialogInput(c.titleField, "", inputPurpose = TextInputPurpose.Name)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (entityType == "task") c.addComment else c.addNote)
+            .setView(dialogForm(dialogContextLine(c.folder, folderPath(folder)), titleInput))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val title = titleInput.text.toString().trim()
+                if (title.isBlank()) {
+                    message = c.titleRequired
+                    render()
+                    return@setPositiveButton
+                }
+                createLinkedNote(entityType, entityId, folderId, title)
+            }
+            .show()
+        focusDialogInput(dialog, titleInput)
+    }
+
+    private fun createLinkedNote(entityType: String, entityId: String, folderId: String, title: String) {
+        val session = currentSession ?: return
+        val previousNoteIds = allNotes().map { it.id }.toSet()
+        setBusy(true)
+        message = null
+        scope.launch {
+            try {
+                val noteResult = planningRepository.createNote(session, folderId, NoteDraft(title = title, body = ""))
+                val createdNote = (noteResult.snapshot.notes + noteResult.snapshot.sharedNotes)
+                    .firstOrNull { it.id !in previousNoteIds && it.folderId == folderId }
+                    ?: (noteResult.snapshot.notes + noteResult.snapshot.sharedNotes)
+                        .firstOrNull { it.folderId == folderId && it.title == title }
+                if (createdNote == null) {
+                    applyPlanningResult(noteResult)
+                    return@launch
+                }
+                val linkResult = planningRepository.createEntityLink(
+                    noteResult.session,
+                    EntityLinkDraft(entityType, entityId, "note", createdNote.id, "related")
+                )
+                applyPlanningResult(linkResult)
+                linkedNotesExpanded = true
+                selectedNoteId = createdNote.id
+                selectedNoteDetail = findNote(createdNote.id)
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                setBusy(false)
+            }
+        }
+    }
+
+    private fun linkCandidates(sourceType: String, sourceId: String): List<LinkCandidate> {
         return buildList {
-            addAll(allGoals().filter { sourceType != "goal" || it.id != sourceId }.map { Triple("goal", it.id, it.name) })
-            addAll(allTasks().filter { sourceType != "task" || it.id != sourceId }.map { Triple("task", it.id, it.title) })
-            addAll(allIdeas().filter { sourceType != "idea" || it.id != sourceId }.map { Triple("idea", it.id, it.title) })
-            addAll(allNotes().filter { sourceType != "note" || it.id != sourceId }.map { Triple("note", it.id, it.title) })
+            addAll(allGoals().filter { sourceType != "goal" || it.id != sourceId }.map {
+                LinkCandidate("goal", it.id, it.name, folderPath(findFolder(it.folderId)))
+            })
+            addAll(allTasks().filter { sourceType != "task" || it.id != sourceId }.map {
+                LinkCandidate("task", it.id, it.title, taskPath(it))
+            })
+            addAll(allIdeas().filter { sourceType != "idea" || it.id != sourceId }.map {
+                LinkCandidate("idea", it.id, it.title, ideaPath(it))
+            })
+            addAll(allNotes().filter { sourceType != "note" || it.id != sourceId }.map {
+                LinkCandidate("note", it.id, it.title, notePath(it))
+            })
         }
     }
 
@@ -5525,10 +5809,20 @@ class MainActivity : Activity() {
             "folder" -> R.drawable.ic_folder
             "goal" -> R.drawable.ic_target
             "task" -> R.drawable.ic_radio_button_unchecked
-            "idea" -> R.drawable.ic_radio_button_unchecked
-            "note" -> R.drawable.ic_content_copy
-            else -> R.drawable.ic_link
+            "idea" -> R.drawable.ic_flame
+            "note" -> R.drawable.ic_pen_write
+            else -> R.drawable.ic_link_nodes
         }
+    }
+
+    private fun canWriteEntity(type: String, id: String): Boolean {
+        return when (type) {
+            "goal" -> findGoal(id)?.let(::canWrite)
+            "task" -> findTask(id)?.let(::canWrite)
+            "idea" -> findIdea(id)?.let(::canWrite)
+            "note" -> findNote(id)?.let(::canWrite)
+            else -> false
+        } == true
     }
 
     private fun localizedEntityType(type: String): String {
@@ -5544,7 +5838,8 @@ class MainActivity : Activity() {
     }
 
     private fun canWrite(folder: PlanningFolder): Boolean = !folder.shared || folder.fullAccess
-    private fun canWrite(goal: PlanningGoal): Boolean = !goal.shared || goal.fullAccess || goal.canCreateTasks
+    private fun canWrite(goal: PlanningGoal): Boolean = !goal.shared || goal.fullAccess
+    private fun canCreateTasks(goal: PlanningGoal): Boolean = canWrite(goal) || goal.canCreateTasks
     private fun canWrite(task: PlanningTask): Boolean = !task.shared || task.fullAccess
     private fun canWrite(idea: PlanningIdea): Boolean = !idea.shared || idea.fullAccess
     private fun canWrite(note: PlanningNote): Boolean = !note.shared || note.fullAccess
@@ -5562,15 +5857,6 @@ class MainActivity : Activity() {
             "done" -> c.statusDone
             "cancelled" -> c.statusCancelled
             else -> c.statusTodo
-        }
-    }
-
-    private fun syncLabel(state: SyncState): String {
-        val c = copy()
-        return when (state) {
-            SyncState.Synced -> c.synced
-            SyncState.PendingCreate, SyncState.PendingUpdate, SyncState.PendingDelete -> c.pending
-            SyncState.Conflict -> c.couldNotSync
         }
     }
 
@@ -5945,6 +6231,13 @@ class MainActivity : Activity() {
                 ideaHistory = "History",
                 links = "Links",
                 linkedNotes = "Linked notes",
+                addComment = "Add comment",
+                addLink = "Add link",
+                deleteLink = "Delete link",
+                searchLinks = "Search links",
+                linkSearchHint = "Search by title",
+                selectRelationType = "Relation type",
+                noteBodyHint = "Write note text here",
                 related = "Related",
                 dependency = "Dependency",
                 move = "Move",
@@ -6120,6 +6413,13 @@ class MainActivity : Activity() {
                 addNote = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0437\u0430\u043c\u0435\u0442\u043a\u0443",
                 editNote = "\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0437\u0430\u043c\u0435\u0442\u043a\u0443",
                 ideaHistory = "\u0418\u0441\u0442\u043e\u0440\u0438\u044f",
+                addComment = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0439",
+                addLink = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0441\u0432\u044f\u0437\u044c",
+                deleteLink = "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0441\u0432\u044f\u0437\u044c",
+                searchLinks = "\u041f\u043e\u0438\u0441\u043a \u0441\u0432\u044f\u0437\u0435\u0439",
+                linkSearchHint = "\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044e",
+                selectRelationType = "\u0422\u0438\u043f \u0441\u0432\u044f\u0437\u0438",
+                noteBodyHint = "\u0422\u0435\u043a\u0441\u0442 \u0437\u0430\u043c\u0435\u0442\u043a\u0438",
                 cannotMoveHere = "\u0421\u044e\u0434\u0430 \u043d\u0435\u043b\u044c\u0437\u044f \u043f\u0435\u0440\u0435\u043c\u0435\u0441\u0442\u0438.",
                 dragMoveStarted = "\u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u0435 \u0432 \u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u043e\u0435 \u043c\u0435\u0441\u0442\u043e.",
                 allowAuthorNoteEdits = "\u0410\u0432\u0442\u043e\u0440\u044b \u043c\u043e\u0433\u0443\u0442 \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u0432\u043e\u0438 \u0437\u0430\u043c\u0435\u0442\u043a\u0438 \u0438\u0441\u0442\u043e\u0440\u0438\u0438",

@@ -5,6 +5,7 @@ import static com.rocketflow.auth.AuthDtos.*;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.zone.ZoneRulesException;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -124,13 +125,28 @@ public class AuthService {
     }
 
     @Transactional
-    public void logout(LogoutRequest request) {
-        authSessionRepository.findByRefreshTokenHashAndRevokedAtIsNull(tokenHasher.hash(request.refreshToken()))
-                .ifPresent(session -> {
-                    session.setRevokedAt(Instant.now());
-                    session.setUpdatedAt(Instant.now());
-                    authSessionRepository.save(session);
-                });
+    public void logout(LogoutRequest request, String authorizationHeader) {
+        Optional<AuthSession> byRefreshToken = request == null || request.refreshToken() == null || request.refreshToken().isBlank()
+                ? Optional.empty()
+                : authSessionRepository.findByRefreshTokenHashAndRevokedAtIsNull(tokenHasher.hash(request.refreshToken()));
+        Optional<AuthSession> byAccessToken = extractBearerToken(authorizationHeader)
+                .flatMap(token -> authSessionRepository.findByAccessTokenHashAndRevokedAtIsNull(tokenHasher.hash(token)));
+
+        byRefreshToken.or(() -> byAccessToken).ifPresent(this::revokeSession);
+    }
+
+    private Optional<String> extractBearerToken(String authorizationHeader) {
+        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+            return Optional.empty();
+        }
+        String token = authorizationHeader.substring("Bearer ".length()).trim();
+        return token.isBlank() ? Optional.empty() : Optional.of(token);
+    }
+
+    private void revokeSession(AuthSession session) {
+        session.setRevokedAt(Instant.now());
+        session.setUpdatedAt(Instant.now());
+        authSessionRepository.save(session);
     }
 
     private void validateTimezone(String timezone) {
