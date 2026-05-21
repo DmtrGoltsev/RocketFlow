@@ -34,7 +34,7 @@ const emptyResources: SharedResourcesResponse = {
 };
 
 export function SharingRoute() {
-  const { authorizedFetch } = useAuth();
+  const { authorizedFetch, session } = useAuth();
   const { locale } = useI18n();
   const copy = useAdvancedCopy();
   const [searchParams] = useSearchParams();
@@ -55,6 +55,18 @@ export function SharingRoute() {
 
     return targetType === 'goal' ? copy.common.goal : copy.common.task;
   };
+  const isInvitationAddressedToCurrentUser = (invitation: ShareInvitationDto) => (
+    (invitation.targetUserId && invitation.targetUserId === session?.user.id) ||
+    invitation.targetEmail.toLocaleLowerCase() === session?.user.email.toLocaleLowerCase()
+  );
+  const canRespondToInvitation = (invitation: ShareInvitationDto) => (
+    invitation.status === 'pending' && isInvitationAddressedToCurrentUser(invitation)
+  );
+  const canRevokeInvitation = (invitation: ShareInvitationDto) => (
+    (invitation.status === 'pending' || invitation.status === 'accepted') &&
+    Boolean(session?.user.id) &&
+    !isInvitationAddressedToCurrentUser(invitation)
+  );
 
   async function loadSharing() {
     setLoading(true);
@@ -66,7 +78,7 @@ export function SharingRoute() {
         getSharedResources(authorizedFetch),
         token ? resolveShareLink(authorizedFetch, token) : Promise.resolve(null),
       ]);
-      setInvitations(nextInvitations.items);
+      setInvitations(nextInvitations.items.filter((invitation) => invitation.status !== 'revoked'));
       setResources({
         folders: nextResources.folders ?? [],
         goals: nextResources.goals ?? [],
@@ -197,19 +209,25 @@ export function SharingRoute() {
                       <span className="meta-chip">{formatDateTime(invitation.createdAt, locale)}</span>
                       <span className="meta-chip">{copy.common.dueTime}: {formatDateTime(invitation.expiresAt, locale)}</span>
                     </div>
-                    {invitation.status === 'pending' ? (
+                    {canRespondToInvitation(invitation) || canRevokeInvitation(invitation) ? (
                       <div className="cluster">
-                        <button className="button button--ghost" type="button" disabled={actingId === invitation.id} onClick={() => void runInvitationAction(invitation, (id) => acceptInvitation(authorizedFetch, id))}>
-                          <Check size={15} aria-hidden="true" />
-                          {copy.sharing.accept}
-                        </button>
-                        <button className="button button--ghost" type="button" disabled={actingId === invitation.id} onClick={() => void runInvitationAction(invitation, (id) => declineInvitation(authorizedFetch, id))}>
-                          <X size={15} aria-hidden="true" />
-                          {copy.sharing.decline}
-                        </button>
-                        <button className="button button--ghost" type="button" disabled={actingId === invitation.id} onClick={() => void runInvitationAction(invitation, (id) => revokeInvitation(authorizedFetch, id))}>
-                          {copy.sharing.revoke}
-                        </button>
+                        {canRespondToInvitation(invitation) ? (
+                          <>
+                            <button className="button button--ghost" type="button" disabled={actingId === invitation.id} onClick={() => void runInvitationAction(invitation, (id) => acceptInvitation(authorizedFetch, id))}>
+                              <Check size={15} aria-hidden="true" />
+                              {copy.sharing.accept}
+                            </button>
+                            <button className="button button--ghost" type="button" disabled={actingId === invitation.id} onClick={() => void runInvitationAction(invitation, (id) => declineInvitation(authorizedFetch, id))}>
+                              <X size={15} aria-hidden="true" />
+                              {copy.sharing.decline}
+                            </button>
+                          </>
+                        ) : null}
+                        {canRevokeInvitation(invitation) ? (
+                          <button className="button button--ghost" type="button" disabled={actingId === invitation.id} onClick={() => void runInvitationAction(invitation, (id) => revokeInvitation(authorizedFetch, id))}>
+                            {copy.sharing.revoke}
+                          </button>
+                        ) : null}
                       </div>
                     ) : (
                       <p className="muted">{copy.sharing.pendingOnly}</p>
@@ -231,7 +249,7 @@ export function SharingRoute() {
                     id: folder.id,
                     title: folder.name,
                     description: folder.description,
-                    meta: `${copy.sharing.folderLabel} · ${formatDateTime(folder.updatedAt, locale)}`,
+                    meta: formatDateTime(folder.updatedAt, locale),
                   }))} />
                 ) : null}
 
@@ -242,7 +260,7 @@ export function SharingRoute() {
                     description: goal.description,
                     meta: resources.createTaskGoalIds.includes(goal.id)
                       ? copy.sharing.canCreateTasks
-                      : `${copy.sharing.goalLabel} · ${formatDateTime(goal.updatedAt, locale)}`,
+                      : formatDateTime(goal.updatedAt, locale),
                   }))} />
                 ) : null}
 
@@ -251,7 +269,7 @@ export function SharingRoute() {
                     id: task.id,
                     title: task.title,
                     description: task.description,
-                    meta: `${copy.sharing.taskLabel} · ${formatDateTime(task.updatedAt, locale)}`,
+                    meta: formatDateTime(task.updatedAt, locale),
                   }))} />
                 ) : null}
               </div>

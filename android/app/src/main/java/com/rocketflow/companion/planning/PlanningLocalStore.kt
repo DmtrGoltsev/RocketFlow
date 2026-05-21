@@ -137,6 +137,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 9) {
                 addEntityLinkPendingColumns(db)
             }
+            if (oldVersion < 10) {
+                addEntityLinkRedactionColumns(db)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -158,6 +161,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             createNotesTable(db)
             createEntityLinksTable(db)
             addEntityLinkPendingColumns(db)
+            addEntityLinkRedactionColumns(db)
         }
     }
 
@@ -550,8 +554,8 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     targetType = draft.targetType,
                     targetId = draft.targetId,
                     relationType = draft.relationType,
-                    source = EntityRef(draft.sourceType, draft.sourceId, "", null),
-                    target = EntityRef(draft.targetType, draft.targetId, "", null),
+                    source = EntityRef(type = draft.sourceType, id = draft.sourceId, title = "", subtitle = null),
+                    target = EntityRef(type = draft.targetType, id = draft.targetId, title = "", subtitle = null),
                     createdByUserId = userId,
                     archived = false,
                     version = 0,
@@ -1598,8 +1602,18 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("relation_type", link.relationType)
             put("source_title", link.source?.title)
             put("source_subtitle", link.source?.subtitle)
+            put("source_status", link.source?.status)
+            put("source_path", link.source?.path)
+            put("source_archived", link.source?.archived?.toInt())
+            put("source_accessible", (link.source?.accessible ?: true).toInt())
+            put("source_redacted", (link.source?.redacted ?: false).toInt())
             put("target_title", link.target?.title)
             put("target_subtitle", link.target?.subtitle)
+            put("target_status", link.target?.status)
+            put("target_path", link.target?.path)
+            put("target_archived", link.target?.archived?.toInt())
+            put("target_accessible", (link.target?.accessible ?: true).toInt())
+            put("target_redacted", (link.target?.redacted ?: false).toInt())
             put("created_by_user_id", link.createdByUserId)
             put("archived", link.archived.toInt())
             put("version", link.version)
@@ -1751,8 +1765,28 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             targetType = string("target_type"),
             targetId = string("target_id"),
             relationType = string("relation_type"),
-            source = EntityRef(string("source_type"), string("source_id"), optionalStringOrNull("source_title") ?: "", optionalStringOrNull("source_subtitle")),
-            target = EntityRef(string("target_type"), string("target_id"), optionalStringOrNull("target_title") ?: "", optionalStringOrNull("target_subtitle")),
+            source = EntityRef(
+                type = string("source_type"),
+                id = string("source_id"),
+                title = optionalStringOrNull("source_title") ?: "",
+                subtitle = optionalStringOrNull("source_subtitle"),
+                status = optionalStringOrNull("source_status"),
+                path = optionalStringOrNull("source_path"),
+                archived = optionalBooleanOrNull("source_archived"),
+                accessible = optionalBooleanDefault("source_accessible", true),
+                redacted = optionalBooleanDefault("source_redacted", false)
+            ),
+            target = EntityRef(
+                type = string("target_type"),
+                id = string("target_id"),
+                title = optionalStringOrNull("target_title") ?: "",
+                subtitle = optionalStringOrNull("target_subtitle"),
+                status = optionalStringOrNull("target_status"),
+                path = optionalStringOrNull("target_path"),
+                archived = optionalBooleanOrNull("target_archived"),
+                accessible = optionalBooleanDefault("target_accessible", true),
+                redacted = optionalBooleanDefault("target_redacted", false)
+            ),
             createdByUserId = optionalStringOrNull("created_by_user_id"),
             archived = optionalBoolean("archived"),
             version = optionalLong("version"),
@@ -1802,6 +1836,16 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     private fun Cursor.optionalBoolean(column: String): Boolean {
         val index = getColumnIndex(column)
         return index >= 0 && getInt(index) == 1
+    }
+
+    private fun Cursor.optionalBooleanDefault(column: String, default: Boolean): Boolean {
+        val index = getColumnIndex(column)
+        return if (index < 0 || isNull(index)) default else getInt(index) == 1
+    }
+
+    private fun Cursor.optionalBooleanOrNull(column: String): Boolean? {
+        val index = getColumnIndex(column)
+        return if (index < 0 || isNull(index)) null else getInt(index) == 1
     }
 
     private fun removeMissingSharedRows(db: SQLiteDatabase, table: String, userId: String, keepIds: List<String>) {
@@ -1968,6 +2012,19 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         addColumnIfMissing(db, TABLE_ENTITY_LINKS, "locally_deleted", "INTEGER NOT NULL DEFAULT 0")
     }
 
+    private fun addEntityLinkRedactionColumns(db: SQLiteDatabase) {
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "source_status", "TEXT")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "source_path", "TEXT")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "source_archived", "INTEGER")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "source_accessible", "INTEGER NOT NULL DEFAULT 1")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "source_redacted", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "target_status", "TEXT")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "target_path", "TEXT")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "target_archived", "INTEGER")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "target_accessible", "INTEGER NOT NULL DEFAULT 1")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "target_redacted", "INTEGER NOT NULL DEFAULT 0")
+    }
+
     private fun createNotesTable(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -2009,8 +2066,18 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 relation_type TEXT NOT NULL,
                 source_title TEXT,
                 source_subtitle TEXT,
+                source_status TEXT,
+                source_path TEXT,
+                source_archived INTEGER,
+                source_accessible INTEGER NOT NULL DEFAULT 1,
+                source_redacted INTEGER NOT NULL DEFAULT 0,
                 target_title TEXT,
                 target_subtitle TEXT,
+                target_status TEXT,
+                target_path TEXT,
+                target_archived INTEGER,
+                target_accessible INTEGER NOT NULL DEFAULT 1,
+                target_redacted INTEGER NOT NULL DEFAULT 0,
                 created_by_user_id TEXT,
                 archived INTEGER NOT NULL DEFAULT 0,
                 version INTEGER NOT NULL DEFAULT 0,
@@ -2036,7 +2103,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 9
+        private const val DATABASE_VERSION = 10
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"

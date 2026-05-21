@@ -59,6 +59,11 @@ class SharingRepository(
         return SessionBoundResult(result.session, result.value.optJSONArray("items").toLinks())
     }
 
+    suspend fun listInvitations(session: AuthSession): SessionBoundResult<List<ShareInvitation>> {
+        val result = authRepository.authorizedGet(session, "/shares/invitations")
+        return SessionBoundResult(result.session, result.value.optJSONArray("items").toInvitations())
+    }
+
     suspend fun resolveLink(session: AuthSession, token: String): SessionBoundResult<ResolvedShareLink> {
         val result = authRepository.authorizedGet(session, "/shares/links/${Uri.encode(token)}")
         return SessionBoundResult(result.session, result.value.toResolvedLink())
@@ -74,6 +79,11 @@ class SharingRepository(
         return SessionBoundResult(result.session, result.value.optString("status", "revoked"))
     }
 
+    suspend fun revokeInvitation(session: AuthSession, invitationId: String): SessionBoundResult<String> {
+        val result = authRepository.authorizedPost(session, "/shares/invitations/$invitationId/revoke", JSONObject())
+        return SessionBoundResult(result.session, result.value.optString("status", "revoked"))
+    }
+
     private fun linkPath(target: ShareTarget): String {
         return "/${target.type.apiSegment}/${target.id}/share-links"
     }
@@ -85,6 +95,7 @@ class SharingRepository(
             targetId = optString("targetId"),
             targetEmail = nullableText("targetEmail"),
             targetUserId = nullableText("targetUserId"),
+            fullAccess = optBoolean("fullAccess", false),
             status = optString("status"),
             createdAt = nullableText("createdAt"),
             expiresAt = nullableText("expiresAt")
@@ -97,6 +108,7 @@ class SharingRepository(
             targetType = optString("targetType"),
             targetId = optString("targetId"),
             token = optString("token"),
+            fullAccess = optBoolean("fullAccess", false),
             status = optString("status"),
             createdAt = nullableText("createdAt"),
             expiresAt = nullableText("expiresAt")
@@ -108,6 +120,7 @@ class SharingRepository(
             id = getString("id"),
             targetType = optString("targetType"),
             targetId = optString("targetId"),
+            fullAccess = optBoolean("fullAccess", false),
             status = optString("status"),
             createdAt = nullableText("createdAt"),
             expiresAt = nullableText("expiresAt"),
@@ -120,6 +133,7 @@ class SharingRepository(
             id = getString("id"),
             targetType = optString("targetType"),
             targetId = optString("targetId"),
+            fullAccess = optBoolean("fullAccess", false),
             status = optString("status"),
             expiresAt = nullableText("expiresAt")
         )
@@ -130,6 +144,7 @@ class SharingRepository(
             shareId = getString("shareId"),
             targetType = optString("targetType"),
             targetId = optString("targetId"),
+            fullAccess = optBoolean("fullAccess", false),
             status = optString("status")
         )
     }
@@ -137,6 +152,11 @@ class SharingRepository(
     private fun JSONArray?.toLinks(): List<ShareLink> {
         if (this == null) return emptyList()
         return List(length()) { index -> getJSONObject(index).toLink() }
+    }
+
+    private fun JSONArray?.toInvitations(): List<ShareInvitation> {
+        if (this == null) return emptyList()
+        return List(length()) { index -> getJSONObject(index).toInvitation() }
     }
 
     private fun JSONObject.nullableText(key: String): String? {

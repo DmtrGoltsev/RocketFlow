@@ -256,6 +256,10 @@ The interface must be:
 - simple to scan
 - optimized for desktop web first
 
+MVP3 simplification overlay:
+- `docs/62-mvp3-design-simplification-contract.md` defines the current acceptance contract for simplifying web/iPhone and Android hierarchy, quick capture, details, sharing, links, dependencies, DnD, and RU-first copy without removing advanced features.
+- `docs/64-mvp3-ba-simple-journeys.md` defines the simple BA journeys QA and implementers should use for the MVP3 user-facing planning flows.
+
 ## 8. Testing Strategy
 
 The testing strategy must include:

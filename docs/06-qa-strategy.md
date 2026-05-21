@@ -185,6 +185,10 @@ Use web UI tests for:
 Goal:
 - verify the main user journeys end to end through the web interface
 
+For MVP3 hierarchy and links simplification, UI acceptance must also follow:
+- `docs/62-mvp3-design-simplification-contract.md`
+- `docs/64-mvp3-ba-simple-journeys.md`
+
 ### Mobile Verification
 
 Use Android-focused tests for:
@@ -195,6 +199,8 @@ Use Android-focused tests for:
 
 Goal:
 - verify the companion app fulfills MVP responsibilities reliably
+
+For MVP3, Android verification must include the same simplified quick capture, summary-first detail, compact row, share sheet, dependency wording, private redaction, and DnD/fallback journeys documented in `docs/62-mvp3-design-simplification-contract.md` and `docs/64-mvp3-ba-simple-journeys.md`.
 
 ### Manual Exploratory Testing
 

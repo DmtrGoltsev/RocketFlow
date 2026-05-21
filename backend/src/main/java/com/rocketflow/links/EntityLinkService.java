@@ -65,13 +65,11 @@ public class EntityLinkService {
         this.userRepository = userRepository;
     }
 
-    @Transactional(readOnly = true)
     public EntityLinkListResponse list(UUID actorUserId, String entityType, UUID entityId) {
         EntityRefData requested = resolveAccess(entityType, entityId, actorUserId);
         List<EntityLinkDto> items = entityLinkRepository.findActiveForEntity(requested.type(), requested.id())
                 .stream()
-                .map(link -> toDtoIfVisible(link, actorUserId))
-                .filter(dto -> dto != null)
+                .map(link -> toListDto(link, actorUserId, requested))
                 .toList();
         return new EntityLinkListResponse(items);
     }
@@ -141,22 +139,28 @@ public class EntityLinkService {
                 .filter(task -> task != null && !task.isArchived() && !"done".equals(task.getStatus()))
                 .toList();
         if (!blockers.isEmpty()) {
-            String blockerNames = blockers.stream().map(Task::getTitle).toList().toString();
             throw new ApiException(
                     HttpStatus.CONFLICT,
                     "dependency_blocked",
-                    "Task cannot be completed before blocking tasks are done: " + blockerNames
+                    "Task cannot be completed before blocking tasks are done."
             );
         }
     }
 
-    private EntityLinkDto toDtoIfVisible(EntityLink link, UUID actorUserId) {
+    private EntityLinkDto toListDto(EntityLink link, UUID actorUserId, EntityRefData requested) {
+        EntityRefDto source = refForListSide(link.getSourceType(), link.getSourceId(), actorUserId, requested);
+        EntityRefDto target = refForListSide(link.getTargetType(), link.getTargetId(), actorUserId, requested);
+        return toDto(link, source, target);
+    }
+
+    private EntityRefDto refForListSide(String entityType, UUID entityId, UUID actorUserId, EntityRefData requested) {
+        if (requested.type().equals(entityType) && requested.id().equals(entityId)) {
+            return requested.ref();
+        }
         try {
-            EntityRefData source = resolveAccess(link.getSourceType(), link.getSourceId(), actorUserId);
-            EntityRefData target = resolveAccess(link.getTargetType(), link.getTargetId(), actorUserId);
-            return toDto(link, source.ref(), target.ref());
+            return resolveAccess(entityType, entityId, actorUserId).ref();
         } catch (ApiException exception) {
-            return null;
+            return redactedRef();
         }
     }
 
@@ -262,7 +266,7 @@ public class EntityLinkService {
                 TYPE_GOAL,
                 goal.getId(),
                 goal.getOwnerUserId(),
-                new EntityRefDto(TYPE_GOAL, goal.getId(), goal.getName(), goal.getDescription(), goal.getStatus(), path, goal.isArchived())
+                new EntityRefDto(TYPE_GOAL, goal.getId(), goal.getName(), goal.getDescription(), goal.getStatus(), path, goal.isArchived(), true, false)
         );
     }
 
@@ -276,7 +280,7 @@ public class EntityLinkService {
                 TYPE_TASK,
                 task.getId(),
                 task.getOwnerUserId(),
-                new EntityRefDto(TYPE_TASK, task.getId(), task.getTitle(), task.getDescription(), task.getStatus(), path, task.isArchived())
+                new EntityRefDto(TYPE_TASK, task.getId(), task.getTitle(), task.getDescription(), task.getStatus(), path, task.isArchived(), true, false)
         );
     }
 
@@ -287,7 +291,7 @@ public class EntityLinkService {
                 TYPE_IDEA,
                 idea.getId(),
                 idea.getOwnerUserId(),
-                new EntityRefDto(TYPE_IDEA, idea.getId(), idea.getTitle(), idea.getBody(), idea.getStatus(), path, idea.isArchived())
+                new EntityRefDto(TYPE_IDEA, idea.getId(), idea.getTitle(), idea.getBody(), idea.getStatus(), path, idea.isArchived(), true, false)
         );
     }
 
@@ -298,8 +302,12 @@ public class EntityLinkService {
                 TYPE_NOTE,
                 note.getId(),
                 note.getOwnerUserId(),
-                new EntityRefDto(TYPE_NOTE, note.getId(), note.getTitle(), note.getBody(), null, path, note.isArchived())
+                new EntityRefDto(TYPE_NOTE, note.getId(), note.getTitle(), note.getBody(), null, path, note.isArchived(), true, false)
         );
+    }
+
+    private EntityRefDto redactedRef() {
+        return new EntityRefDto(null, null, null, null, null, null, null, false, true);
     }
 
     private void ensureVersion(long actual, long expected, String entityName) {

@@ -72,7 +72,9 @@ import {
   createFolderInvitation,
   createGoalInvitation,
   createTaskInvitation,
+  getInvitations,
   getSharedResources,
+  revokeInvitation,
 } from '../../advanced/advanced-api';
 import { usePlanningCopy } from '../planning-copy';
 import { mapPlanningError } from '../planning-errors';
@@ -102,6 +104,7 @@ import type {
   TaskType,
 } from '../types';
 import type { SharedResourcesResponse } from '../../advanced/types';
+import type { ShareInvitationDto } from '../../advanced/types';
 
 type PlanFolder = FolderDto & { shared?: boolean; canAccessFolderContent?: boolean; fullAccess?: boolean };
 type GoalsByFolder = Record<string, GoalDto[]>;
@@ -174,6 +177,7 @@ const DEFAULT_ALLOW_AUTHOR_NOTE_EDITS = false;
 const ROOT_PARENT_KEY = '__root__';
 const GOAL_STATUSES: GoalStatus[] = ['todo', 'in_progress', 'done', 'cancelled'];
 const TASK_STATUSES: TaskStatus[] = ['todo', 'in_progress', 'done', 'cancelled'];
+const ACTIVE_SHARE_INVITATION_STATUSES = new Set(['pending', 'accepted']);
 
 function toDraft(task: TaskDto | null): TaskDraft {
   return {
@@ -298,18 +302,6 @@ function markerToneForTask(task: TaskDto): MarkerTone {
   return task.type === 'red' ? 'red' : 'green';
 }
 
-function markerToneForPriority(priority: number): MarkerTone {
-  if (priority <= 2) {
-    return 'red';
-  }
-
-  if (priority <= 5) {
-    return 'amber';
-  }
-
-  return 'gray';
-}
-
 function dayDeltaFromToday(value: string | null) {
   if (!value) {
     return null;
@@ -386,6 +378,10 @@ function entityKey(type: LinkEntityType, id: string) {
   return `${type}:${id}`;
 }
 
+function entityKeyForRef(ref: EntityRefDto) {
+  return ref.type && ref.id && !isUnavailableRef(ref) ? entityKey(ref.type, ref.id) : null;
+}
+
 function parentKey(folder: FolderDto) {
   return folder.parentFolderId ?? ROOT_PARENT_KEY;
 }
@@ -438,6 +434,11 @@ function otherLinkRef(link: EntityLinkDto, type: LinkEntityType, id: string) {
   return link.source.type === type && link.source.id === id ? link.target : link.source;
 }
 
+function isUnavailableRef(ref: EntityRefDto) {
+  const state = ref as EntityRefDto & { inaccessible?: boolean };
+  return state.accessible === false || state.inaccessible === true || state.redacted === true || !state.type || !state.id;
+}
+
 function usePlanCopy() {
   const { locale } = useI18n();
 
@@ -461,6 +462,9 @@ function usePlanCopy() {
     create: locale === 'ru' ? 'Создать' : 'Create',
     shared: locale === 'ru' ? 'Общие' : 'Shared',
     sharedResource: locale === 'ru' ? 'Общий доступ' : 'Shared',
+    access: locale === 'ru' ? 'Доступ' : 'Access',
+    viewAccess: locale === 'ru' ? 'Просмотр' : 'View',
+    fullAccessShort: locale === 'ru' ? 'Полный' : 'Full',
     fullAccess: locale === 'ru' ? 'Полный доступ' : 'Full access',
     more: locale === 'ru' ? 'Еще' : 'More',
     newFolder: locale === 'ru' ? 'Новая папка' : 'New folder',
@@ -470,10 +474,12 @@ function usePlanCopy() {
     newNote: locale === 'ru' ? 'Новая заметка' : 'New note',
     addGoal: locale === 'ru' ? 'Добавить цель' : 'Add a goal',
     addTask: locale === 'ru' ? 'Добавить задачу' : 'Add a task',
+    quickTask: locale === 'ru' ? '+ Задача' : '+ Task',
     emptyTitle: locale === 'ru' ? 'Пока пусто' : 'Nothing here yet',
     emptyBody: locale === 'ru'
-      ? 'Создайте папку, затем добавьте вложенные папки, цели, идеи и заметки.'
-      : 'Create a folder, then add nested folders, goals, ideas, and notes.',
+      ? 'Добавьте первую задачу.'
+      : 'Add your first task.',
+    createGoalFirst: locale === 'ru' ? 'Сначала создайте цель.' : 'Create a goal first.',
     selectItem: locale === 'ru'
       ? 'Выберите папку, цель, задачу, идею или заметку'
       : 'Select a folder, goal, task, idea, or note',
@@ -509,9 +515,11 @@ function usePlanCopy() {
     linkedNotes: locale === 'ru' ? 'Связанные заметки' : 'Linked notes',
     noLinkedNotes: locale === 'ru' ? 'Связанных заметок нет.' : 'No linked notes yet.',
     links: locale === 'ru' ? 'Связи' : 'Links',
-    dependencies: locale === 'ru' ? 'Зависимости' : 'Dependencies',
-    dependency: locale === 'ru' ? 'Зависимость' : 'Dependency',
-    related: locale === 'ru' ? 'Связь' : 'Related',
+    dependencies: locale === 'ru' ? 'Связи' : 'Links',
+    dependency: locale === 'ru' ? 'Ждет' : 'Waits for',
+    waitsFor: locale === 'ru' ? 'Ждет' : 'Waits for',
+    blocks: locale === 'ru' ? 'Блокирует' : 'Blocks',
+    related: locale === 'ru' ? 'Связано' : 'Related',
     addLink: locale === 'ru' ? 'Добавить связь' : 'Add link',
     deleteLink: locale === 'ru' ? 'Удалить связь' : 'Delete link',
     linkTarget: locale === 'ru' ? 'С чем связать' : 'Link target',
@@ -519,11 +527,12 @@ function usePlanCopy() {
     relationType: locale === 'ru' ? 'Тип связи' : 'Relation type',
     noLinks: locale === 'ru' ? 'Связей пока нет.' : 'No links yet.',
     noLinkTargets: locale === 'ru' ? 'Подходящих сущностей нет.' : 'No matching entities.',
+    unavailableObject: locale === 'ru' ? 'Недоступный объект' : 'Unavailable item',
     dependencyHint: locale === 'ru'
-      ? 'Зависимость доступна только между задачами.'
+      ? 'Ждет/блокирует доступно только между задачами.'
       : 'Dependencies are available only between tasks.',
     dependencyDirection: locale === 'ru'
-      ? 'Эта задача зависит от выбранной задачи.'
+      ? 'Эта задача ждет выбранную.'
       : 'This task depends on the selected task.',
     open: locale === 'ru' ? 'Открыть' : 'Open',
     move: locale === 'ru' ? 'Переместить' : 'Move',
@@ -533,9 +542,36 @@ function usePlanCopy() {
     share: locale === 'ru' ? 'Поделиться' : 'Share',
     shareEmail: locale === 'ru' ? 'Email пользователя' : 'User email',
     shareDone: locale === 'ru' ? 'Доступ отправлен.' : 'Access sent.',
+    invite: locale === 'ru' ? 'Пригласить' : 'Invite',
+    accessList: locale === 'ru' ? 'Кому открыт доступ' : 'Access list',
+    revoke: locale === 'ru' ? 'Отозвать' : 'Revoke',
+    noAccessList: locale === 'ru' ? 'Приглашений пока нет.' : 'No invitations yet.',
     dragHint: locale === 'ru'
       ? 'Можно перетащить сущность на допустимую цель или использовать меню "Переместить".'
       : 'You can drag an entity onto a valid target or use the Move menu.',
+    dragInvalid: {
+      fallback: locale === 'ru'
+        ? 'Перетащите объект на допустимое место.'
+        : 'Drop the item on a valid target.',
+      folderToFolder: locale === 'ru'
+        ? 'Папку можно перенести только в другую доступную папку.'
+        : 'Move a folder into another available folder.',
+      goalToFolder: locale === 'ru'
+        ? 'Цель можно перенести только в доступную папку.'
+        : 'Move a goal into an available folder.',
+      taskToGoal: locale === 'ru'
+        ? 'Задачу можно перенести только в доступную цель.'
+        : 'Move a task into an available goal.',
+      taskToFolder: locale === 'ru'
+        ? 'Задачу можно перенести только в цель.'
+        : 'A task can only be moved into a goal.',
+      ideaNoteToFolder: locale === 'ru'
+        ? 'Идею или заметку можно перенести только в доступную папку.'
+        : 'Move an idea or note into an available folder.',
+      goalOnlyTasks: locale === 'ru'
+        ? 'В цель можно перенести только задачу.'
+        : 'Only tasks can be moved into a goal.',
+    },
   };
 }
 
@@ -588,12 +624,14 @@ export function TasksRoute() {
   const [operationTargetId, setOperationTargetId] = useState('');
   const [operationName, setOperationName] = useState('');
   const [dragEntity, setDragEntity] = useState<EntitySelection | null>(null);
+  const [validDropTarget, setValidDropTarget] = useState<string | null>(null);
   const [invalidDropTarget, setInvalidDropTarget] = useState<string | null>(null);
   const [linkTargetKey, setLinkTargetKey] = useState('');
   const [linkSearch, setLinkSearch] = useState('');
   const [linkRelationType, setLinkRelationType] = useState<EntityRelationType>('related');
   const [shareEmail, setShareEmail] = useState('');
   const [shareFullAccess, setShareFullAccess] = useState(true);
+  const [shareInvitations, setShareInvitations] = useState<ShareInvitationDto[]>([]);
 
   const goals = useMemo(() => Object.values(goalsByFolder).flat(), [goalsByFolder]);
   const tasks = useMemo(() => Object.values(tasksByGoal).flat(), [tasksByGoal]);
@@ -622,7 +660,6 @@ export function TasksRoute() {
   const panelFolder = isCreatingTask ? taskCreationFolder : selectedFolder;
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase(locale === 'ru' ? 'ru-RU' : 'en-US');
   const isSearching = normalizedSearch.length > 0;
-  const selectedCreator = !isCreatingTask && selectedTask ? describeCreator(selectedTask) : null;
   const currentRecurrenceError = recurrenceError(draft, planningCopy.tasks);
   const canArchiveSelectedTask = !isCreatingTask && selectedTask ? canMutateShared(selectedTask) : false;
   const canEditSelectedTaskFields = isCreatingTask || canMutateShared(selectedTask);
@@ -721,7 +758,9 @@ export function TasksRoute() {
     ));
   }, [currentLinkCandidates, linkSearch, locale]);
   const linkedNotes = selectedLinkEntity && selectedLinkEntity.type !== 'note'
-    ? selectedLinks.map((link) => otherLinkRef(link, selectedLinkEntity.type, selectedLinkEntity.id)).filter((ref) => ref.type === 'note')
+    ? selectedLinks
+      .map((link) => otherLinkRef(link, selectedLinkEntity.type, selectedLinkEntity.id))
+      .filter((ref) => ref.type === 'note' || isUnavailableRef(ref))
     : [];
   const totalTasks = tasks.length;
   const doneTasks = tasks.filter(isComplete).length;
@@ -807,9 +846,7 @@ export function TasksRoute() {
   }
 
   function applyLinkToCachedEntities(link: EntityLinkDto, requiredKeys: string[] = []) {
-    const sourceKey = entityKey(link.source.type, link.source.id);
-    const targetKey = entityKey(link.target.type, link.target.id);
-    const keys = new Set([sourceKey, targetKey, ...requiredKeys]);
+    const keys = new Set([entityKeyForRef(link.source), entityKeyForRef(link.target), ...requiredKeys].filter((key): key is string => Boolean(key)));
 
     setLinksByEntity((current) => {
       const next = { ...current };
@@ -823,12 +860,11 @@ export function TasksRoute() {
   }
 
   function removeLinkFromCachedEntities(link: EntityLinkDto) {
-    const sourceKey = entityKey(link.source.type, link.source.id);
-    const targetKey = entityKey(link.target.type, link.target.id);
+    const keys = [entityKeyForRef(link.source), entityKeyForRef(link.target)].filter((key): key is string => Boolean(key));
 
     setLinksByEntity((current) => {
       const next = { ...current };
-      [sourceKey, targetKey].forEach((key) => {
+      keys.forEach((key) => {
         if (next[key]) {
           next[key] = next[key].filter((item) => item.id !== link.id);
         }
@@ -837,11 +873,59 @@ export function TasksRoute() {
     });
   }
 
-  function showInvalidDrop(targetKey: string) {
+  function invalidDropMessage(entity: EntitySelection | null, targetType: 'folder' | 'goal') {
+    if (!entity) {
+      return copy.dragInvalid.fallback;
+    }
+
+    if (targetType === 'folder') {
+      if (entity.type === 'folder') {
+        return copy.dragInvalid.folderToFolder;
+      }
+
+      if (entity.type === 'goal') {
+        return copy.dragInvalid.goalToFolder;
+      }
+
+      if (entity.type === 'task') {
+        return copy.dragInvalid.taskToFolder;
+      }
+
+      return copy.dragInvalid.ideaNoteToFolder;
+    }
+
+    return entity.type === 'task' ? copy.dragInvalid.taskToGoal : copy.dragInvalid.goalOnlyTasks;
+  }
+
+  function showInvalidDrop(targetKey: string, message: string) {
+    setValidDropTarget(null);
     setInvalidDropTarget(targetKey);
+    setNotice(message);
     window.setTimeout(() => {
       setInvalidDropTarget((current) => current === targetKey ? null : current);
+      setNotice((current) => current === message ? null : current);
     }, 650);
+  }
+
+  function clearDropTargets() {
+    setValidDropTarget(null);
+    setInvalidDropTarget(null);
+  }
+
+  function isValidDropTarget(entity: EntitySelection | null, targetType: 'folder' | 'goal', targetId: string) {
+    if (!entity) {
+      return false;
+    }
+
+    if (targetType === 'folder' && entity.type === 'task') {
+      return false;
+    }
+
+    if (targetType === 'goal' && entity.type !== 'task') {
+      return false;
+    }
+
+    return operationTargets(entity).some((target) => target.id === targetId);
   }
 
   async function runAction(action: () => Promise<void>) {
@@ -863,7 +947,7 @@ export function TasksRoute() {
     setLoadError(null);
 
     try {
-      const [ownedFolders, sharedResources] = await Promise.all([
+      const [ownedFolders, sharedResources, invitationsResponse] = await Promise.all([
         listFolders(authorizedFetch),
         getSharedResources(authorizedFetch).catch((): SharedResourcesResponse => ({
           folders: [],
@@ -871,6 +955,7 @@ export function TasksRoute() {
           tasks: [],
           createTaskGoalIds: [],
         })),
+        getInvitations(authorizedFetch).catch(() => ({ items: [] as ShareInvitationDto[] })),
       ]);
       const nextFolders = mergeById<PlanFolder>(
         ownedFolders.map((folder) => ({
@@ -928,6 +1013,7 @@ export function TasksRoute() {
       setIdeasByFolder(nextIdeasByFolder);
       setNotesByFolder(nextNotesByFolder);
       setCreateTaskGoalIds(new Set(sharedResources.createTaskGoalIds ?? []));
+      setShareInvitations(invitationsResponse.items);
       setLinksByEntity({});
       setSelection({
         folderId: nextFolderId,
@@ -947,6 +1033,7 @@ export function TasksRoute() {
       setIdeaNotesByIdea({});
       setLinksByEntity({});
       setCreateTaskGoalIds(new Set());
+      setShareInvitations([]);
     } finally {
       setLoading(false);
     }
@@ -997,6 +1084,10 @@ export function TasksRoute() {
   }
 
   function openEntity(ref: EntityRefDto) {
+    if (isUnavailableRef(ref)) {
+      return;
+    }
+
     if (ref.type === 'goal') {
       const goal = goals.find((item) => item.id === ref.id);
       if (goal) {
@@ -1078,6 +1169,53 @@ export function TasksRoute() {
     setSelection({ folderId: targetGoal.folderId, goalId, taskId: null, ideaId: null, noteId: null });
     setDraft(toDraft(null));
     setIsPanelOpen(true);
+  }
+
+  async function handleQuickCreateTask() {
+    const directGoal = selectedGoal && canCreateTaskInGoal(selectedGoal)
+      ? selectedGoal
+      : goals.find((goal) => canCreateTaskInGoal(goal)) ?? null;
+
+    if (directGoal) {
+      handleCreateTask(directGoal.id);
+      return;
+    }
+
+    const targetFolder = selectedFolder && canCreateGoalInFolder(selectedFolder)
+      ? selectedFolder
+      : folders.find((folder) => canCreateGoalInFolder(folder)) ?? null;
+
+    if (targetFolder) {
+      await runAction(async () => {
+        const goal = await createGoal(authorizedFetch, targetFolder.id, {
+          name: copy.goalName,
+          description: '',
+          status: 'todo',
+        });
+        await loadPlan({ folderId: targetFolder.id, goalId: goal.id, taskId: null, ideaId: null, noteId: null });
+        setCreateTaskGoalId(goal.id);
+        setDraft(toDraft(null));
+        setIsPanelOpen(true);
+      });
+      return;
+    }
+
+    await runAction(async () => {
+      const folder = await createFolder(authorizedFetch, {
+        name: copy.folderName,
+        description: '',
+        parentFolderId: null,
+      });
+      const goal = await createGoal(authorizedFetch, folder.id, {
+        name: copy.goalName,
+        description: '',
+        status: 'todo',
+      });
+      await loadPlan({ folderId: folder.id, goalId: goal.id, taskId: null, ideaId: null, noteId: null });
+      setCreateTaskGoalId(goal.id);
+      setDraft(toDraft(null));
+      setIsPanelOpen(true);
+    });
   }
 
   function handleCreateIdea(folderId = selection.folderId) {
@@ -1400,6 +1538,7 @@ export function TasksRoute() {
         }
 
         setCreateTaskGoalId(null);
+        setEditingEntity(null);
         await loadPlan({ folderId: targetGoal.folderId, goalId: targetGoal.id, taskId: task.id, ideaId: null, noteId: null });
         setIsPanelOpen(true);
         return;
@@ -1433,6 +1572,7 @@ export function TasksRoute() {
         [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) => task.id === nextTask.id ? nextTask : task),
       }));
       setSelection((current) => ({ ...current, taskId: nextTask.id, ideaId: null, noteId: null }));
+      setEditingEntity(null);
     });
   }
 
@@ -1621,34 +1761,36 @@ export function TasksRoute() {
   async function handleDropOnFolder(event: DragEvent, targetFolderId: string) {
     event.preventDefault();
     if (!dragEntity || (dragEntity.type === 'task')) {
-      showInvalidDrop(`folder:${targetFolderId}`);
+      showInvalidDrop(`folder:${targetFolderId}`, invalidDropMessage(dragEntity, 'folder'));
       return;
     }
 
     const entity = dragEntity;
     const previousTargets = operationTargets(entity);
     if (!previousTargets.some((target) => target.id === targetFolderId)) {
-      showInvalidDrop(`folder:${targetFolderId}`);
+      showInvalidDrop(`folder:${targetFolderId}`, invalidDropMessage(entity, 'folder'));
       return;
     }
 
     setDragEntity(null);
+    clearDropTargets();
     await executeOperation({ mode: 'move', entity }, targetFolderId);
   }
 
   async function handleDropOnGoal(event: DragEvent, targetGoalId: string) {
     event.preventDefault();
     if (!dragEntity || dragEntity.type !== 'task') {
-      showInvalidDrop(`goal:${targetGoalId}`);
+      showInvalidDrop(`goal:${targetGoalId}`, invalidDropMessage(dragEntity, 'goal'));
       return;
     }
 
     const previousTargets = operationTargets(dragEntity);
     if (!previousTargets.some((target) => target.id === targetGoalId)) {
-      showInvalidDrop(`goal:${targetGoalId}`);
+      showInvalidDrop(`goal:${targetGoalId}`, invalidDropMessage(dragEntity, 'goal'));
       return;
     }
 
+    clearDropTargets();
     await executeOperation({ mode: 'move', entity: dragEntity }, targetGoalId);
     setDragEntity(null);
   }
@@ -1659,8 +1801,8 @@ export function TasksRoute() {
     }
 
     await runAction(async () => {
-      if (selectedFolder && !selectedFolder.shared) {
-        await createFolderInvitation(authorizedFetch, selectedFolder.id, {
+      if (selectedTask && !selectedTask.shared) {
+        await createTaskInvitation(authorizedFetch, selectedTask.id, {
           email: shareEmail.trim(),
           fullAccess: shareFullAccess,
         });
@@ -1669,15 +1811,24 @@ export function TasksRoute() {
           email: shareEmail.trim(),
           fullAccess: shareFullAccess,
         });
-      } else if (selectedTask && !selectedTask.shared) {
-        await createTaskInvitation(authorizedFetch, selectedTask.id, {
+      } else if (selectedFolder && !selectedFolder.shared) {
+        await createFolderInvitation(authorizedFetch, selectedFolder.id, {
           email: shareEmail.trim(),
           fullAccess: shareFullAccess,
         });
       }
 
       setShareEmail('');
+      setShareInvitations((await getInvitations(authorizedFetch).catch(() => ({ items: shareInvitations }))).items);
       setNotice(copy.shareDone);
+    });
+  }
+
+  async function handleRevokeShare(invitation: ShareInvitationDto) {
+    await runAction(async () => {
+      const response = await revokeInvitation(authorizedFetch, invitation.id);
+      setShareInvitations((current) => current.filter((item) => item.id !== response.id));
+      await loadPlan(selection);
     });
   }
 
@@ -1747,6 +1898,10 @@ export function TasksRoute() {
 
   function openSection(key: string) {
     setOpenSections((current) => ({ ...current, [key]: true }));
+  }
+
+  function closeSection(key: string) {
+    setOpenSections((current) => ({ ...current, [key]: false }));
   }
 
   function renderSection(
@@ -1944,31 +2099,104 @@ export function TasksRoute() {
   }
 
   function renderSharingPanel() {
-    const shareable = (selectedFolder && !selectedFolder.shared) || (selectedGoal && !selectedGoal.shared) || (selectedTask && !selectedTask.shared);
+    const current = selectedTask ?? selectedGoal ?? selectedFolder;
+    const target = selectedTask
+      ? { type: 'task' as const, id: selectedTask.id }
+      : selectedGoal
+        ? { type: 'goal' as const, id: selectedGoal.id }
+        : selectedFolder
+          ? { type: 'folder' as const, id: selectedFolder.id }
+          : null;
+    const shareable = Boolean(current && !current.shared);
+    const accessKey = target ? `sharing:${target.type}:${target.id}` : 'sharing';
+    const accessOpen = openSections[accessKey] ?? false;
+    const accessInvitations = target
+      ? shareInvitations.filter((invitation) => invitation.targetType === target.type && invitation.targetId === target.id)
+        .filter((invitation) => ACTIVE_SHARE_INVITATION_STATUSES.has(invitation.status))
+      : [];
 
-    if (!shareable) {
+    if (!current || !target) {
       return null;
     }
 
     return (
-      <section className="detail-disclosure">
-        <summary>{copy.share}</summary>
-        <div className="detail-editor">
-          <label className="field detail-grid__wide">
-            <span>{copy.shareEmail}</span>
-            <input className="field__control" type="email" value={shareEmail} onChange={(event) => setShareEmail(event.target.value)} />
-          </label>
-          <label className="switch-control detail-grid__wide">
-            <input type="checkbox" checked={shareFullAccess} onChange={(event) => setShareFullAccess(event.target.checked)} />
-            <span>{copy.fullAccess}</span>
-          </label>
-          <div className="cluster detail-grid__wide detail-editor__actions">
-            <button className="button button--primary" type="button" disabled={saving || !shareEmail.trim()} onClick={() => void handleShareCurrent()}>
-              <UserCircle aria-hidden="true" size={16} strokeWidth={1.75} />
-              <span>{copy.share}</span>
-            </button>
-          </div>
+      <section className="detail-disclosure access-row">
+        <div className="detail-disclosure__header">
+          <button
+            className="detail-disclosure__trigger"
+            type="button"
+            aria-expanded={accessOpen}
+            onClick={() => toggleSection(accessKey, false)}
+          >
+            <UserCircle aria-hidden="true" size={14} strokeWidth={1.9} />
+            <span>{copy.access}</span>
+          </button>
+          <span className="meta-chip">{current.shared ? (current.fullAccess ? copy.fullAccess : copy.sharedResource) : copy.invite}</span>
         </div>
+        {accessOpen ? (
+          <div className="access-sheet" role="dialog" aria-label={copy.access}>
+            <div className="access-sheet__header">
+              <strong>{copy.access}</strong>
+              <button className="icon-button" type="button" aria-label={copy.cancel} title={copy.cancel} onClick={() => closeSection(accessKey)}>
+                <X aria-hidden="true" size={18} strokeWidth={1.75} />
+              </button>
+            </div>
+            {shareable ? (
+              <div className="detail-editor">
+                <label className="field detail-grid__wide">
+                  <span>{copy.shareEmail}</span>
+                  <input className="field__control" type="email" value={shareEmail} onChange={(event) => setShareEmail(event.target.value)} />
+                </label>
+                <div className="access-mode detail-grid__wide" role="group" aria-label={copy.access}>
+                  <button
+                    className={`access-mode__option${!shareFullAccess ? ' is-active' : ''}`}
+                    type="button"
+                    aria-pressed={!shareFullAccess}
+                    onClick={() => setShareFullAccess(false)}
+                  >
+                    {copy.viewAccess}
+                  </button>
+                  <button
+                    className={`access-mode__option${shareFullAccess ? ' is-active' : ''}`}
+                    type="button"
+                    aria-pressed={shareFullAccess}
+                    onClick={() => setShareFullAccess(true)}
+                  >
+                    {copy.fullAccessShort}
+                  </button>
+                </div>
+                <div className="cluster detail-grid__wide detail-editor__actions">
+                  <button className="button button--primary" type="button" disabled={saving || !shareEmail.trim()} onClick={() => void handleShareCurrent()}>
+                    <UserCircle aria-hidden="true" size={16} strokeWidth={1.75} />
+                    <span>{copy.invite}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">{current.fullAccess ? copy.fullAccess : copy.sharedResource}</p>
+            )}
+            <div className="access-list">
+              <div className="detail-label">{copy.accessList}</div>
+              {accessInvitations.length === 0 ? <p className="muted">{copy.noAccessList}</p> : null}
+              {accessInvitations.map((invitation) => (
+                <div className="access-list__item" key={invitation.id}>
+                  <div>
+                    <strong>{invitation.targetEmail}</strong>
+                    <span className="access-list__meta">
+                      <span className="muted">{invitation.status}</span>
+                      <span>{invitation.fullAccess ? copy.fullAccessShort : copy.viewAccess}</span>
+                    </span>
+                  </div>
+                  {ACTIVE_SHARE_INVITATION_STATUSES.has(invitation.status) ? (
+                    <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleRevokeShare(invitation)}>
+                      {copy.revoke}
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -1982,6 +2210,15 @@ export function TasksRoute() {
     const selectedTarget = linkTargetKey
       ? currentLinkCandidates.find((ref) => `${ref.type}:${ref.id}` === linkTargetKey) ?? null
       : null;
+    const relationLabel = (link: EntityLinkDto) => {
+      if (link.relationType !== 'dependency') {
+        return copy.related;
+      }
+
+      return link.source.type === selectedLinkEntity.type && link.source.id === selectedLinkEntity.id
+        ? copy.waitsFor
+        : copy.blocks;
+    };
     const addLinkAction = (
       <button
         className="icon-button detail-disclosure__action"
@@ -2005,18 +2242,19 @@ export function TasksRoute() {
           {selectedLinks.length === 0 ? <p className="muted">{copy.noLinks}</p> : null}
           {selectedLinks.map((link) => {
             const ref = otherLinkRef(link, selectedLinkEntity.type, selectedLinkEntity.id);
+            const unavailableRef = isUnavailableRef(ref);
             return (
               <article className="entity-link-card" key={link.id}>
-                <button className="entity-link-card__main" type="button" onClick={() => openEntity(ref)}>
-                  {entityIcon(ref.type)}
+                <button className="entity-link-card__main" type="button" disabled={unavailableRef} onClick={() => openEntity(ref)}>
+                  {unavailableRef || !ref.type ? <Waypoints aria-hidden="true" size={17} strokeWidth={1.75} /> : entityIcon(ref.type)}
                   <div>
-                    <strong>{ref.title}</strong>
-                    <p>{ref.path || ref.subtitle || copy.details}</p>
+                    <strong>{unavailableRef ? copy.unavailableObject : ref.title}</strong>
+                    {unavailableRef ? null : <p>{ref.path || ref.subtitle || copy.details}</p>}
                   </div>
                 </button>
                 <span className={`relation-chip relation-chip--${link.relationType}`}>
                   {link.relationType === 'dependency' ? <GitBranch size={12} aria-hidden="true" /> : <Waypoints size={12} aria-hidden="true" />}
-                  {link.relationType === 'dependency' ? copy.dependency : copy.related}
+                  {relationLabel(link)}
                 </span>
                 <button
                   className="icon-button entity-link-card__delete"
@@ -2065,7 +2303,7 @@ export function TasksRoute() {
                 onChange={(event) => setLinkRelationType(event.target.value as EntityRelationType)}
               >
                 <option value="related">{copy.related}</option>
-                <option value="dependency">{copy.dependency}</option>
+                <option value="dependency">{copy.waitsFor}</option>
               </select>
             </label>
             {dependencyAvailable && selectedTarget?.type === 'task' ? (
@@ -2112,12 +2350,15 @@ export function TasksRoute() {
     return renderSection(sectionKey, copy.linkedNotes, (
         <div className="detail-section">
           {linkedNotes.length === 0 ? <p className="muted">{copy.noLinkedNotes}</p> : null}
-          {linkedNotes.map((ref) => (
-            <button className="detail-note detail-note--button" type="button" key={ref.id} onClick={() => openEntity(ref)}>
-              <PenLine size={16} aria-hidden="true" />
-              <span>{ref.title}</span>
+          {linkedNotes.map((ref, index) => {
+            const unavailableRef = isUnavailableRef(ref);
+            return (
+            <button className="detail-note detail-note--button" type="button" key={entityKeyForRef(ref) ?? `unavailable:${index}`} disabled={unavailableRef} onClick={() => openEntity(ref)}>
+              {unavailableRef ? <Waypoints size={16} aria-hidden="true" /> : <PenLine size={16} aria-hidden="true" />}
+              <span>{unavailableRef ? copy.unavailableObject : ref.title}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
     ), { defaultOpen: false, action: addCommentAction });
   }
@@ -2126,7 +2367,6 @@ export function TasksRoute() {
     complete: locale === 'ru' ? 'Отметить выполненной' : 'Mark complete',
     reopen: locale === 'ru' ? 'Вернуть в работу' : 'Mark active',
     editTask: locale === 'ru' ? 'Изменить задачу' : 'Edit task',
-    type: locale === 'ru' ? 'Тип' : 'Type',
   };
 
   function folderMatches(folder: PlanFolder) {
@@ -2180,11 +2420,11 @@ export function TasksRoute() {
       <div className="plan-tree__group" key={folder.id}>
         <button
           type="button"
-          className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.goalId && !selection.taskId && !selection.ideaId && !selection.noteId ? ' is-selected' : ''}${invalidDropTarget === folderDropKey ? ' is-drop-invalid' : ''}`}
+          className={`plan-row plan-row--folder${selection.folderId === folder.id && !selection.goalId && !selection.taskId && !selection.ideaId && !selection.noteId ? ' is-selected' : ''}${validDropTarget === folderDropKey ? ' is-drop-valid' : ''}${invalidDropTarget === folderDropKey ? ' is-drop-invalid' : ''}`}
           style={{ marginLeft: indent, width: `calc(100% - ${indent}px)` }}
           draggable
           onDragStart={() => setDragEntity({ type: 'folder', id: folder.id })}
-          onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
+          onDragEnd={() => { setDragEntity(null); clearDropTargets(); }}
           onDragOver={(event) => {
             if (!dragEntity) {
               return;
@@ -2192,7 +2432,9 @@ export function TasksRoute() {
 
             event.preventDefault();
             event.dataTransfer.dropEffect = dragEntity.type === 'task' ? 'none' : 'move';
+            setValidDropTarget(isValidDropTarget(dragEntity, 'folder', folder.id) ? folderDropKey : null);
           }}
+          onDragLeave={() => setValidDropTarget((current) => current === folderDropKey ? null : current)}
           onDrop={(event) => void handleDropOnFolder(event, folder.id)}
           onClick={() => selectFolder(folder.id)}
           role="treeitem"
@@ -2202,7 +2444,6 @@ export function TasksRoute() {
           <Folder aria-hidden="true" size={18} strokeWidth={1.75} />
           <span className="plan-row__title">{folder.name}</span>
           <span className="plan-row__meta">{folderTasks.length ? progress(folderTasks) : `${allIdeas.length}/${allNotes.length}`}</span>
-          {folder.shared ? <span className="plan-row__shared">{folder.fullAccess ? copy.fullAccess : copy.sharedResource}</span> : null}
           <span className="plan-row__actions">
             <span className="plan-row__icon" title={copy.more}><MoreHorizontal size={15} strokeWidth={1.75} /></span>
           </span>
@@ -2218,7 +2459,7 @@ export function TasksRoute() {
             style={{ marginLeft: 40 + indent, width: `calc(100% - ${40 + indent}px)`, borderLeft: '3px solid #2563eb' }}
             draggable
             onDragStart={() => setDragEntity({ type: 'idea', id: idea.id })}
-            onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
+            onDragEnd={() => { setDragEntity(null); clearDropTargets(); }}
             onClick={() => selectIdea(idea)}
             role="treeitem"
           >
@@ -2237,7 +2478,7 @@ export function TasksRoute() {
             style={{ marginLeft: 40 + indent, width: `calc(100% - ${40 + indent}px)`, borderLeft: '3px solid #94a3b8' }}
             draggable
             onDragStart={() => setDragEntity({ type: 'note', id: note.id })}
-            onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
+            onDragEnd={() => { setDragEntity(null); clearDropTargets(); }}
             onClick={() => selectNote(note)}
             role="treeitem"
           >
@@ -2251,11 +2492,11 @@ export function TasksRoute() {
           <div className="plan-tree__group" key={goal.id}>
             <button
               type="button"
-              className={`plan-row plan-row--goal${selection.goalId === goal.id && !selection.taskId && !selection.ideaId && !selection.noteId ? ' is-selected' : ''}${invalidDropTarget === `goal:${goal.id}` ? ' is-drop-invalid' : ''}`}
+              className={`plan-row plan-row--goal${selection.goalId === goal.id && !selection.taskId && !selection.ideaId && !selection.noteId ? ' is-selected' : ''}${validDropTarget === `goal:${goal.id}` ? ' is-drop-valid' : ''}${invalidDropTarget === `goal:${goal.id}` ? ' is-drop-invalid' : ''}`}
               style={{ marginLeft: 20 + indent, width: `calc(100% - ${20 + indent}px)` }}
               draggable
               onDragStart={() => setDragEntity({ type: 'goal', id: goal.id })}
-              onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
+              onDragEnd={() => { setDragEntity(null); clearDropTargets(); }}
               onDragOver={(event) => {
                 if (!dragEntity) {
                   return;
@@ -2263,7 +2504,9 @@ export function TasksRoute() {
 
                 event.preventDefault();
                 event.dataTransfer.dropEffect = dragEntity.type === 'task' ? 'move' : 'none';
+                setValidDropTarget(isValidDropTarget(dragEntity, 'goal', goal.id) ? `goal:${goal.id}` : null);
               }}
+              onDragLeave={() => setValidDropTarget((current) => current === `goal:${goal.id}` ? null : current)}
               onDrop={(event) => void handleDropOnGoal(event, goal.id)}
               onClick={() => selectGoal(goal)}
               role="treeitem"
@@ -2276,7 +2519,6 @@ export function TasksRoute() {
                 <span className="plan-row__progress" aria-hidden="true"><span style={{ width: `${progressPercent(allTasks)}%` }} /></span>
               </span>
               <span className="plan-row__meta">{progress(allTasks)}</span>
-              {goal.shared ? <span className="plan-row__shared">{goal.fullAccess ? copy.fullAccess : copy.sharedResource}</span> : null}
               <span className="plan-row__actions">
                 <span className="plan-row__icon" title={copy.more}><MoreHorizontal size={15} strokeWidth={1.75} /></span>
               </span>
@@ -2293,8 +2535,6 @@ export function TasksRoute() {
               const dueChip = formatDueChip(task.dueTime, locale);
               const complete = isComplete(task);
               const statusLabel = planningCopy.enums.taskStatus[task.status];
-              const typeLabel = planningCopy.enums.taskType[task.type];
-              const priorityLabel = `${copy.priority} ${task.priority}`;
 
               return (
                 <div
@@ -2303,7 +2543,7 @@ export function TasksRoute() {
                   style={{ marginLeft: 40 + indent, width: `calc(100% - ${40 + indent}px)` }}
                   draggable
                   onDragStart={() => setDragEntity({ type: 'task', id: task.id })}
-                  onDragEnd={() => { setDragEntity(null); setInvalidDropTarget(null); }}
+                  onDragEnd={() => { setDragEntity(null); clearDropTargets(); }}
                   role="treeitem"
                   aria-selected={selection.taskId === task.id}
                 >
@@ -2318,11 +2558,10 @@ export function TasksRoute() {
                     {complete ? <CheckCircle2 aria-hidden="true" size={17} strokeWidth={1.75} /> : <Circle aria-hidden="true" size={17} strokeWidth={1.75} />}
                   </button>
                   <button type="button" className="plan-row__content" onClick={() => selectTask(task)}>
-                    <span className={`marker-dot marker-dot--${markerToneForTask(task)}`} aria-label={`${rowCopy.type}: ${typeLabel}. ${copy.status}: ${statusLabel}`} title={`${typeLabel} / ${statusLabel}`} />
+                    <span className={`marker-dot marker-dot--${markerToneForTask(task)}`} aria-label={`${copy.status}: ${statusLabel}`} title={statusLabel} />
                     <span className="plan-row__title">{task.title}</span>
                   </button>
                   {dueChip ? <span className={`due-chip due-chip--${dueTone(task.dueTime)}`} title={formatDateTime(task.dueTime, locale)}>{dueChip}</span> : null}
-                  <span className={`priority-dot priority-dot--${markerToneForPriority(task.priority)}`} aria-label={priorityLabel} title={priorityLabel} />
                   <span className="plan-row__actions">
                     <button type="button" className="plan-row__icon" aria-label={rowCopy.editTask} title={rowCopy.editTask} onClick={() => selectTask(task)}>
                       <Pencil size={14} strokeWidth={1.75} />
@@ -2375,6 +2614,12 @@ export function TasksRoute() {
             </div>
           </div>
           <div className="planner-toolbar">
+            {!empty ? (
+              <button className="button button--primary planner-toolbar__quick" type="button" disabled={saving} onClick={() => void handleQuickCreateTask()}>
+                <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
+                <span>{copy.task}</span>
+              </button>
+            ) : null}
             {isSearchOpen ? (
               <>
                 <input
@@ -2414,7 +2659,7 @@ export function TasksRoute() {
                     <Target aria-hidden="true" size={16} strokeWidth={1.75} />
                     <span>{copy.goal}</span>
                   </button>
-                  <button type="button" role="menuitem" disabled={!canCreateTaskInGoal(selectedGoal)} onClick={() => { setIsCreateMenuOpen(false); handleCreateTask(); }}>
+                  <button type="button" role="menuitem" onClick={() => { setIsCreateMenuOpen(false); void handleQuickCreateTask(); }}>
                     <Circle aria-hidden="true" size={16} strokeWidth={1.75} />
                     <span>{copy.task}</span>
                   </button>
@@ -2437,12 +2682,14 @@ export function TasksRoute() {
 
         {empty ? (
           <div className="planner-empty">
-            <Folder aria-hidden="true" size={34} strokeWidth={1.75} />
             <h2>{copy.emptyTitle}</h2>
             <p>{copy.emptyBody}</p>
-            <button className="button button--primary" type="button" disabled={saving} onClick={() => void handleCreateFolder()}>
-              {copy.newFolder}
-            </button>
+            <div className="planner-empty__actions">
+              <button className="button button--primary" type="button" disabled={saving} onClick={() => void handleQuickCreateTask()}>
+                <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
+                <span>{copy.quickTask}</span>
+              </button>
+            </div>
           </div>
         ) : noSearchResults ? (
           <div className="planner-empty">
@@ -2464,7 +2711,6 @@ export function TasksRoute() {
               <div className="detail-panel__badges" aria-label={copy.details}>
                 <span className="meta-chip"><Flame aria-hidden="true" size={14} strokeWidth={1.75} />{copy.idea}</span>
                 <span className="meta-chip">{copy.status}: {selectedIdea.status}</span>
-                {selectedIdea.shared ? <span className="meta-chip">{selectedIdea.fullAccess ? copy.fullAccess : copy.sharedResource}</span> : null}
               </div>
               <div className="detail-section">
                 <div className="detail-label">{copy.path}</div>
@@ -2569,7 +2815,6 @@ export function TasksRoute() {
             <div className="detail-panel__body">
               <div className="detail-panel__badges" aria-label={copy.details}>
                 <span className="meta-chip"><PenLine aria-hidden="true" size={14} strokeWidth={1.75} />{copy.note}</span>
-                {selectedNote.shared ? <span className="meta-chip">{selectedNote.fullAccess ? copy.fullAccess : copy.sharedResource}</span> : null}
               </div>
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(selectedNote.folderId)}</span></div></div>
               <div className="detail-section note-compose">
@@ -2614,7 +2859,6 @@ export function TasksRoute() {
                 <span className="meta-chip"><Target aria-hidden="true" size={14} strokeWidth={1.75} />{copy.goal}</span>
                 <span className="meta-chip">{copy.status}: {planningCopy.enums.goalStatus[selectedGoal.status]}</span>
                 <span className="meta-chip">{copy.task}: {selectedGoalTasks.length}</span>
-                {selectedGoal.shared ? <span className="meta-chip">{selectedGoal.fullAccess ? copy.fullAccess : copy.sharedResource}</span> : null}
               </div>
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(selectedFolder.id)} / {selectedGoal.name}</span></div></div>
               <div className="detail-section"><div className="detail-label">{planningCopy.goals.description}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedGoal.description || planningCopy.common.noDescription}</p></div></div>
@@ -2634,7 +2878,7 @@ export function TasksRoute() {
               ) : null}
               {renderLinkedNotesPanel()}
               {renderLinksPanel()}
-              {renderSharingPanel()}
+              {!isCreatingTask ? renderSharingPanel() : null}
               {renderOperationPanel()}
             </div>
           </>
@@ -2649,7 +2893,6 @@ export function TasksRoute() {
                 <span className="meta-chip">{copy.task}: {selectedFolderTasks.length}</span>
                 <span className="meta-chip">{copy.ideas}: {(ideasByFolder[selectedFolder.id] ?? []).length}</span>
                 <span className="meta-chip">{copy.notes}: {(notesByFolder[selectedFolder.id] ?? []).length}</span>
-                {selectedFolder.shared ? <span className="meta-chip">{selectedFolder.fullAccess ? copy.fullAccess : copy.sharedResource}</span> : null}
               </div>
               <p className="field__hint">{copy.dragHint}</p>
               <div className="detail-section"><div className="detail-label">{planningCopy.folders.description}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedFolder.description || planningCopy.common.noDescription}</p></div></div>
@@ -2677,7 +2920,6 @@ export function TasksRoute() {
               {!isCreatingTask && selectedTask ? (
                 <div className="detail-panel__badges" aria-label={copy.details}>
                   <span className="meta-chip" title={copy.status}><span className={`marker-dot marker-dot--${markerToneForTask(selectedTask)}`} aria-hidden="true" />{planningCopy.enums.taskStatus[selectedTask.status]}</span>
-                  <span className="meta-chip" title={rowCopy.type}><span className={`marker-dot marker-dot--${selectedTask.type === 'red' ? 'red' : 'green'}`} aria-hidden="true" />{planningCopy.enums.taskType[selectedTask.type]}</span>
                   <span className="meta-chip" title={copy.priority}>P{selectedTask.priority}</span>
                   {selectedTask.dueTime ? <span className={`meta-chip meta-chip--${dueTone(selectedTask.dueTime)}`} title={copy.due}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.dueTime, locale)}</span> : null}
                   {selectedTask.plannedTime ? <span className="meta-chip" title={copy.planned}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.plannedTime, locale)}</span> : null}
@@ -2685,9 +2927,8 @@ export function TasksRoute() {
                 </div>
               ) : null}
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(panelFolder.id)} / {panelGoal.name}</span></div></div>
-              {selectedCreator ? <div className="detail-section"><div className="detail-label">{copy.creator}</div><div className="breadcrumb"><UserCircle aria-hidden="true" size={15} strokeWidth={1.75} /><span>{selectedCreator}</span></div></div> : null}
               <div className="detail-section"><div className="detail-label">{planningCopy.tasks.descriptionLabel}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedTask?.description || planningCopy.common.noDescription}</p></div></div>
-              {renderSection('task-details', copy.details, (
+              {isCreatingTask || (selectedTask && editingEntity?.type === 'task' && editingEntity.id === selectedTask.id) ? renderSection('task-details', isCreatingTask ? copy.details : copy.edit, (
                 <div className="detail-editor">
                   <label className="field detail-grid__wide"><span>{planningCopy.tasks.titleLabel}</span><input className="field__control" disabled={!canEditSelectedTaskFields} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} /></label>
                   <label className="field detail-grid__wide"><span>{planningCopy.tasks.descriptionLabel}</span><textarea className="field__control field__control--area" disabled={!canEditSelectedTaskFields} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
@@ -2724,10 +2965,10 @@ export function TasksRoute() {
                     {canArchiveSelectedTask && selectedTask && selectedGoal ? <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleArchiveTask(selectedTask, selectedGoal)}><Archive aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.archive}</span></button> : null}
                   </div>
                 </div>
-              ))}
+              )) : null}
               {renderLinkedNotesPanel()}
               {renderLinksPanel()}
-              {renderSharingPanel()}
+              {!isCreatingTask ? renderSharingPanel() : null}
               {renderOperationPanel()}
             </div>
           </>

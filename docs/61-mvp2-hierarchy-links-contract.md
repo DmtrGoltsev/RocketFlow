@@ -449,6 +449,9 @@ New:
 - `status?`
 - `path`
 - `archived`
+- MVP3 redaction addendum: accessible refs also include `accessible: true` and `redacted: false`.
+  Inaccessible opposite-side refs in `GET /api/entity-links` include `accessible: false` and `redacted: true`;
+  private `type`, `id`, `title`, `subtitle`, `status`, `path`, and `archived` are null or omitted.
 
 ### Move Request
 
@@ -489,7 +492,8 @@ Rules:
   - shared folder: child folders, goals, tasks, ideas, notes, and links in subtree.
   - shared goal: tasks inside goal plus links involving that goal/tasks when both sides are accessible.
   - shared task: that task and its visible links if target is accessible.
-- Sharing does not automatically share unrelated linked entities unless access is independently granted. If a link target is not accessible, return a redacted `EntityRefDto` or omit the link. Preferred: omit inaccessible links.
+- Sharing does not automatically share unrelated linked entities unless access is independently granted.
+  MVP3 supersedes the MVP2 omission preference: `GET /api/entity-links` returns the link row for an accessible requested entity and redacts any inaccessible opposite-side `EntityRefDto`.
 
 ## Clone / Move Behavior
 

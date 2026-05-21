@@ -1044,8 +1044,8 @@ class PlanningRepository(
             targetType = targetType,
             targetId = targetId,
             relationType = text("relationType").ifBlank { "related" },
-            source = sourceObject?.toEntityRef() ?: EntityRef(sourceType, sourceId, "", null),
-            target = targetObject?.toEntityRef() ?: EntityRef(targetType, targetId, "", null),
+            source = sourceObject?.toEntityRef() ?: EntityRef(type = sourceType, id = sourceId, title = "", subtitle = null),
+            target = targetObject?.toEntityRef() ?: EntityRef(type = targetType, id = targetId, title = "", subtitle = null),
             createdByUserId = nullableText("createdByUserId"),
             archived = optBoolean("archived", false),
             version = optLong("version", 0),
@@ -1055,11 +1055,19 @@ class PlanningRepository(
     }
 
     private fun JSONObject.toEntityRef(): EntityRef {
+        val accessible = if (has("accessible") && !isNull("accessible")) optBoolean("accessible", true) else !optBoolean("redacted", false)
+        val redacted = optBoolean("redacted", !accessible)
+        val path = nullableText("path")
         return EntityRef(
-            type = text("type"),
-            id = text("id"),
-            title = text("title").ifBlank { text("name").ifBlank { text("label") } },
-            subtitle = nullableText("subtitle") ?: nullableText("path")
+            type = nullableText("type"),
+            id = nullableText("id"),
+            title = nullableText("title") ?: nullableText("name") ?: nullableText("label"),
+            subtitle = nullableText("subtitle") ?: path,
+            status = nullableText("status"),
+            path = path,
+            archived = if (has("archived") && !isNull("archived")) optBoolean("archived", false) else null,
+            accessible = accessible,
+            redacted = redacted
         )
     }
 

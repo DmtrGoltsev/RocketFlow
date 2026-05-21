@@ -10,6 +10,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
 import android.net.Network
@@ -61,6 +62,7 @@ import com.rocketflow.companion.notifications.TaskReminderRepeat
 import com.rocketflow.companion.notifications.TaskReminderSetting
 import com.rocketflow.companion.planning.EntityLink
 import com.rocketflow.companion.planning.EntityLinkDraft
+import com.rocketflow.companion.planning.EntityRef
 import com.rocketflow.companion.planning.FolderDraft
 import com.rocketflow.companion.planning.GoalDraft
 import com.rocketflow.companion.planning.IdeaDraft
@@ -81,6 +83,7 @@ import com.rocketflow.companion.planning.TaskTag
 import com.rocketflow.companion.planning.TaskTagDraft
 import com.rocketflow.companion.settings.PriorityDecayPolicy
 import com.rocketflow.companion.settings.UserSettings
+import com.rocketflow.companion.sharing.ShareInvitation
 import com.rocketflow.companion.sharing.ShareLink
 import com.rocketflow.companion.sharing.ShareTarget
 import com.rocketflow.companion.sharing.ShareTargetType
@@ -218,13 +221,25 @@ class MainActivity : Activity() {
         val linkSearchHint: String = "Search by title",
         val selectRelationType: String = "Relation type",
         val noteBodyHint: String = "Write note text here",
+        val primaryTask: String = "+ Task",
+        val moreCreate: String = "More",
+        val access: String = "Access",
         val related: String = "\u0421\u0432\u044f\u0437\u044c",
         val dependency: String = "\u0417\u0430\u0432\u0438\u0441\u0438\u043c\u043e\u0441\u0442\u044c",
+        val waitingOn: String = "Waiting on",
+        val blocking: String = "Blocking",
+        val linked: String = "Linked",
+        val privateTarget: String = "Unavailable item",
         val move: String = "\u041f\u0435\u0440\u0435\u043c\u0435\u0441\u0442\u0438\u0442\u044c",
         val clone: String = "\u041a\u043b\u043e\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c",
         val fullAccess: String = "\u041f\u043e\u043b\u043d\u044b\u0439 \u0434\u043e\u0441\u0442\u0443\u043f",
         val dependencyBlocked: String = "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0437\u0430\u043a\u0440\u043e\u0439\u0442\u0435 \u0431\u043b\u043e\u043a\u0438\u0440\u0443\u044e\u0449\u0438\u0435 \u0437\u0430\u0434\u0430\u0447\u0438.",
         val cannotMoveHere: String = "\u0421\u044e\u0434\u0430 \u043d\u0435\u043b\u044c\u0437\u044f \u043f\u0435\u0440\u0435\u043c\u0435\u0441\u0442\u0438.",
+        val cannotMoveFolderHere: String = "\u041f\u0430\u043f\u043a\u0443 \u043c\u043e\u0436\u043d\u043e \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u0442\u043e\u043b\u044c\u043a\u043e \u0432 \u0434\u0440\u0443\u0433\u0443\u044e \u043f\u0430\u043f\u043a\u0443.",
+        val cannotMoveGoalHere: String = "\u0426\u0435\u043b\u044c \u043c\u043e\u0436\u043d\u043e \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u0442\u043e\u043b\u044c\u043a\u043e \u0432 \u043f\u0430\u043f\u043a\u0443.",
+        val cannotMoveTaskHere: String = "\u0417\u0430\u0434\u0430\u0447\u0443 \u043c\u043e\u0436\u043d\u043e \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u0442\u043e\u043b\u044c\u043a\u043e \u0432 \u0446\u0435\u043b\u044c.",
+        val cannotMoveIdeaHere: String = "\u0418\u0434\u0435\u044e \u043c\u043e\u0436\u043d\u043e \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u0442\u043e\u043b\u044c\u043a\u043e \u0432 \u043f\u0430\u043f\u043a\u0443.",
+        val cannotMoveNoteHere: String = "\u0417\u0430\u043c\u0435\u0442\u043a\u0443 \u043c\u043e\u0436\u043d\u043e \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u0442\u043e\u043b\u044c\u043a\u043e \u0432 \u043f\u0430\u043f\u043a\u0443.",
         val dragMoveStarted: String = "\u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u0435 \u0432 \u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u043e\u0435 \u043c\u0435\u0441\u0442\u043e.",
         val allowAuthorNoteEdits: String,
         val allowAuthorNoteEditsHint: String,
@@ -243,20 +258,20 @@ class MainActivity : Activity() {
         val notes: String,
         val status: String,
         val priority: String,
-        val planned: String = "����",
+        val planned: String = "План",
         val due: String,
-        val tags: String = "����",
-        val recurrence: String = "������",
-        val noRecurrence: String = "��� �������",
-        val daily: String = "������ ����",
-        val weekly: String = "������ ������",
-        val monthly: String = "������ �����",
-        val remindersBeforeDue: String = "�� �����",
-        val remindersBeforePlanned: String = "�� �����",
-        val addTag: String = "�������� ���",
-        val newTag: String = "����� ���",
-        val colorField: String = "����, �������� #2F6B57",
-        val metadata: String = "����������",
+        val tags: String = "Теги",
+        val recurrence: String = "Повтор",
+        val noRecurrence: String = "Без повтора",
+        val daily: String = "Каждый день",
+        val weekly: String = "Каждую неделю",
+        val monthly: String = "Каждый месяц",
+        val remindersBeforeDue: String = "до срока",
+        val remindersBeforePlanned: String = "до плана",
+        val addTag: String = "Добавить тег",
+        val newTag: String = "Новый тег",
+        val colorField: String = "Цвет, например #2F6B57",
+        val metadata: String = "Расписание",
         val path: String,
         val details: String,
         val collapse: String = "Collapse",
@@ -286,12 +301,12 @@ class MainActivity : Activity() {
         val taskNeedsGoal: String = "A task must belong to a goal. Select an existing goal or create one first.",
         val deleteFolderWarning: String = "This folder contains %1\$d goals and %2\$d tasks. They will be deleted with the folder.",
         val deleteGoalWarning: String = "This goal contains %1\$d tasks. They will be deleted with the goal.",
-        val priorityDecay: String = "�������� ����������",
-        val priorityDecayHelp: String = "�������� ��������� ����� �������� ��������.",
-        val greenTasks: String = "������� ������",
-        val redTasks: String = "������� ������",
-        val threshold: String = "�����",
-        val decayAmount: String = "���",
+        val priorityDecay: String = "Снижение приоритета",
+        val priorityDecayHelp: String = "Приоритет меняется после переносов задачи.",
+        val greenTasks: String = "Зеленые задачи",
+        val redTasks: String = "Красные задачи",
+        val threshold: String = "Порог",
+        val decayAmount: String = "Снижение",
         val remindersOn: String,
         val remindersOff: String,
         val enableNotifications: String,
@@ -313,18 +328,18 @@ class MainActivity : Activity() {
         val folderFirst: String,
         val goalFirst: String,
         val noDate: String,
-        val pickDate: String = "������� ����",
-        val clearDate: String = "��������",
-        val invalidDate: String = "������: yyyy-MM-dd HH:mm.",
+        val pickDate: String = "Выбрать дату",
+        val clearDate: String = "Очистить",
+        val invalidDate: String = "Укажите день, неделю или месяц и число больше 0.",
         val today: String,
         val tomorrow: String,
-        val reschedule: String = "���������",
-        val later30m: String = "30 ���",
-        val later1h: String = "1 ���",
-        val later3h: String = "3 ����",
-        val later24h: String = "24 ����",
-        val decayApplied: String = "��������� ������",
-        val decayNotApplied: String = "��������� ��� ���������",
+        val reschedule: String = "Перенести",
+        val later30m: String = "30 минут",
+        val later1h: String = "1 час",
+        val later3h: String = "3 часа",
+        val later24h: String = "24 часа",
+        val decayApplied: String = "Приоритет снижен",
+        val decayNotApplied: String = "Приоритет без изменений",
         val statusTodo: String,
         val statusInProgress: String,
         val statusDone: String,
@@ -336,9 +351,9 @@ class MainActivity : Activity() {
         val nameField: String,
         val notesField: String,
         val dueField: String,
-        val plannedField: String = "����, �������� 2026-05-01 09:00",
-        val priorityField: String = "��������� 1-10",
-        val priorityRequired: String = "��������� ������ ���� �� 1 �� 10.",
+        val plannedField: String = "План, например 2026-05-01 09:00",
+        val priorityField: String = "Приоритет 1-10",
+        val priorityRequired: String = "Приоритет должен быть от 1 до 10.",
         val priorityShort: String,
         val sharing: String,
         val share: String,
@@ -440,6 +455,8 @@ class MainActivity : Activity() {
     private var lastDragDropHandledAt = 0L
     private val dragHandler = Handler(Looper.getMainLooper())
     private var manualDragState: ManualDragState? = null
+    private var highlightedDropView: View? = null
+    private var highlightedDropOriginalBackground: Drawable? = null
     private var diagnosticsExpanded = false
     private var searchQuery = ""
     private var busy = false
@@ -952,19 +969,21 @@ class MainActivity : Activity() {
             }
         )
         frame.addView(shell)
-        frame.addView(
-            ImageButton(this).apply {
-                setImageResource(R.drawable.ic_add)
-                setColorFilter(color(Ui.ELEVATED))
-                contentDescription = c.create
-                background = roundedDrawable(Ui.ACCENT, radiusDp = 28)
-                setOnClickListener { showCreateDialog() }
-                layoutParams = FrameLayout.LayoutParams(dp(56), dp(56), Gravity.BOTTOM or Gravity.END).apply {
-                    marginEnd = dp(16)
-                    bottomMargin = dp(16)
+        if (hasVisibleRows) {
+            frame.addView(
+                ImageButton(this).apply {
+                    setImageResource(R.drawable.ic_add)
+                    setColorFilter(color(Ui.ELEVATED))
+                    contentDescription = c.create
+                    background = roundedDrawable(Ui.ACCENT, radiusDp = 28)
+                    setOnClickListener { showCreateDialog() }
+                    layoutParams = FrameLayout.LayoutParams(dp(56), dp(56), Gravity.BOTTOM or Gravity.END).apply {
+                        marginEnd = dp(16)
+                        bottomMargin = dp(16)
+                    }
                 }
-            }
-        )
+            )
+        }
 
         setContentView(frame)
     }
@@ -1046,6 +1065,9 @@ class MainActivity : Activity() {
             )
             content.addView(detailMarkerStrip(task))
             content.addView(pathLine(taskPath(task)))
+            content.addView(propertyRow(c.access, accessLabel(task), clickable = true) {
+                showShareAccessSheet(task.toShareTarget())
+            })
             content.addView(sectionLabel(c.notes))
             content.addView(
                 TextView(this).apply {
@@ -1064,36 +1086,14 @@ class MainActivity : Activity() {
                 }
             )
             if (detailsExpanded) {
-                content.addView(propertyRow(c.status, localizedStatus(task.status), clickable = true) {
-                    showStatusDialog(task)
-                })
-                content.addView(propertyRow(c.taskType, taskTypeLabel(task.type), clickable = canWrite(task)) {
-                    showTaskTypeDialog(task)
-                })
-                content.addView(propertyRow(c.priority, "${c.priorityShort}${task.priority}", clickable = canWrite(task)) {
-                    showPriorityDialog(task)
-                })
-                content.addView(propertyRow(c.planned, formatDateTime(task.plannedTime), clickable = canWrite(task)) {
-                    showPlannedDialog(task)
-                })
-                content.addView(propertyRow(c.due, formatDateTime(task.dueTime), clickable = canWrite(task)) {
-                    showDueDialog(task)
-                })
-                content.addView(propertyRow(c.tags, describeTaskTags(task), clickable = canWrite(task)) {
-                    showTaskTagsDialog(task)
-                })
-                content.addView(propertyRow(c.recurrence, describeRecurrence(task.recurrenceJson), clickable = canWrite(task)) {
-                    showRecurrenceDialog(task)
-                })
-                content.addView(propertyRow(c.reminders, describeLocalReminder(task), clickable = true) {
-                    showRemindersDialog(task)
-                })
-                content.addView(propertyRow(c.reschedule, c.later3h, clickable = canWrite(task)) {
-                    showRescheduleDialog(task)
-                })
-                task.creatorLabel()?.let { creator ->
-                    content.addView(propertyRow(c.creator, creator, clickable = false))
-                }
+                content.addView(propertyRow(c.status, localizedStatus(task.status), clickable = false))
+                content.addView(propertyRow(c.taskType, taskTypeLabel(task.type), clickable = false))
+                content.addView(propertyRow(c.priority, "${c.priorityShort}${task.priority}", clickable = false))
+                content.addView(propertyRow(c.planned, formatDateTime(task.plannedTime), clickable = false))
+                content.addView(propertyRow(c.due, formatDateTime(task.dueTime), clickable = false))
+                content.addView(propertyRow(c.tags, describeTaskTags(task), clickable = false))
+                content.addView(propertyRow(c.recurrence, describeRecurrence(task.recurrenceJson), clickable = false))
+                content.addView(propertyRow(c.reminders, describeLocalReminder(task), clickable = false))
                 content.addView(propertyRow(c.created, formatDateTime(task.createdAt), clickable = false))
                 content.addView(propertyRow(c.updated, formatDateTime(task.updatedAt), clickable = false))
             }
@@ -1146,15 +1146,12 @@ class MainActivity : Activity() {
                 }
             )
             content.addView(pathLine(ideaPath(idea)))
+            content.addView(propertyRow(c.access, accessLabel(idea), clickable = false))
             content.addView(linksSection("idea", idea.id))
             content.addView(linkedNotesSection("idea", idea.id))
-            content.addView(propertyRow(c.status, idea.status.ifBlank { "active" }, clickable = canEditIdea(idea)) {
-                showIdeaDialog(idea.folderId, idea)
-            })
+            content.addView(propertyRow(c.status, idea.status.ifBlank { "active" }, clickable = false))
             if (canEditIdea(idea)) {
-                content.addView(propertyRow(c.allowAuthorNoteEdits, if (idea.allowAuthorNoteEdits) c.remindersOn else c.remindersOff, clickable = true) {
-                    saveIdea(idea.folderId, idea, idea.toDraft(allowAuthorNoteEdits = !idea.allowAuthorNoteEdits))
-                })
+                content.addView(propertyRow(c.allowAuthorNoteEdits, if (idea.allowAuthorNoteEdits) c.remindersOn else c.remindersOff, clickable = false))
             }
             content.addView(sectionLabel(c.notes))
             content.addView(
@@ -1224,32 +1221,17 @@ class MainActivity : Activity() {
                 }
             )
             content.addView(pathLine(notePath(note)))
-            if (canWrite(note)) {
-                val bodyInput = dialogInput(c.noteBodyHint, note.body, multiline = true, inputPurpose = TextInputPurpose.Notes).apply {
-                    minLines = 10
-                    maxLines = 18
-                    minHeight = dp(220)
-                    setPadding(dp(12), dp(12), dp(12), dp(12))
+            content.addView(propertyRow(c.access, accessLabel(note), clickable = false))
+            content.addView(sectionLabel(c.notes))
+            content.addView(
+                TextView(this).apply {
+                    text = note.body.ifBlank { c.noDate }
+                    textSize = 15f
+                    setTextColor(color(if (note.body.isBlank()) Ui.MUTED else Ui.TEXT))
+                    setLineSpacing(dp(2).toFloat(), 1f)
+                    setPadding(0, dp(8), 0, dp(16))
                 }
-                content.addView(bodyInput)
-                content.addView(textButton(c.save, primary = true) {
-                    val nextBody = bodyInput.text.toString()
-                    if (nextBody != note.body) {
-                        saveNote(note.folderId, note, NoteDraft(title = note.title, body = nextBody))
-                    }
-                })
-            } else {
-                content.addView(sectionLabel(c.notes))
-                content.addView(
-                    TextView(this).apply {
-                        text = note.body.ifBlank { c.noDate }
-                        textSize = 15f
-                        setTextColor(color(if (note.body.isBlank()) Ui.MUTED else Ui.TEXT))
-                        setLineSpacing(dp(2).toFloat(), 1f)
-                        setPadding(0, dp(8), 0, dp(16))
-                    }
-                )
-            }
+            )
             content.addView(linksSection("note", note.id))
             content.addView(propertyRow(c.created, formatDateTime(note.createdAt), clickable = false))
             content.addView(propertyRow(c.updated, formatDateTime(note.updatedAt), clickable = false))
@@ -1625,12 +1607,7 @@ class MainActivity : Activity() {
                 }
                 if (canWrite(folder)) enableEntityDragSource(dragPayload)
             })
-            addView(counterText(listOfNotNull(
-                if (totalTasks == 0) "0" else "$doneTasks/$totalTasks",
-                childCount.takeIf { it > 0 }?.let { "${c.folder}:$it" },
-                ideaCount.takeIf { it > 0 }?.let { "${c.idea}:$it" },
-                noteCount.takeIf { it > 0 }?.let { "${c.notes}:$it" }
-            ).joinToString(" ")))
+            addView(counterText(folderMeta(totalTasks, doneTasks, childCount, ideaCount, noteCount)))
             if (canWrite(folder)) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showFolderActions(folder) })
                 enableEntityDragSource(dragPayload)
@@ -1695,8 +1672,7 @@ class MainActivity : Activity() {
                 setOnClickListener { openTaskDetail(task.id) }
                 if (canWrite(task)) enableEntityDragSource(dragPayload)
             })
-            dueChip(task)?.let { addView(it) }
-            addView(counterText("${c.priorityShort}${task.priority}"))
+            dueChip(task)?.let { addView(it) } ?: addView(counterText("${c.priorityShort}${task.priority}"))
             if (canWrite(task)) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                 enableEntityDragSource(dragPayload)
@@ -1710,7 +1686,7 @@ class MainActivity : Activity() {
         return hierarchyContainer(indentLevel = indentLevel, heightDp = 48, selected = idea.id == selectedIdeaId).apply {
             addView(iconView(R.drawable.ic_flame, sizeDp = 24, tint = Ui.INFO))
             addView(markerDot(Ui.INFO, c.idea, sizeDp = 7))
-            addView(rowText(idea.title, c.idea, weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD).apply {
+            addView(rowText(idea.title, "", weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD).apply {
                 setOnClickListener { openIdeaDetail(idea.id) }
                 if (canWrite(idea)) enableEntityDragSource(dragPayload)
             })
@@ -1724,7 +1700,7 @@ class MainActivity : Activity() {
         val dragPayload = EntityDragPayload("note", note.id, note.title)
         return hierarchyContainer(indentLevel = indentLevel, heightDp = 38, selected = false).apply {
             addView(iconView(R.drawable.ic_pen_write, sizeDp = 24, tint = Ui.AMBER))
-            addView(rowText(note.title, c.note, weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD).apply {
+            addView(rowText(note.title, "", weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD).apply {
                 setOnClickListener { openNoteDetail(note.id) }
                 if (canWrite(note)) enableEntityDragSource(dragPayload)
             })
@@ -1768,6 +1744,9 @@ class MainActivity : Activity() {
                     if (!state.active && event.eventTime - state.downAt >= longPressTimeout) {
                         beginManualEntityDrag(state)
                     }
+                    if (state.active) {
+                        updateManualDropHighlight(state.payload, event.rawX.toInt(), event.rawY.toInt())
+                    }
                     state.active
                 }
                 MotionEvent.ACTION_UP -> {
@@ -1781,8 +1760,9 @@ class MainActivity : Activity() {
                     state.currentRawX = event.rawX
                     state.currentRawY = event.rawY
                     if (state.active) {
+                        clearDropHighlight()
                         val handled = handleManualDrop(state.payload, event.rawX.toInt(), event.rawY.toInt())
-                        if (!handled) showInvalidDrop()
+                        if (!handled) showInvalidDrop(state.payload)
                         true
                     } else {
                         false
@@ -1795,6 +1775,7 @@ class MainActivity : Activity() {
                     manualDragState = null
                     state?.source?.alpha = 1f
                     state?.source?.isPressed = false
+                    clearDropHighlight()
                     state?.active == true
                 }
                 else -> false
@@ -1836,15 +1817,27 @@ class MainActivity : Activity() {
 
     private fun View.enableFolderDropTarget(folder: PlanningFolder) {
         tag = EntityDropTarget("folder", folder.id)
-        setOnDragListener { _, event ->
+        setOnDragListener { targetView, event ->
             val payload = event.entityDragPayload() ?: return@setOnDragListener false
             when (event.action) {
                 DragEvent.ACTION_DRAG_STARTED -> true
+                DragEvent.ACTION_DRAG_ENTERED -> {
+                    setValidDropHighlight(targetView, payload, EntityDropTarget("folder", folder.id))
+                    true
+                }
+                DragEvent.ACTION_DRAG_EXITED -> {
+                    if (highlightedDropView === targetView) clearDropHighlight()
+                    true
+                }
                 DragEvent.ACTION_DROP -> {
+                    clearDropHighlight()
                     handleFolderDrop(folder, payload)
                     true
                 }
-                DragEvent.ACTION_DRAG_ENDED -> true
+                DragEvent.ACTION_DRAG_ENDED -> {
+                    clearDropHighlight()
+                    true
+                }
                 else -> true
             }
         }
@@ -1852,15 +1845,27 @@ class MainActivity : Activity() {
 
     private fun View.enableGoalDropTarget(goal: PlanningGoal) {
         tag = EntityDropTarget("goal", goal.id)
-        setOnDragListener { _, event ->
+        setOnDragListener { targetView, event ->
             val payload = event.entityDragPayload() ?: return@setOnDragListener false
             when (event.action) {
                 DragEvent.ACTION_DRAG_STARTED -> true
+                DragEvent.ACTION_DRAG_ENTERED -> {
+                    setValidDropHighlight(targetView, payload, EntityDropTarget("goal", goal.id))
+                    true
+                }
+                DragEvent.ACTION_DRAG_EXITED -> {
+                    if (highlightedDropView === targetView) clearDropHighlight()
+                    true
+                }
                 DragEvent.ACTION_DROP -> {
+                    clearDropHighlight()
                     handleGoalDrop(goal, payload)
                     true
                 }
-                DragEvent.ACTION_DRAG_ENDED -> true
+                DragEvent.ACTION_DRAG_ENDED -> {
+                    clearDropHighlight()
+                    true
+                }
                 else -> true
             }
         }
@@ -1894,16 +1899,70 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun updateManualDropHighlight(payload: EntityDragPayload, rawX: Int, rawY: Int) {
+        val targetView = findDropTargetViewAt(window.decorView, rawX, rawY)
+        val target = targetView?.tag as? EntityDropTarget
+        if (targetView != null && target != null) {
+            setValidDropHighlight(targetView, payload, target)
+        } else {
+            clearDropHighlight()
+        }
+    }
+
     private fun findDropTargetAt(view: View, rawX: Int, rawY: Int): EntityDropTarget? {
+        return findDropTargetViewAt(view, rawX, rawY)?.tag as? EntityDropTarget
+    }
+
+    private fun findDropTargetViewAt(view: View, rawX: Int, rawY: Int): View? {
         if (view.visibility != View.VISIBLE) return null
         val bounds = Rect()
         if (!view.getGlobalVisibleRect(bounds) || !bounds.contains(rawX, rawY)) return null
         if (view is ViewGroup) {
             for (index in view.childCount - 1 downTo 0) {
-                findDropTargetAt(view.getChildAt(index), rawX, rawY)?.let { return it }
+                findDropTargetViewAt(view.getChildAt(index), rawX, rawY)?.let { return it }
             }
         }
-        return view.tag as? EntityDropTarget
+        return if (view.tag is EntityDropTarget) view else null
+    }
+
+    private fun setValidDropHighlight(targetView: View, payload: EntityDragPayload, target: EntityDropTarget) {
+        if (!canDropOnTarget(payload, target)) {
+            if (highlightedDropView === targetView) clearDropHighlight()
+            return
+        }
+        if (highlightedDropView === targetView) return
+        clearDropHighlight()
+        highlightedDropView = targetView
+        highlightedDropOriginalBackground = targetView.background
+        targetView.background = roundedDrawable(Ui.ACCENT_SOFT, strokeColorHex = Ui.ACCENT, radiusDp = 6)
+        Log.d(TAG, "manual-dnd-valid-target payload=${payload.type}:${payload.id} target=${target.type}:${target.id}")
+    }
+
+    private fun clearDropHighlight() {
+        highlightedDropView?.background = highlightedDropOriginalBackground
+        highlightedDropView = null
+        highlightedDropOriginalBackground = null
+    }
+
+    private fun canDropOnTarget(payload: EntityDragPayload, target: EntityDropTarget): Boolean {
+        return when (target.type) {
+            "folder" -> {
+                val targetFolder = findFolder(target.id) ?: return false
+                when (payload.type) {
+                    "folder" -> findFolder(payload.id)?.let { canMoveFolderToFolder(it, targetFolder) } == true
+                    "goal" -> findGoal(payload.id)?.let { canWrite(it) && canWrite(targetFolder) } == true
+                    "idea" -> findIdea(payload.id)?.let { canWrite(it) && canWrite(targetFolder) } == true
+                    "note" -> findNote(payload.id)?.let { canWrite(it) && canWrite(targetFolder) } == true
+                    else -> false
+                }
+            }
+            "goal" -> {
+                val targetGoal = findGoal(target.id) ?: return false
+                val source = if (payload.type == "task") findTask(payload.id) else null
+                source != null && canWrite(source) && canWrite(targetGoal) && source.goalId != targetGoal.id
+            }
+            else -> false
+        }
     }
 
     private fun handleFolderDrop(targetFolder: PlanningFolder, payload: EntityDragPayload) {
@@ -1912,7 +1971,7 @@ class MainActivity : Activity() {
             "folder" -> {
                 val source = findFolder(payload.id)
                 if (source == null || !canMoveFolderToFolder(source, targetFolder)) {
-                    showInvalidDrop()
+                    showInvalidDrop(payload)
                     return
                 }
                 Log.d(TAG, "manual-dnd-move folder ${source.id} -> folder ${targetFolder.id}")
@@ -1921,7 +1980,7 @@ class MainActivity : Activity() {
             "goal" -> {
                 val source = findGoal(payload.id)
                 if (source == null || !canWrite(source) || !canWrite(targetFolder)) {
-                    showInvalidDrop()
+                    showInvalidDrop(payload)
                     return
                 }
                 Log.d(TAG, "manual-dnd-move goal ${source.id} -> folder ${targetFolder.id}")
@@ -1930,7 +1989,7 @@ class MainActivity : Activity() {
             "idea" -> {
                 val source = findIdea(payload.id)
                 if (source == null || !canWrite(source) || !canWrite(targetFolder)) {
-                    showInvalidDrop()
+                    showInvalidDrop(payload)
                     return
                 }
                 Log.d(TAG, "manual-dnd-move idea ${source.id} -> folder ${targetFolder.id}")
@@ -1939,13 +1998,13 @@ class MainActivity : Activity() {
             "note" -> {
                 val source = findNote(payload.id)
                 if (source == null || !canWrite(source) || !canWrite(targetFolder)) {
-                    showInvalidDrop()
+                    showInvalidDrop(payload)
                     return
                 }
                 Log.d(TAG, "manual-dnd-move note ${source.id} -> folder ${targetFolder.id}")
                 runPlanningAction { session -> planningRepository.moveNote(session, source, targetFolder.id) }
             }
-            else -> showInvalidDrop()
+            else -> showInvalidDrop(payload)
         }
     }
 
@@ -1953,7 +2012,7 @@ class MainActivity : Activity() {
         lastDragDropHandledAt = System.currentTimeMillis()
         val source = if (payload.type == "task") findTask(payload.id) else null
         if (source == null || !canWrite(source) || !canWrite(targetGoal) || source.goalId == targetGoal.id) {
-            showInvalidDrop()
+            showInvalidDrop(payload)
             return
         }
         Log.d(TAG, "manual-dnd-move task ${source.id} -> goal ${targetGoal.id}")
@@ -1978,11 +2037,24 @@ class MainActivity : Activity() {
         return false
     }
 
-    private fun showInvalidDrop() {
+    private fun showInvalidDrop(payload: EntityDragPayload? = null) {
         Log.d(TAG, "manual-dnd-invalid-drop")
-        message = copy().cannotMoveHere
-        Toast.makeText(this, copy().cannotMoveHere, Toast.LENGTH_SHORT).show()
+        val text = invalidDropMessage(payload)
+        message = text
+        Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
         render()
+    }
+
+    private fun invalidDropMessage(payload: EntityDragPayload?): String {
+        val c = copy()
+        return when (payload?.type) {
+            "folder" -> c.cannotMoveFolderHere
+            "goal" -> c.cannotMoveGoalHere
+            "task" -> c.cannotMoveTaskHere
+            "idea" -> c.cannotMoveIdeaHere
+            "note" -> c.cannotMoveNoteHere
+            else -> c.cannotMoveHere
+        }
     }
 
     private fun hierarchyContainer(indentLevel: Int, heightDp: Int, selected: Boolean): LinearLayout {
@@ -2047,6 +2119,16 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             minWidth = dp(34)
             includeFontPadding = false
+        }
+    }
+
+    private fun folderMeta(totalTasks: Int, doneTasks: Int, childCount: Int, ideaCount: Int, noteCount: Int): String {
+        return when {
+            totalTasks > 0 -> "$doneTasks/$totalTasks"
+            childCount > 0 -> childCount.toString()
+            ideaCount > 0 -> ideaCount.toString()
+            noteCount > 0 -> noteCount.toString()
+            else -> "0"
         }
     }
 
@@ -2146,7 +2228,7 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(96), dp(24), 0)
+            setPadding(dp(24), dp(72), dp(24), dp(88))
             addView(iconView(R.drawable.ic_folder, sizeDp = 42, tint = Ui.ACCENT))
             addView(
                 TextView(context).apply {
@@ -2169,7 +2251,8 @@ class MainActivity : Activity() {
                     setPadding(0, dp(8), 0, dp(16))
                 }
             )
-            addView(textButton(c.newFolder, primary = true) { showFolderDialog(null) })
+            addView(textButton(c.primaryTask, primary = true) { showTaskTargetDialog() })
+            addView(textButton(c.moreCreate, quiet = true) { showCreateDialog() })
         }
     }
 
@@ -2201,17 +2284,17 @@ class MainActivity : Activity() {
         }
 
         val dialog = AlertDialog.Builder(this).setView(dialogContent).create()
-        dialogContent.addView(createOption(R.drawable.ic_folder, c.folder) {
+        dialogContent.addView(createOption(R.drawable.ic_radio_button_unchecked, c.task) {
             dialog.dismiss()
-            showFolderDialog(null)
+            showTaskTargetDialog()
         })
         dialogContent.addView(createOption(R.drawable.ic_target, c.goal) {
             dialog.dismiss()
             showGoalFolderDialog()
         })
-        dialogContent.addView(createOption(R.drawable.ic_radio_button_unchecked, c.task) {
+        dialogContent.addView(createOption(R.drawable.ic_folder, c.folder) {
             dialog.dismiss()
-            showTaskTargetDialog()
+            showFolderDialog(null)
         })
         dialogContent.addView(createOption(R.drawable.ic_flame, c.idea) {
             dialog.dismiss()
@@ -2224,7 +2307,7 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
-    private fun showGoalFolderDialog() {
+    private fun showGoalFolderDialog(openTaskAfterSave: Boolean = false) {
         val c = copy()
         val availableFolders = (folders + sharedFolders).filter { canWrite(it) }
         if (availableFolders.isEmpty()) {
@@ -2232,7 +2315,14 @@ class MainActivity : Activity() {
                 .setTitle(c.newGoal)
                 .setMessage(c.folderFirst)
                 .setNegativeButton(c.cancel, null)
-                .setPositiveButton(c.newFolder) { _, _ -> window.decorView.post { showFolderDialog(null) } }
+                .setPositiveButton(c.newFolder) { _, _ ->
+                    window.decorView.post {
+                        showFolderDialog(null) { folder ->
+                            selectedFolderId = folder.id
+                            showGoalDialog(null, folder.id, openTaskAfterSave)
+                        }
+                    }
+                }
                 .show()
             return
         }
@@ -2248,7 +2338,7 @@ class MainActivity : Activity() {
             content.addView(selectionOption(R.drawable.ic_folder, folder.name, folder.description) {
                 dialog.dismiss()
                 selectedFolderId = folder.id
-                window.decorView.postDelayed({ showGoalDialog(null, folder.id) }, 120)
+                window.decorView.postDelayed({ showGoalDialog(null, folder.id, openTaskAfterSave) }, 120)
             })
         }
         content.addView(selectionOption(R.drawable.ic_folder, c.newFolder, c.newGoal) {
@@ -2257,7 +2347,7 @@ class MainActivity : Activity() {
                 {
                     showFolderDialog(null) { folder ->
                         selectedFolderId = folder.id
-                        showGoalDialog(null, folder.id)
+                        showGoalDialog(null, folder.id, openTaskAfterSave)
                     }
                 },
                 120
@@ -2274,7 +2364,7 @@ class MainActivity : Activity() {
         val availableGoals = goals.filter { goal -> folders.any { it.id == goal.folderId } } +
             sharedGoals.filter { goal -> canCreateTasks(goal) }
         if (availableGoals.isEmpty()) {
-            showTaskNeedsGoalDialog()
+            showGoalFolderDialog(openTaskAfterSave = true)
             return
         }
 
@@ -2298,7 +2388,7 @@ class MainActivity : Activity() {
         }
         content.addView(selectionOption(R.drawable.ic_target, c.newGoal, c.folder) {
             dialog.dismiss()
-            window.decorView.postDelayed({ showGoalFolderDialog() }, 120)
+            window.decorView.postDelayed({ showGoalFolderDialog(openTaskAfterSave = true) }, 120)
         })
         dialog = AlertDialog.Builder(this)
             .setView(content)
@@ -2312,7 +2402,7 @@ class MainActivity : Activity() {
             .setTitle(c.newTask)
             .setMessage(c.taskNeedsGoal)
             .setNegativeButton(c.cancel, null)
-            .setPositiveButton(c.newGoal) { _, _ -> window.decorView.post { showGoalFolderDialog() } }
+            .setPositiveButton(c.newGoal) { _, _ -> window.decorView.post { showGoalFolderDialog(openTaskAfterSave = true) } }
             .show()
     }
 
@@ -2522,17 +2612,15 @@ class MainActivity : Activity() {
             links.filterNot { linkedNoteFor(entityType, entityId, it) != null }.forEach { link ->
                 val otherType = if (link.sourceType == entityType && link.sourceId == entityId) link.targetType else link.sourceType
                 val otherId = if (link.sourceType == entityType && link.sourceId == entityId) link.targetId else link.sourceId
-                val title = entityTitle(otherType, otherId).ifBlank {
-                    if (link.sourceType == entityType && link.sourceId == entityId) {
-                        link.target?.title.orEmpty()
-                    } else {
-                        link.source?.title.orEmpty()
+                val otherRef = otherEntityRef(entityType, entityId, link)
+                val isAvailable = otherRef?.isVisibleEntityRef() != false && entityTitle(otherType, otherId).isNotBlank()
+                val title = if (isAvailable) entityTitle(otherType, otherId) else c.privateTarget
+                val label = linkRelationLabel(entityType, entityId, link)
+                addView(selectionOption(if (isAvailable) iconForEntity(otherType) else R.drawable.ic_link_nodes, title, label) {
+                    if (isAvailable) {
+                        dialog().dismiss()
+                        openEntityDetail(otherType, otherId)
                     }
-                }.ifBlank { otherType }
-                val label = if (link.relationType == "dependency") c.dependency else c.related
-                addView(selectionOption(iconForEntity(otherType), title, label) {
-                    dialog().dismiss()
-                    openEntityDetail(otherType, otherId)
                 })
             }
             linkedNotes.forEach { note ->
@@ -2805,20 +2893,122 @@ class MainActivity : Activity() {
     }
 
     private fun showShareDialog(target: ShareTarget) {
+        showShareAccessSheet(target)
+    }
+
+    private fun showShareAccessSheet(target: ShareTarget) {
+        val c = copy()
+        val status = TextView(this).apply {
+            textSize = 13f
+            setTextColor(color(Ui.MUTED))
+            setLineSpacing(dp(2).toFloat(), 1f)
+            setPadding(dp(14), dp(2), dp(14), dp(2))
+        }
+        val tokenContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val linksContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val invitationsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val accessGroup = shareAccessGroup(fullAccess = false)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            addView(accessGroup)
+            addView(textButton(c.shareByEmail) {
+                showShareInviteDialog(
+                    target,
+                    byEmail = true,
+                    fullAccess = accessGroup.isFullAccessSelected(),
+                    status = status,
+                    invitationsContainer = invitationsContainer
+                )
+            })
+            addView(textButton(c.shareByUserId) {
+                showShareInviteDialog(
+                    target,
+                    byEmail = false,
+                    fullAccess = accessGroup.isFullAccessSelected(),
+                    status = status,
+                    invitationsContainer = invitationsContainer
+                )
+            })
+            addView(textButton(c.createLink, primary = true) {
+                createShareLink(
+                    target,
+                    status,
+                    tokenContainer,
+                    linksContainer,
+                    accessGroup.isFullAccessSelected(),
+                    invitationsContainer
+                )
+            })
+            addView(status)
+            addView(tokenContainer)
+            addView(sectionLabel(collaboratorsLabel()))
+            addView(invitationsContainer)
+            addView(sectionLabel(c.existingLinks))
+            addView(linksContainer)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("${c.access}: ${target.title}")
+            .setView(ScrollView(this).apply { addView(content) })
+            .setNegativeButton(c.cancel, null)
+            .show()
+
+        loadShareAccess(target, status, linksContainer, invitationsContainer)
+    }
+
+    private fun shareAccessGroup(fullAccess: Boolean): RadioGroup {
+        return RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            setPadding(dp(14), 0, dp(14), dp(2))
+            addView(shareAccessRadioButton(fullAccess = false, checked = !fullAccess))
+            addView(shareAccessRadioButton(fullAccess = true, checked = fullAccess))
+        }
+    }
+
+    private fun shareAccessRadioButton(fullAccess: Boolean, checked: Boolean): RadioButton {
+        return RadioButton(this).apply {
+            id = View.generateViewId()
+            tag = fullAccess
+            text = if (fullAccess) {
+                if (currentLanguage == "en") "Full" else "\u041f\u043e\u043b\u043d\u044b\u0439"
+            } else {
+                if (currentLanguage == "en") "View" else "\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440"
+            }
+            isChecked = checked
+            textSize = 15f
+            setTextColor(color(Ui.TEXT))
+            layoutParams = RadioGroup.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+    }
+
+    private fun RadioGroup.isFullAccessSelected(): Boolean {
+        return (findViewById<RadioButton>(checkedRadioButtonId)?.tag as? Boolean) == true
+    }
+
+    private fun showShareInviteMethodDialog(target: ShareTarget) {
         val c = copy()
         AlertDialog.Builder(this)
-            .setTitle("${c.share}: ${target.title}")
-            .setItems(arrayOf(c.shareByEmail, c.shareByUserId, c.shareLink)) { _, which ->
-                when (which) {
-                    0 -> showShareInviteDialog(target, byEmail = true)
-                    1 -> showShareInviteDialog(target, byEmail = false)
-                    else -> showShareLinksDialog(target)
-                }
+            .setTitle(c.invite)
+            .setItems(arrayOf(c.shareByEmail, c.shareByUserId)) { _, which ->
+                showShareInviteDialog(target, byEmail = which == 0)
             }
             .show()
     }
 
-    private fun showShareInviteDialog(target: ShareTarget, byEmail: Boolean) {
+    private fun showShareInviteDialog(
+        target: ShareTarget,
+        byEmail: Boolean,
+        fullAccess: Boolean = false,
+        status: TextView? = null,
+        invitationsContainer: LinearLayout? = null
+    ) {
         val c = copy()
         val input = dialogInput(
             hint = if (byEmail) c.email else c.userIdField,
@@ -2827,15 +3017,10 @@ class MainActivity : Activity() {
             inputTypeOverride = if (byEmail) emailInputType() else usernameInputType(),
             imeOptionsOverride = EditorInfo.IME_ACTION_DONE
         )
-        val fullAccessInput = CheckBox(this).apply {
-            text = c.fullAccess
-            setTextColor(color(Ui.TEXT))
-            textSize = 15f
-        }
 
         AlertDialog.Builder(this)
             .setTitle(if (byEmail) c.shareByEmail else c.shareByUserId)
-            .setView(dialogForm(input, fullAccessInput))
+            .setView(dialogForm(dialogContextLine(c.access, if (fullAccess) c.fullAccess else shareViewAccessLabel()), input))
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.invite) { _, _ ->
                 val value = input.text.toString().trim()
@@ -2844,12 +3029,39 @@ class MainActivity : Activity() {
                     render()
                     return@setPositiveButton
                 }
-                sendShareInvite(target, value, byEmail, fullAccessInput.isChecked)
+                sendShareInvite(target, value, byEmail, fullAccess, status, invitationsContainer)
             }
             .show()
     }
 
-    private fun sendShareInvite(target: ShareTarget, value: String, byEmail: Boolean, fullAccess: Boolean) {
+    private fun shareViewAccessLabel(): String {
+        return if (currentLanguage == "en") "View" else "\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440"
+    }
+
+    private fun shareAccessLabel(fullAccess: Boolean): String {
+        return if (fullAccess) {
+            if (currentLanguage == "en") "Full" else "\u041f\u043e\u043b\u043d\u044b\u0439"
+        } else {
+            shareViewAccessLabel()
+        }
+    }
+
+    private fun collaboratorsLabel(): String {
+        return if (currentLanguage == "en") "Collaborators" else "\u0423\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u0438"
+    }
+
+    private fun noCollaboratorsLabel(): String {
+        return if (currentLanguage == "en") "No collaborators yet" else "\u0423\u0447\u0430\u0441\u0442\u043d\u0438\u043a\u043e\u0432 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442"
+    }
+
+    private fun sendShareInvite(
+        target: ShareTarget,
+        value: String,
+        byEmail: Boolean,
+        fullAccess: Boolean,
+        status: TextView?,
+        invitationsContainer: LinearLayout?
+    ) {
         val session = currentSession ?: return
         setBusy(true)
         message = null
@@ -2862,6 +3074,9 @@ class MainActivity : Activity() {
                 }
                 currentSession = result.session
                 message = copy().inviteSent
+                if (status != null && invitationsContainer != null) {
+                    loadShareInvitations(target, status, invitationsContainer)
+                }
             } catch (error: Exception) {
                 message = sharingError(error)
             } finally {
@@ -2921,7 +3136,8 @@ class MainActivity : Activity() {
         status: TextView,
         tokenContainer: LinearLayout,
         linksContainer: LinearLayout,
-        fullAccess: Boolean
+        fullAccess: Boolean,
+        invitationsContainer: LinearLayout? = null
     ) {
         val session = currentSession ?: return
         status.text = copy().loading
@@ -2933,7 +3149,11 @@ class MainActivity : Activity() {
                 status.text = copy().linkCreated
                 tokenContainer.removeAllViews()
                 tokenContainer.addView(shareCreatedLinkView(linkText))
-                loadShareLinks(target, status, linksContainer)
+                if (invitationsContainer != null) {
+                    loadShareAccess(target, status, linksContainer, invitationsContainer)
+                } else {
+                    loadShareLinks(target, status, linksContainer)
+                }
             } catch (error: Exception) {
                 status.text = sharingError(error)
             }
@@ -2948,14 +3168,143 @@ class MainActivity : Activity() {
                 val result = sharingRepository.listLinks(session, target)
                 currentSession = result.session
                 status.text = ""
-                renderShareLinks(result.value, linksContainer)
+                renderShareLinks(result.value, linksContainer) { linkId ->
+                    revokeShareLink(linkId, target, status, linksContainer)
+                }
             } catch (error: Exception) {
                 status.text = sharingError(error)
             }
         }
     }
 
-    private fun renderShareLinks(links: List<ShareLink>, container: LinearLayout) {
+    private fun loadShareAccess(
+        target: ShareTarget,
+        status: TextView,
+        linksContainer: LinearLayout,
+        invitationsContainer: LinearLayout
+    ) {
+        val session = currentSession ?: return
+        status.text = copy().loading
+        scope.launch {
+            try {
+                var activeSession = session
+                val linksResult = sharingRepository.listLinks(activeSession, target)
+                activeSession = linksResult.session
+                currentSession = activeSession
+                val invitationsResult = sharingRepository.listInvitations(activeSession)
+                activeSession = invitationsResult.session
+                currentSession = activeSession
+                status.text = ""
+                renderShareInvitations(
+                    invitationsResult.value.targetInvitations(target),
+                    invitationsContainer,
+                    target,
+                    status,
+                    linksContainer
+                )
+                renderShareLinks(linksResult.value, linksContainer) { linkId ->
+                    revokeShareLink(linkId, target, status, linksContainer, invitationsContainer)
+                }
+            } catch (error: Exception) {
+                status.text = sharingError(error)
+            }
+        }
+    }
+
+    private fun loadShareInvitations(target: ShareTarget, status: TextView, invitationsContainer: LinearLayout) {
+        val session = currentSession ?: return
+        status.text = copy().loading
+        scope.launch {
+            try {
+                val result = sharingRepository.listInvitations(session)
+                currentSession = result.session
+                status.text = ""
+                renderShareInvitations(result.value.targetInvitations(target), invitationsContainer, target, status)
+            } catch (error: Exception) {
+                status.text = sharingError(error)
+            }
+        }
+    }
+
+    private fun List<ShareInvitation>.targetInvitations(target: ShareTarget): List<ShareInvitation> {
+        val targetType = target.type.name.lowercase(Locale.ROOT)
+        return filter { invitation ->
+            invitation.targetType.equals(targetType, ignoreCase = true) &&
+                invitation.targetId.equals(target.id, ignoreCase = true) &&
+                invitation.status.lowercase(Locale.ROOT) in setOf("pending", "accepted")
+        }
+    }
+
+    private fun renderShareInvitations(
+        invitations: List<ShareInvitation>,
+        container: LinearLayout,
+        target: ShareTarget,
+        status: TextView,
+        linksContainer: LinearLayout? = null
+    ) {
+        container.removeAllViews()
+        if (invitations.isEmpty()) {
+            container.addView(hintRow(noCollaboratorsLabel(), indentLevel = 0))
+            return
+        }
+        invitations.forEach { invitation ->
+            container.addView(shareInvitationRow(invitation, target, status, linksContainer, container))
+            container.addView(rowDivider(indentLevel = 0))
+        }
+    }
+
+    private fun shareInvitationRow(
+        invitation: ShareInvitation,
+        target: ShareTarget,
+        statusView: TextView,
+        linksContainer: LinearLayout?,
+        invitationsContainer: LinearLayout
+    ): LinearLayout {
+        val c = copy()
+        val access = shareAccessLabel(invitation.fullAccess)
+        val status = localizedInvitationStatus(invitation.status)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(56)
+            setPadding(dp(14), 0, dp(4), 0)
+            addView(
+                rowText(
+                    title = invitation.collaboratorLabel(),
+                    subtitle = "$access / $status",
+                    weight = 1f,
+                    titleSize = 14.5f,
+                    titleStyle = Typeface.BOLD
+                )
+            )
+            if (invitation.canRevokeForCurrentUser()) {
+                addView(textButton(c.revoke, danger = true) {
+                    revokeShareInvitation(invitation.id, target, statusView, linksContainer, invitationsContainer)
+                }.apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(112), dp(42))
+                })
+            }
+        }
+    }
+
+    private fun ShareInvitation.collaboratorLabel(): String {
+        return listOf(targetEmail, targetUserId)
+            .firstOrNull { !it.isNullOrBlank() }
+            ?: id
+    }
+
+    private fun ShareInvitation.canRevokeForCurrentUser(): Boolean {
+        val status = status.lowercase(Locale.ROOT)
+        val currentUserId = currentSession?.user?.id
+        return status in setOf("pending", "accepted") &&
+            (targetUserId == null || !targetUserId.equals(currentUserId, ignoreCase = true))
+    }
+
+    private fun renderShareLinks(
+        links: List<ShareLink>,
+        container: LinearLayout,
+        onRevoke: (String) -> Unit
+    ) {
         val c = copy()
         container.removeAllViews()
         if (links.isEmpty()) {
@@ -2963,7 +3312,7 @@ class MainActivity : Activity() {
             return
         }
         links.forEach { link ->
-            container.addView(shareLinkRow(link))
+            container.addView(shareLinkRow(link, onRevoke))
             container.addView(rowDivider(indentLevel = 0))
         }
     }
@@ -2989,7 +3338,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun shareLinkRow(link: ShareLink): LinearLayout {
+    private fun shareLinkRow(link: ShareLink, onRevoke: (String) -> Unit): LinearLayout {
         val c = copy()
         val revoked = link.revokedAt != null || link.status.equals("revoked", ignoreCase = true)
         val status = if (revoked) c.revoked else c.active
@@ -3001,7 +3350,7 @@ class MainActivity : Activity() {
             setPadding(dp(14), 0, dp(4), 0)
             addView(
                 rowText(
-                    title = status,
+                    title = "$status / ${shareAccessLabel(link.fullAccess)}",
                     subtitle = "${c.expires}: $expires",
                     weight = 1f,
                     titleSize = 14.5f,
@@ -3010,7 +3359,7 @@ class MainActivity : Activity() {
             )
             if (!revoked) {
                 addView(textButton(c.revoke, danger = true) {
-                    revokeShareLink(link.id)
+                    onRevoke(link.id)
                 }.apply {
                     layoutParams = LinearLayout.LayoutParams(dp(112), dp(42))
                 })
@@ -3018,7 +3367,13 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun revokeShareLink(linkId: String) {
+    private fun revokeShareLink(
+        linkId: String,
+        target: ShareTarget? = null,
+        status: TextView? = null,
+        linksContainer: LinearLayout? = null,
+        invitationsContainer: LinearLayout? = null
+    ) {
         val session = currentSession ?: return
         setBusy(true)
         scope.launch {
@@ -3026,6 +3381,13 @@ class MainActivity : Activity() {
                 val result = sharingRepository.revokeLink(session, linkId)
                 currentSession = result.session
                 message = copy().revoked
+                if (target != null && status != null && linksContainer != null) {
+                    if (invitationsContainer != null) {
+                        loadShareAccess(target, status, linksContainer, invitationsContainer)
+                    } else {
+                        loadShareLinks(target, status, linksContainer)
+                    }
+                }
             } catch (error: Exception) {
                 message = sharingError(error)
             } finally {
@@ -3122,7 +3484,7 @@ class MainActivity : Activity() {
         focusDialogInput(dialog, nameInput)
     }
 
-    private fun showGoalDialog(goal: PlanningGoal?, folderIdOverride: String? = null) {
+    private fun showGoalDialog(goal: PlanningGoal?, folderIdOverride: String? = null, openTaskAfterSave: Boolean = false) {
         val folderId = goal?.folderId ?: folderIdOverride ?: selectedFolderId ?: run {
             message = copy().folderFirst
             render()
@@ -3148,7 +3510,7 @@ class MainActivity : Activity() {
                     render()
                     return@setPositiveButton
                 }
-                saveGoal(folderId, goal, draft)
+                saveGoal(folderId, goal, draft, openTaskAfterSave)
             }
             .show()
         focusDialogInput(dialog, nameInput)
@@ -3487,7 +3849,7 @@ class MainActivity : Activity() {
         return if (currentLanguage == "en") {
             "Recurrence starts from Planned time. If it is empty, RocketFlow uses Deadline; if both are empty, it uses the current time. Current source: $anchor."
         } else {
-            "Повтор начинается от поля «Когда делать». Если оно пустое, используется дедлайн; если оба поля пустые, текущее время. Сейчас источник: $anchor."
+            "Повтор начинается от поля «Когда делать». Если оно пустое, используется дедлайн; если оба поля пустые, используется текущее время. Сейчас источник: $anchor."
         }
     }
 
@@ -3665,7 +4027,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun saveGoal(folderId: String, goal: PlanningGoal?, draft: GoalDraft) {
+    private fun saveGoal(folderId: String, goal: PlanningGoal?, draft: GoalDraft, openTaskAfterSave: Boolean = false) {
         val session = currentSession ?: return
         setBusy(true)
         message = null
@@ -3683,6 +4045,9 @@ class MainActivity : Activity() {
                 if (savedGoal != null) {
                     selectedFolderId = savedGoal.folderId
                     selectedGoalId = savedGoal.id
+                    if (openTaskAfterSave && canCreateTasks(savedGoal)) {
+                        window.decorView.post { showTaskDialog(null, savedGoal.id) }
+                    }
                 }
             } catch (error: Exception) {
                 message = humanError(error)
@@ -3825,23 +4190,51 @@ class MainActivity : Activity() {
     private fun entityLinkRow(currentType: String, currentId: String, link: EntityLink): LinearLayout {
         val otherType = if (link.sourceType == currentType && link.sourceId == currentId) link.targetType else link.sourceType
         val otherId = if (link.sourceType == currentType && link.sourceId == currentId) link.targetId else link.sourceId
-        val title = entityTitle(otherType, otherId).ifBlank {
-            if (link.sourceType == currentType && link.sourceId == currentId) {
-                link.target?.title.orEmpty()
-            } else {
-                link.source?.title.orEmpty()
-            }
-        }.ifBlank { otherType }
-        val label = if (link.relationType == "dependency") copy().dependency else copy().related
+        val otherRef = otherEntityRef(currentType, currentId, link)
+        val localTitle = entityTitle(otherType, otherId)
+        val isAvailable = otherRef?.isVisibleEntityRef() != false && localTitle.isNotBlank()
+        val title = if (isAvailable) localTitle else copy().privateTarget
+        val label = linkRelationLabel(currentType, currentId, link)
         return hierarchyContainer(indentLevel = 0, heightDp = 44, selected = false).apply {
-            addView(iconView(iconForEntity(otherType), sizeDp = 22, tint = Ui.ACCENT))
+            addView(iconView(if (isAvailable) iconForEntity(otherType) else R.drawable.ic_link_nodes, sizeDp = 22, tint = Ui.ACCENT))
             addView(rowText(title, label, weight = 1f, titleSize = 14.5f, titleStyle = Typeface.BOLD).apply {
-                setOnClickListener { openEntityDetail(otherType, otherId) }
+                if (isAvailable) {
+                    setOnClickListener { openEntityDetail(otherType, otherId) }
+                }
             })
             if (canWriteEntity(currentType, currentId)) {
                 addView(smallIconButton(R.drawable.ic_close, copy().deleteLink, Ui.DANGER) {
                     confirmDelete(title) { deleteEntityLink(link) }
                 })
+            }
+        }
+    }
+
+    private fun revokeShareInvitation(
+        invitationId: String,
+        target: ShareTarget,
+        status: TextView,
+        linksContainer: LinearLayout?,
+        invitationsContainer: LinearLayout
+    ) {
+        val session = currentSession ?: return
+        setBusy(true)
+        scope.launch {
+            try {
+                val result = sharingRepository.revokeInvitation(session, invitationId)
+                currentSession = result.session
+                message = copy().revoked
+                if (linksContainer != null) {
+                    loadShareAccess(target, status, linksContainer, invitationsContainer)
+                } else {
+                    loadShareInvitations(target, status, invitationsContainer)
+                }
+                loadPlannerData()
+                render()
+            } catch (error: Exception) {
+                message = sharingError(error)
+            } finally {
+                setBusy(false)
             }
         }
     }
@@ -4118,12 +4511,12 @@ class MainActivity : Activity() {
             )
         } else {
             AcceptanceData(
-                folder = "������ ��������",
-                goal = "������ �����",
-                firstTask = "����������� �������� �����",
-                secondTask = "��������� Pixel 7",
-                thirdTask = "������ � ��������",
-                notes = "�������� ������, ��������� ������ � ������ ������ �����."
+                folder = "Запуск продукта",
+                goal = "Мягкий релиз",
+                firstTask = "Подготовить экран входа",
+                secondTask = "Проверить Pixel 7",
+                thirdTask = "Созвон с командой",
+                notes = "Проверить тексты, состояния ошибок и первый пустой экран."
             )
         }
 
@@ -4574,34 +4967,19 @@ class MainActivity : Activity() {
                 iconButton(
                     if (isDone(task)) R.drawable.ic_check_circle else R.drawable.ic_radio_button_unchecked,
                     localizedStatus(task.status)
-                ) {
-                    showStatusDialog(task)
-                }.apply {
+                ) {}.apply {
+                    isEnabled = false
                     layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(4) }
                 }
             )
             addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
             addView(counterText("${copy().priorityShort}${task.priority}"))
-            dueChip(task)?.let {
-                addView(it.apply {
-                    if (!task.shared) {
-                        setOnClickListener { showDueDialog(task) }
-                    }
-                })
-            }
+            dueChip(task)?.let { addView(it) }
             addView(
                 View(context).apply {
                     layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
                 }
             )
-            if (!task.shared) {
-                addView(iconButton(R.drawable.ic_edit, copy().edit) { showTaskDialog(task) }.apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
-                })
-                addView(iconButton(R.drawable.ic_chevron_right, copy().reschedule) { showRescheduleDialog(task) }.apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
-                })
-            }
         }
     }
 
@@ -5700,13 +6078,30 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun linkRelationLabel(currentType: String, currentId: String, link: EntityLink): String {
+        val c = copy()
+        if (link.relationType != "dependency") return c.linked
+        return if (link.sourceType == currentType && link.sourceId == currentId) c.waitingOn else c.blocking
+    }
+
     private fun linkedNoteFor(entityType: String, entityId: String, link: EntityLink): PlanningNote? {
+        if (otherEntityRef(entityType, entityId, link)?.isVisibleEntityRef() == false) {
+            return null
+        }
         val noteId = when {
             link.sourceType == "note" && link.targetType == entityType && link.targetId == entityId -> link.sourceId
             link.targetType == "note" && link.sourceType == entityType && link.sourceId == entityId -> link.targetId
             else -> return null
         }
         return findNote(noteId)
+    }
+
+    private fun otherEntityRef(currentType: String, currentId: String, link: EntityLink): EntityRef? {
+        return if (link.sourceType == currentType && link.sourceId == currentId) link.target else link.source
+    }
+
+    private fun EntityRef.isVisibleEntityRef(): Boolean {
+        return accessible && !redacted
     }
 
     private fun entityTitle(type: String, id: String): String {
@@ -5843,6 +6238,19 @@ class MainActivity : Activity() {
     private fun canWrite(task: PlanningTask): Boolean = !task.shared || task.fullAccess
     private fun canWrite(idea: PlanningIdea): Boolean = !idea.shared || idea.fullAccess
     private fun canWrite(note: PlanningNote): Boolean = !note.shared || note.fullAccess
+
+    private fun accessLabel(task: PlanningTask): String = accessLabel(task.shared, task.fullAccess)
+    private fun accessLabel(idea: PlanningIdea): String = accessLabel(idea.shared, idea.fullAccess)
+    private fun accessLabel(note: PlanningNote): String = accessLabel(note.shared, note.fullAccess)
+
+    private fun accessLabel(shared: Boolean, fullAccess: Boolean): String {
+        val ru = currentLanguage != "en"
+        return when {
+            !shared -> if (ru) "Личное" else "Private"
+            fullAccess -> if (ru) "Доступ: Полный" else "Shared / full"
+            else -> if (ru) "Общий / просмотр" else "Shared / view"
+        }
+    }
 
     private fun PlanningTask.creatorLabel(): String? {
         return listOf(creatorName, creatorEmail, creatorUserId)
@@ -6029,6 +6437,18 @@ class MainActivity : Activity() {
             "folder" -> copy().folder
             "goal" -> copy().goal
             "task" -> copy().task
+            else -> raw
+        }
+    }
+
+    private fun localizedInvitationStatus(raw: String): String {
+        val ru = currentLanguage != "en"
+        return when (raw.lowercase(Locale.ROOT)) {
+            "pending" -> if (ru) "\u041e\u0436\u0438\u0434\u0430\u0435\u0442" else "Pending"
+            "accepted" -> if (ru) "\u041f\u0440\u0438\u043d\u044f\u0442\u043e" else "Accepted"
+            "declined" -> if (ru) "\u041e\u0442\u043a\u043b\u043e\u043d\u0435\u043d\u043e" else "Declined"
+            "revoked" -> copy().revoked
+            "expired" -> if (ru) "\u0418\u0441\u0442\u0435\u043a\u043b\u043e" else "Expired"
             else -> raw
         }
     }
@@ -6238,13 +6658,25 @@ class MainActivity : Activity() {
                 linkSearchHint = "Search by title",
                 selectRelationType = "Relation type",
                 noteBodyHint = "Write note text here",
-                related = "Related",
-                dependency = "Dependency",
+                primaryTask = "+ Task",
+                moreCreate = "More creation options",
+                access = "Access",
+                related = "Linked",
+                dependency = "Waiting on",
+                waitingOn = "Waiting on",
+                blocking = "Blocking",
+                linked = "Linked",
+                privateTarget = "Unavailable item",
                 move = "Move",
                 clone = "Clone",
                 fullAccess = "Full access",
                 dependencyBlocked = "Complete blocking tasks first.",
-                cannotMoveHere = "This item cannot be moved here.",
+                cannotMoveHere = "Move this item to a valid target.",
+                cannotMoveFolderHere = "A folder can be moved only into another folder.",
+                cannotMoveGoalHere = "A goal can be moved only into a folder.",
+                cannotMoveTaskHere = "A task can be moved only into a goal.",
+                cannotMoveIdeaHere = "An idea can be moved only into a folder.",
+                cannotMoveNoteHere = "A note can be moved only into a folder.",
                 dragMoveStarted = "Drag to a valid target.",
                 allowAuthorNoteEdits = "Authors can edit their own history notes",
                 allowAuthorNoteEditsHint = "The idea owner can always edit the history.",
@@ -6257,7 +6689,7 @@ class MainActivity : Activity() {
                 searchHint = "Task, goal, or folder",
                 clearSearch = "Clear",
                 nothingHere = "Nothing here yet",
-                emptyBody = "Create a folder, then add a goal and tasks.",
+                emptyBody = "Add your first task.",
                 selectTask = "Select a task",
                 taskDetail = "Task",
                 notes = "Notes",
@@ -6420,7 +6852,21 @@ class MainActivity : Activity() {
                 linkSearchHint = "\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044e",
                 selectRelationType = "\u0422\u0438\u043f \u0441\u0432\u044f\u0437\u0438",
                 noteBodyHint = "\u0422\u0435\u043a\u0441\u0442 \u0437\u0430\u043c\u0435\u0442\u043a\u0438",
-                cannotMoveHere = "\u0421\u044e\u0434\u0430 \u043d\u0435\u043b\u044c\u0437\u044f \u043f\u0435\u0440\u0435\u043c\u0435\u0441\u0442\u0438.",
+                primaryTask = "+ Задача",
+                moreCreate = "Еще варианты",
+                access = "Доступ",
+                related = "Связано",
+                dependency = "Ждет",
+                waitingOn = "Ждет",
+                blocking = "Блокирует",
+                linked = "Связано",
+                privateTarget = "Недоступный объект",
+                cannotMoveHere = "Перенесите объект в допустимое место.",
+                cannotMoveFolderHere = "Папку можно перенести только в другую папку.",
+                cannotMoveGoalHere = "Цель можно перенести только в папку.",
+                cannotMoveTaskHere = "Задачу можно перенести только в цель.",
+                cannotMoveIdeaHere = "Идею можно перенести только в папку.",
+                cannotMoveNoteHere = "Заметку можно перенести только в папку.",
                 dragMoveStarted = "\u041f\u0435\u0440\u0435\u0442\u0430\u0449\u0438\u0442\u0435 \u0432 \u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u043e\u0435 \u043c\u0435\u0441\u0442\u043e.",
                 allowAuthorNoteEdits = "\u0410\u0432\u0442\u043e\u0440\u044b \u043c\u043e\u0433\u0443\u0442 \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u0432\u043e\u0438 \u0437\u0430\u043c\u0435\u0442\u043a\u0438 \u0438\u0441\u0442\u043e\u0440\u0438\u0438",
                 allowAuthorNoteEditsHint = "\u0412\u043b\u0430\u0434\u0435\u043b\u0435\u0446 \u0438\u0434\u0435\u0438 \u0432\u0441\u0435\u0433\u0434\u0430 \u043c\u043e\u0436\u0435\u0442 \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0438\u0441\u0442\u043e\u0440\u0438\u044e.",
@@ -6433,7 +6879,7 @@ class MainActivity : Activity() {
                 searchHint = "Задача, цель или папка",
                 clearSearch = "Очистить",
                 nothingHere = "Пока пусто",
-                emptyBody = "Создайте папку, затем добавьте цель и задачи.",
+                emptyBody = "Добавьте первую задачу.",
                 selectTask = "Выберите задачу",
                 taskDetail = "Задача",
                 notes = "Заметки",
@@ -6444,9 +6890,9 @@ class MainActivity : Activity() {
                 tags = "Теги",
                 recurrence = "Повтор",
                 noRecurrence = "Без повтора",
-                daily = "Ежедневно",
-                weekly = "Еженедельно",
-                monthly = "Ежемесячно",
+                daily = "Каждый день",
+                weekly = "Каждую неделю",
+                monthly = "Каждый месяц",
                 remindersBeforeDue = "до срока",
                 remindersBeforePlanned = "до плана",
                 addTag = "Добавить тег",
@@ -6535,8 +6981,8 @@ class MainActivity : Activity() {
                 plannedField = "План",
                 priorityField = "Приоритет 1-10",
                 priorityRequired = "Приоритет должен быть от 1 до 10.",
-                priorityShort = "P",
-                sharing = "Общий доступ",
+                priorityShort = "П",
+                sharing = "Доступ",
                 share = "Поделиться",
                 shareByEmail = "Email",
                 shareByUserId = "ID пользователя",
@@ -6562,7 +7008,7 @@ class MainActivity : Activity() {
                 expires = "Истекает",
                 active = "Активна",
                 noExpiry = "Без срока",
-                offlineSharing = "Для общего доступа нужна сеть."
+                offlineSharing = "Для доступа нужна сеть."
             )
         }
     }

@@ -131,13 +131,15 @@ export interface NoteDto {
 }
 
 export interface EntityRefDto {
-  type: LinkEntityType;
-  id: string;
-  title: string;
+  type: LinkEntityType | null;
+  id: string | null;
+  title: string | null;
   subtitle: string | null;
   status: string | null;
   path: string | null;
-  archived: boolean;
+  archived: boolean | null;
+  accessible?: boolean;
+  redacted?: boolean;
 }
 
 export interface EntityLinkDto {

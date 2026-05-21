@@ -744,10 +744,10 @@ class SharingIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "title": "Shared completion renamed",
+                                  "title": "Shared completion",
                                   "description": "Task description",
                                   "type": "green",
-                                  "priority": 6,
+                                  "priority": 5,
                                   "status": "in_progress",
                                   "plannedTime": "2026-05-01T09:00:00Z",
                                   "dueTime": "2026-05-02T18:00:00Z",
@@ -758,10 +758,41 @@ class SharingIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("not_found"));
 
+        String taskAfterPriorityMutationAttempt = mockMvc.perform(get("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("todo"))
+                .andExpect(jsonPath("$.priority").value(6))
+                .andExpect(jsonPath("$.title").value("Shared completion"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String taskAfterPriorityMutationAttemptVersion = read(taskAfterPriorityMutationAttempt, "/version");
+
+        mockMvc.perform(patch("/api/tasks/" + sharedTaskId)
+                        .header("Authorization", "Bearer " + taskCollaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Shared completion renamed",
+                                  "description": "Task description",
+                                  "type": "green",
+                                  "priority": 6,
+                                  "status": "in_progress",
+                                  "plannedTime": "2026-05-01T09:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "archived": false,
+                                  "version": %s
+                                }
+                                """.formatted(taskAfterPriorityMutationAttemptVersion)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("not_found"));
+
         mockMvc.perform(get("/api/tasks/" + sharedTaskId)
                         .header("Authorization", "Bearer " + owner.accessToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("todo"))
+                .andExpect(jsonPath("$.priority").value(6))
                 .andExpect(jsonPath("$.title").value("Shared completion"));
     }
 

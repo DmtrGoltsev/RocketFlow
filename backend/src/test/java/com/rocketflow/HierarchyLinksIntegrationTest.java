@@ -5,6 +5,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -321,6 +323,154 @@ class HierarchyLinksIntegrationTest {
     }
 
     @Test
+    void entityLinksReturnRedactedOppositeSideForAccessibleRequestedEntity() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+        Session collaborator = registerAndLogin("collaborator@example.com", "Collaborator");
+        String sharedFolderId = createFolder(owner.accessToken(), "Shared Root");
+        String privateFolderId = createFolder(owner.accessToken(), "Private Root");
+        String sharedGoalId = read(createGoal(owner.accessToken(), sharedFolderId, "Shared goal"), "/id");
+        String privateGoalId = read(createGoal(owner.accessToken(), privateFolderId, "Private goal"), "/id");
+        String dependentResponse = createTask(owner.accessToken(), sharedGoalId, "Shared dependent task", "todo");
+        String dependentTaskId = read(dependentResponse, "/id");
+        String privateBlockerId = read(createTask(owner.accessToken(), privateGoalId, "Private blocker title", "todo"), "/id");
+
+        shareAndAccept(
+                owner.accessToken(),
+                collaborator.accessToken(),
+                "/api/tasks/" + dependentTaskId + "/share",
+                "collaborator@example.com",
+                false
+        );
+
+        mockMvc.perform(post("/api/entity-links")
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sourceType": "task",
+                                  "sourceId": "%s",
+                                  "targetType": "task",
+                                  "targetId": "%s",
+                                  "relationType": "dependency"
+                                }
+                                """.formatted(dependentTaskId, privateBlockerId)))
+                .andExpect(status().isCreated());
+
+        String linksResponse = mockMvc.perform(get("/api/entity-links")
+                        .header("Authorization", "Bearer " + collaborator.accessToken())
+                        .param("entityType", "task")
+                        .param("entityId", dependentTaskId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].source.id").value(dependentTaskId))
+                .andExpect(jsonPath("$.items[0].source.accessible").value(true))
+                .andExpect(jsonPath("$.items[0].source.redacted").value(false))
+                .andExpect(jsonPath("$.items[0].target.accessible").value(false))
+                .andExpect(jsonPath("$.items[0].target.redacted").value(true))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode redactedTarget = objectMapper.readTree(linksResponse).at("/items/0/target");
+        assertNullOrMissing(redactedTarget, "type");
+        assertNullOrMissing(redactedTarget, "id");
+        assertNullOrMissing(redactedTarget, "title");
+        assertNullOrMissing(redactedTarget, "subtitle");
+        assertNullOrMissing(redactedTarget, "status");
+        assertNullOrMissing(redactedTarget, "path");
+        assertFalse(linksResponse.contains(privateBlockerId));
+        assertFalse(linksResponse.contains("Private blocker title"));
+        assertFalse(linksResponse.contains("Private goal"));
+        assertFalse(linksResponse.contains("Private Root"));
+
+        mockMvc.perform(get("/api/entity-links")
+                        .header("Authorization", "Bearer " + collaborator.accessToken())
+                        .param("entityType", "task")
+                        .param("entityId", privateBlockerId))
+                .andExpect(status().isNotFound());
+
+        String dependentAfterShare = mockMvc.perform(get("/api/tasks/" + dependentTaskId)
+                        .header("Authorization", "Bearer " + collaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String dependentVersion = read(dependentAfterShare, "/version");
+
+        String blockedResponse = mockMvc.perform(patch("/api/tasks/" + dependentTaskId)
+                        .header("Authorization", "Bearer " + collaborator.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(taskPatchJson("Shared dependent task", "done", dependentVersion)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("dependency_blocked"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertFalse(blockedResponse.contains("Private blocker title"));
+    }
+
+    @Test
+    void fullAccessFolderCollaboratorCanPullLinksWithRedactedInaccessibleOppositeSide() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+        Session collaborator = registerAndLogin("collaborator@example.com", "Collaborator");
+        String sharedFolderId = createFolder(owner.accessToken(), "Shared Root");
+        String privateFolderId = createFolder(owner.accessToken(), "Private Root");
+        String sharedGoalId = read(createGoal(owner.accessToken(), sharedFolderId, "Shared goal"), "/id");
+        String privateGoalId = read(createGoal(owner.accessToken(), privateFolderId, "Private goal"), "/id");
+        String sharedTaskId = read(createTask(owner.accessToken(), sharedGoalId, "Shared Android task", "todo"), "/id");
+        String privateTaskId = read(createTask(owner.accessToken(), privateGoalId, "Private blocker title", "todo"), "/id");
+
+        shareAndAccept(
+                owner.accessToken(),
+                collaborator.accessToken(),
+                "/api/folders/" + sharedFolderId + "/share",
+                "collaborator@example.com",
+                true
+        );
+
+        mockMvc.perform(post("/api/entity-links")
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sourceType": "task",
+                                  "sourceId": "%s",
+                                  "targetType": "task",
+                                  "targetId": "%s",
+                                  "relationType": "dependency"
+                                }
+                                """.formatted(sharedTaskId, privateTaskId)))
+                .andExpect(status().isCreated());
+
+        String linksResponse = mockMvc.perform(get("/api/entity-links")
+                        .header("Authorization", "Bearer " + collaborator.accessToken())
+                        .param("entityType", "task")
+                        .param("entityId", sharedTaskId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].source.id").value(sharedTaskId))
+                .andExpect(jsonPath("$.items[0].source.accessible").value(true))
+                .andExpect(jsonPath("$.items[0].source.redacted").value(false))
+                .andExpect(jsonPath("$.items[0].target.accessible").value(false))
+                .andExpect(jsonPath("$.items[0].target.redacted").value(true))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        JsonNode redactedTarget = objectMapper.readTree(linksResponse).at("/items/0/target");
+        assertNullOrMissing(redactedTarget, "type");
+        assertNullOrMissing(redactedTarget, "id");
+        assertNullOrMissing(redactedTarget, "title");
+        assertNullOrMissing(redactedTarget, "subtitle");
+        assertNullOrMissing(redactedTarget, "status");
+        assertNullOrMissing(redactedTarget, "path");
+        assertFalse(linksResponse.contains(privateTaskId));
+        assertFalse(linksResponse.contains("Private blocker title"));
+        assertFalse(linksResponse.contains("Private goal"));
+        assertFalse(linksResponse.contains("Private Root"));
+    }
+
+    @Test
     void moveAndCloneEndpointsUseTheAllowedMatrix() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
         String sourceFolderId = createFolder(owner.accessToken(), "Source");
@@ -607,6 +757,10 @@ class HierarchyLinksIntegrationTest {
         JsonNode root = objectMapper.readTree(json);
         JsonNode value = root.at(path);
         return value.isTextual() ? value.asText() : value.toString();
+    }
+
+    private void assertNullOrMissing(JsonNode node, String field) {
+        assertTrue(!node.has(field) || node.get(field).isNull(), "Redacted ref leaked " + field);
     }
 
     private static EmbeddedPostgres startPostgres() {

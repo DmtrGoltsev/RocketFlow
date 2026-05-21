@@ -21,6 +21,7 @@ data class ShareInvitation(
     val targetId: String,
     val targetEmail: String?,
     val targetUserId: String?,
+    val fullAccess: Boolean,
     val status: String,
     val createdAt: String?,
     val expiresAt: String?
@@ -30,6 +31,7 @@ data class ShareLink(
     val id: String,
     val targetType: String,
     val targetId: String,
+    val fullAccess: Boolean,
     val status: String,
     val createdAt: String?,
     val expiresAt: String?,
@@ -41,6 +43,7 @@ data class CreatedShareLink(
     val targetType: String,
     val targetId: String,
     val token: String,
+    val fullAccess: Boolean,
     val status: String,
     val createdAt: String?,
     val expiresAt: String?
@@ -50,6 +53,7 @@ data class ResolvedShareLink(
     val id: String,
     val targetType: String,
     val targetId: String,
+    val fullAccess: Boolean,
     val status: String,
     val expiresAt: String?
 )
@@ -58,5 +62,6 @@ data class AcceptedShareLink(
     val shareId: String,
     val targetType: String,
     val targetId: String,
+    val fullAccess: Boolean,
     val status: String
 )

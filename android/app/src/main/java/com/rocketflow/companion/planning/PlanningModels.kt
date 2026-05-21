@@ -119,10 +119,15 @@ data class PlanningNote(
 )
 
 data class EntityRef(
-    val type: String,
-    val id: String,
-    val title: String,
-    val subtitle: String?
+    val type: String?,
+    val id: String?,
+    val title: String?,
+    val subtitle: String?,
+    val status: String? = null,
+    val path: String? = null,
+    val archived: Boolean? = null,
+    val accessible: Boolean = true,
+    val redacted: Boolean = false
 )
 
 data class EntityLink(

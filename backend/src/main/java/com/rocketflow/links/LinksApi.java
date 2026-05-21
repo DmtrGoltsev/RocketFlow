@@ -20,7 +20,9 @@ public final class LinksApi {
             String subtitle,
             String status,
             String path,
-            boolean archived
+            Boolean archived,
+            boolean accessible,
+            boolean redacted
     ) {
     }
 

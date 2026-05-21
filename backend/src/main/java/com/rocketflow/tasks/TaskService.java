@@ -347,7 +347,7 @@ public class TaskService {
         if (!Objects.equals(task.getTitle(), request.title().trim())
                 || !Objects.equals(task.getDescription(), request.description())
                 || !Objects.equals(task.getType(), request.type())
-                || task.getPriority() != request.priority()
+                || task.getPriority() != request.priority().intValue()
                 || !Objects.equals(task.getPlannedTime(), request.plannedTime())
                 || !Objects.equals(task.getDueTime(), request.dueTime())
                 || task.isArchived() != request.archived()
