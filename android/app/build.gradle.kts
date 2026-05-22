@@ -3,33 +3,52 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-fun resolveRocketFlowApiBaseUrl(): String {
-    val gradleOverride = project.findProperty("rocketflowApiBaseUrl") as String?
-    val envOverride = System.getenv("ROCKETFLOW_ANDROID_API_BASE_URL")
+val productionApiBaseUrl = "http://45.10.110.42/rocket-api/api"
+
+fun resolveConfigValue(
+    gradlePropertyName: String,
+    envVariableName: String
+): String? {
+    val gradleOverride = project.findProperty(gradlePropertyName) as String?
+    val envOverride = System.getenv(envVariableName)
     return gradleOverride?.takeIf { it.isNotBlank() }
         ?: envOverride?.takeIf { it.isNotBlank() }
-        ?: "http://10.0.2.2:8081/api"
+}
+
+fun resolveRocketFlowApiBaseUrl(buildTypeName: String): String {
+    val capitalizedBuildTypeName = buildTypeName.replaceFirstChar { it.uppercaseChar() }
+    return resolveConfigValue(
+        "rocketflow${capitalizedBuildTypeName}ApiBaseUrl",
+        "ROCKETFLOW_ANDROID_${buildTypeName.uppercase()}_API_BASE_URL"
+    )
+        ?: resolveConfigValue("rocketflowApiBaseUrl", "ROCKETFLOW_ANDROID_API_BASE_URL")
+        ?: productionApiBaseUrl
 }
 
 fun usesCleartextTraffic(apiBaseUrl: String): Boolean {
     return apiBaseUrl.trim().startsWith("http://", ignoreCase = true)
 }
 
+fun isLocalOnlyApiBaseUrl(apiBaseUrl: String): Boolean {
+    return listOf("10.0.2.2", "127.0.0.1", "localhost").any { localHost ->
+        apiBaseUrl.contains(localHost, ignoreCase = true)
+    }
+}
+
+fun buildConfigString(value: String): String {
+    return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+}
+
 fun resolveOptionalConfig(
     gradlePropertyName: String,
     envVariableName: String
 ): String {
-    val gradleOverride = project.findProperty(gradlePropertyName) as String?
-    val envOverride = System.getenv(envVariableName)
-    return gradleOverride?.takeIf { it.isNotBlank() }
-        ?: envOverride?.takeIf { it.isNotBlank() }
-        ?: ""
+    return resolveConfigValue(gradlePropertyName, envVariableName) ?: ""
 }
 
 android {
     namespace = "com.rocketflow.companion"
     compileSdk = 34
-    val apiBaseUrl = resolveRocketFlowApiBaseUrl()
 
     defaultConfig {
         applicationId = "com.rocketflow.companion"
@@ -39,32 +58,39 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "ROCKETFLOW_API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField(
             "String",
             "ROCKETFLOW_FIREBASE_APPLICATION_ID",
-            "\"${resolveOptionalConfig("rocketflowFirebaseApplicationId", "ROCKETFLOW_ANDROID_FIREBASE_APPLICATION_ID")}\""
+            buildConfigString(resolveOptionalConfig("rocketflowFirebaseApplicationId", "ROCKETFLOW_ANDROID_FIREBASE_APPLICATION_ID"))
         )
         buildConfigField(
             "String",
             "ROCKETFLOW_FIREBASE_API_KEY",
-            "\"${resolveOptionalConfig("rocketflowFirebaseApiKey", "ROCKETFLOW_ANDROID_FIREBASE_API_KEY")}\""
+            buildConfigString(resolveOptionalConfig("rocketflowFirebaseApiKey", "ROCKETFLOW_ANDROID_FIREBASE_API_KEY"))
         )
         buildConfigField(
             "String",
             "ROCKETFLOW_FIREBASE_PROJECT_ID",
-            "\"${resolveOptionalConfig("rocketflowFirebaseProjectId", "ROCKETFLOW_ANDROID_FIREBASE_PROJECT_ID")}\""
+            buildConfigString(resolveOptionalConfig("rocketflowFirebaseProjectId", "ROCKETFLOW_ANDROID_FIREBASE_PROJECT_ID"))
         )
         buildConfigField(
             "String",
             "ROCKETFLOW_FIREBASE_GCM_SENDER_ID",
-            "\"${resolveOptionalConfig("rocketflowFirebaseGcmSenderId", "ROCKETFLOW_ANDROID_FIREBASE_GCM_SENDER_ID")}\""
+            buildConfigString(resolveOptionalConfig("rocketflowFirebaseGcmSenderId", "ROCKETFLOW_ANDROID_FIREBASE_GCM_SENDER_ID"))
         )
-        manifestPlaceholders["rocketflowUsesCleartextTraffic"] = usesCleartextTraffic(apiBaseUrl).toString()
     }
 
     buildTypes {
+        debug {
+            val debugApiBaseUrl = resolveRocketFlowApiBaseUrl("debug")
+            buildConfigField("String", "ROCKETFLOW_API_BASE_URL", buildConfigString(debugApiBaseUrl))
+            manifestPlaceholders["rocketflowUsesCleartextTraffic"] = usesCleartextTraffic(debugApiBaseUrl).toString()
+        }
+
         release {
+            val releaseApiBaseUrl = resolveRocketFlowApiBaseUrl("release")
+            buildConfigField("String", "ROCKETFLOW_API_BASE_URL", buildConfigString(releaseApiBaseUrl))
+            manifestPlaceholders["rocketflowUsesCleartextTraffic"] = usesCleartextTraffic(releaseApiBaseUrl).toString()
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -89,6 +115,16 @@ android {
 
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
+}
+
+gradle.taskGraph.whenReady {
+    if (allTasks.any { it.name.contains("Release") }) {
+        val releaseApiBaseUrl = resolveRocketFlowApiBaseUrl("release")
+        require(!isLocalOnlyApiBaseUrl(releaseApiBaseUrl)) {
+            "Release builds must not use a local-only RocketFlow API base URL: $releaseApiBaseUrl. " +
+                "Use rocketflowDebugApiBaseUrl or ROCKETFLOW_ANDROID_DEBUG_API_BASE_URL for emulator-only debug builds."
+        }
+    }
 }
 
 dependencies {

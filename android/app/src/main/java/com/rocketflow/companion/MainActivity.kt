@@ -79,8 +79,6 @@ import com.rocketflow.companion.planning.PlanningSnapshot
 import com.rocketflow.companion.planning.PlanningSyncReason
 import com.rocketflow.companion.planning.PlanningTask
 import com.rocketflow.companion.planning.TaskDraft
-import com.rocketflow.companion.planning.TaskTag
-import com.rocketflow.companion.planning.TaskTagDraft
 import com.rocketflow.companion.settings.PriorityDecayPolicy
 import com.rocketflow.companion.settings.UserSettings
 import com.rocketflow.companion.sharing.ShareInvitation
@@ -187,6 +185,11 @@ class MainActivity : Activity() {
         var active: Boolean = false
     )
 
+    private data class ReminderDraft(
+        val triggerAt: LocalDateTime,
+        val repeat: TaskReminderRepeat
+    )
+
     private data class Copy(
         val signInTitle: String,
         val email: String,
@@ -258,9 +261,9 @@ class MainActivity : Activity() {
         val notes: String,
         val status: String,
         val priority: String,
+        val effort: String = "Effort",
         val planned: String = "План",
         val due: String,
-        val tags: String = "Теги",
         val recurrence: String = "Повтор",
         val noRecurrence: String = "Без повтора",
         val daily: String = "Каждый день",
@@ -268,9 +271,6 @@ class MainActivity : Activity() {
         val monthly: String = "Каждый месяц",
         val remindersBeforeDue: String = "до срока",
         val remindersBeforePlanned: String = "до плана",
-        val addTag: String = "Добавить тег",
-        val newTag: String = "Новый тег",
-        val colorField: String = "Цвет, например #2F6B57",
         val metadata: String = "Расписание",
         val path: String,
         val details: String,
@@ -354,6 +354,8 @@ class MainActivity : Activity() {
         val plannedField: String = "План, например 2026-05-01 09:00",
         val priorityField: String = "Приоритет 1-10",
         val priorityRequired: String = "Приоритет должен быть от 1 до 10.",
+        val effortField: String = "Effort",
+        val effortRequired: String = "Effort must be 0 or more.",
         val priorityShort: String,
         val sharing: String,
         val share: String,
@@ -432,7 +434,6 @@ class MainActivity : Activity() {
     private var sharedIdeas: List<PlanningIdea> = emptyList()
     private var sharedIdeaNotes: List<IdeaNote> = emptyList()
     private var sharedNotes: List<PlanningNote> = emptyList()
-    private var taskTags: List<TaskTag> = emptyList()
     private var planningOffline = false
     private var planningPendingCount = 0
     private var planningLastSyncError: String? = null
@@ -461,7 +462,10 @@ class MainActivity : Activity() {
     private var searchQuery = ""
     private var busy = false
     private var message: String? = null
+    private var transientMessageJob: Job? = null
     private var plannerRefreshJob: Job? = null
+    private var taskDetailScrollY = 0
+    private var taskDetailScrollView: ScrollView? = null
 
     private var emailInput: EditText? = null
     private var passwordInput: EditText? = null
@@ -497,6 +501,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         stopPlannerRefresh()
+        transientMessageJob?.cancel()
         authRepository.setOnSessionClearedListener(null)
         unregisterNetworkRestore()
         scope.cancel()
@@ -666,7 +671,6 @@ class MainActivity : Activity() {
         sharedIdeas = snapshot.sharedIdeas
         sharedIdeaNotes = snapshot.sharedIdeaNotes
         sharedNotes = snapshot.sharedNotes
-        taskTags = snapshot.taskTags
         planningOffline = snapshot.offline
         planningPendingCount = snapshot.pendingCount
         planningLastSyncError = snapshot.lastSyncError
@@ -700,10 +704,11 @@ class MainActivity : Activity() {
         sharedIdeas = emptyList()
         sharedIdeaNotes = emptyList()
         sharedNotes = emptyList()
-        taskTags = emptyList()
         planningOffline = false
         planningPendingCount = 0
         planningLastSyncError = null
+        taskDetailScrollY = 0
+        taskDetailScrollView = null
         selectedFolderId = null
         selectedGoalId = null
         selectedTaskId = null
@@ -763,6 +768,9 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
+        if (currentScreen == Screen.Detail) {
+            taskDetailScrollY = taskDetailScrollView?.scrollY ?: taskDetailScrollY
+        }
         val session = currentSession
         if (session == null) {
             currentScreen = Screen.Auth
@@ -1088,29 +1096,30 @@ class MainActivity : Activity() {
             if (detailsExpanded) {
                 content.addView(propertyRow(c.status, localizedStatus(task.status), clickable = false))
                 content.addView(propertyRow(c.taskType, taskTypeLabel(task.type), clickable = false))
-                content.addView(propertyRow(c.priority, "${c.priorityShort}${task.priority}", clickable = false))
+                content.addView(propertyRow(c.priority, task.priority.toString(), clickable = canWrite(task)) { showPriorityDialog(task) })
+                content.addView(propertyRow(c.effort, formatEffort(task.effort), clickable = canWrite(task)) { showEffortDialog(task) })
                 content.addView(propertyRow(c.planned, formatDateTime(task.plannedTime), clickable = false))
                 content.addView(propertyRow(c.due, formatDateTime(task.dueTime), clickable = false))
-                content.addView(propertyRow(c.tags, describeTaskTags(task), clickable = false))
-                content.addView(propertyRow(c.recurrence, describeRecurrence(task.recurrenceJson), clickable = false))
-                content.addView(propertyRow(c.reminders, describeLocalReminder(task), clickable = false))
+                content.addView(propertyRow(c.recurrence, describeRecurrence(task.recurrenceJson), clickable = canWrite(task)) { showRecurrenceDialog(task) })
+                content.addView(propertyRow(c.reminders, describeLocalReminder(task), clickable = canWrite(task)) { showRemindersDialog(task) })
                 content.addView(propertyRow(c.created, formatDateTime(task.createdAt), clickable = false))
                 content.addView(propertyRow(c.updated, formatDateTime(task.updatedAt), clickable = false))
             }
         }
 
-        shell.addView(
-            ScrollView(this).apply {
-                addView(content)
-                clipToPadding = false
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    0,
-                    1f
-                )
-            }
-        )
+        val scrollView = ScrollView(this).apply {
+            addView(content)
+            clipToPadding = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+        }
+        taskDetailScrollView = scrollView
+        shell.addView(scrollView)
         setContentView(shell)
+        scrollView.post { scrollView.scrollTo(0, taskDetailScrollY) }
     }
 
     private fun renderIdeaDetail() {
@@ -1672,7 +1681,7 @@ class MainActivity : Activity() {
                 setOnClickListener { openTaskDetail(task.id) }
                 if (canWrite(task)) enableEntityDragSource(dragPayload)
             })
-            dueChip(task)?.let { addView(it) } ?: addView(counterText("${c.priorityShort}${task.priority}"))
+            dueChip(task)?.let { addView(it) } ?: addView(counterText(task.priority.toString()))
             if (canWrite(task)) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                 enableEntityDragSource(dragPayload)
@@ -2040,9 +2049,21 @@ class MainActivity : Activity() {
     private fun showInvalidDrop(payload: EntityDragPayload? = null) {
         Log.d(TAG, "manual-dnd-invalid-drop")
         val text = invalidDropMessage(payload)
-        message = text
+        showTransientMessage(text)
         Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showTransientMessage(text: String, timeoutMillis: Long = 2600L) {
+        transientMessageJob?.cancel()
+        message = text
         render()
+        transientMessageJob = scope.launch {
+            delay(timeoutMillis)
+            if (message == text) {
+                message = null
+                render()
+            }
+        }
     }
 
     private fun invalidDropMessage(payload: EntityDragPayload?): String {
@@ -2558,7 +2579,10 @@ class MainActivity : Activity() {
     private fun showGoalDetails(goal: PlanningGoal) {
         val c = copy()
         val folder = findFolder(goal.folderId)
-        val taskCount = tasksForGoal(goal.id).size
+        val goalTasks = tasksForGoal(goal.id, includeShared = goal.shared)
+        val taskCount = goalTasks.size
+        val totalEffort = goalTasks.sumOf { it.effort.coerceAtLeast(0) }
+        val doneEffort = goalTasks.filter { isDone(it) }.sumOf { it.effort.coerceAtLeast(0) }
         val goalLinks = linksForEntity("goal", goal.id)
         val linkedNotes = goalLinks.mapNotNull { linkedNoteFor("goal", goal.id, it) }.distinctBy { it.id }
         lateinit var dialog: AlertDialog
@@ -2589,6 +2613,7 @@ class MainActivity : Activity() {
                     detailDialogText(c.notes, goal.description.ifBlank { c.noDate }),
                     detailDialogText(c.status, localizedStatus(goal.status)),
                     detailDialogText(c.task, taskCount.toString()),
+                    detailDialogText(c.effort, effortProgressText(doneEffort, totalEffort)),
                     detailDialogText(c.links, goalLinks.size.toString()),
                     detailDialogText(c.linkedNotes, linkedNotes.size.toString()),
                     linkRows,
@@ -3543,8 +3568,41 @@ class MainActivity : Activity() {
             inputPurpose = TextInputPurpose.Number,
             inputTypeOverride = InputType.TYPE_CLASS_NUMBER
         )
+        val effortInput = dialogInput(
+            c.effortField,
+            (task?.effort ?: 0).toString(),
+            inputPurpose = TextInputPurpose.Number,
+            inputTypeOverride = InputType.TYPE_CLASS_NUMBER
+        )
         val plannedField = dateTimeField(c.plannedField, task?.plannedTime)
         val dueField = dateTimeField(c.dueField, task?.dueTime)
+        var recurrenceJson = task?.recurrenceJson
+        var reminderDraft = task?.let { currentReminderDraft(it) }
+        var reminderTouched = false
+        val recurrenceButton = Button(this).apply {
+            text = "${c.recurrence}: ${describeRecurrence(recurrenceJson)}"
+            setOnClickListener {
+                showRecurrenceChoiceDialog(
+                    task = task,
+                    plannedTime = plannedField.isoValue(),
+                    dueTime = dueField.isoValue(),
+                    currentRaw = recurrenceJson
+                ) { payload ->
+                    recurrenceJson = payload
+                    text = "${c.recurrence}: ${describeRecurrence(recurrenceJson)}"
+                }
+            }
+        }
+        val reminderButton = Button(this).apply {
+            text = "${c.reminders}: ${describeReminderDraft(reminderDraft)}"
+            setOnClickListener {
+                showReminderDraftDialog(task, reminderDraft) { draft ->
+                    reminderTouched = true
+                    reminderDraft = draft
+                    text = "${c.reminders}: ${describeReminderDraft(reminderDraft)}"
+                }
+            }
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (task == null) c.newTask else c.edit)
             .setView(
@@ -3555,21 +3613,27 @@ class MainActivity : Activity() {
                     dialogLabel(c.taskType),
                     typeGroup,
                     priorityInput,
+                    effortInput,
                     plannedField.view,
-                    dueField.view
+                    dueField.view,
+                    recurrenceButton,
+                    reminderButton
                 )
             )
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.save) { _, _ ->
                 val priority = priorityInput.text.toString().trim().toIntOrNull()
+                val effort = effortInput.text.toString().trim().toIntOrNull()
                 val draft = TaskDraft(
                     title = titleInput.text.toString().trim(),
                     description = notesInput.text.toString().trim(),
                     type = typeGroup.selectedTaskType(),
                     priority = priority ?: 5,
+                    effort = effort ?: 0,
                     status = task?.status ?: "todo",
                     plannedTime = plannedField.isoValue(),
-                    dueTime = dueField.isoValue()
+                    dueTime = dueField.isoValue(),
+                    recurrenceJson = recurrenceJson
                 )
                 if (draft.title.isBlank()) {
                     message = c.titleRequired
@@ -3581,7 +3645,12 @@ class MainActivity : Activity() {
                     render()
                     return@setPositiveButton
                 }
-                saveTask(goalId, task, draft)
+                if (effort == null || effort < 0) {
+                    message = c.effortRequired
+                    render()
+                    return@setPositiveButton
+                }
+                saveTask(goalId, task, draft, reminderDraft = reminderDraft, clearReminder = reminderTouched && reminderDraft == null)
             }
             .show()
         focusDialogInput(dialog, titleInput)
@@ -3660,14 +3729,23 @@ class MainActivity : Activity() {
         val c = copy()
         val folder = folders.firstOrNull { it.id == folderId } ?: sharedFolders.firstOrNull { it.id == folderId }
         val titleInput = dialogInput(c.titleField, note?.title.orEmpty(), inputPurpose = TextInputPurpose.Name)
+        val bodyInput = dialogInput(c.noteBodyHint, note?.body.orEmpty(), multiline = true, inputPurpose = TextInputPurpose.Notes).apply {
+            minLines = 12
+            maxLines = Int.MAX_VALUE
+            isVerticalScrollBarEnabled = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (note == null) c.newNote else c.editNote)
-            .setView(dialogForm(dialogContextLine(c.folder, folder?.name ?: c.folder), titleInput))
+            .setView(dialogForm(dialogContextLine(c.folder, folder?.name ?: c.folder), titleInput, bodyInput))
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.save) { _, _ ->
                 val draft = NoteDraft(
                     title = titleInput.text.toString().trim(),
-                    body = note?.body.orEmpty()
+                    body = bodyInput.text.toString()
                 )
                 if (draft.title.isBlank()) {
                     message = c.titleRequired
@@ -3677,6 +3755,7 @@ class MainActivity : Activity() {
                 saveNote(folderId, note, draft)
             }
             .show()
+        dialog.window?.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
         focusDialogInput(dialog, titleInput)
     }
 
@@ -3712,7 +3791,7 @@ class MainActivity : Activity() {
     }
 
     private fun showPriorityDialog(task: PlanningTask) {
-        val labels = (1..10).map { "${copy().priorityShort}$it" }.toTypedArray()
+        val labels = (1..10).map { it.toString() }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle(copy().priority)
             .setSingleChoiceItems(labels, (task.priority - 1).coerceIn(0, 9)) { dialog, which ->
@@ -3720,6 +3799,31 @@ class MainActivity : Activity() {
                 dialog.dismiss()
             }
             .show()
+    }
+
+    private fun showEffortDialog(task: PlanningTask) {
+        val c = copy()
+        val effortInput = dialogInput(
+            c.effortField,
+            task.effort.toString(),
+            inputPurpose = TextInputPurpose.Number,
+            inputTypeOverride = InputType.TYPE_CLASS_NUMBER
+        )
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(c.effort)
+            .setView(dialogForm(effortInput))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.save) { _, _ ->
+                val effort = effortInput.text.toString().trim().toIntOrNull()
+                if (effort == null || effort < 0) {
+                    message = c.effortRequired
+                    render()
+                    return@setPositiveButton
+                }
+                saveTask(task.goalId, task, task.toDraft(effort = effort))
+            }
+            .show()
+        focusDialogInput(dialog, effortInput)
     }
 
     private fun showDueDialog(task: PlanningTask) {
@@ -3748,81 +3852,6 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun showTaskTagsDialog(task: PlanningTask) {
-        val c = copy()
-        val tags = taskTags
-        if (tags.isEmpty()) {
-            showCreateTagDialog { tagId ->
-                saveTask(task.goalId, task, task.toDraft(tagIds = (task.tagIds + tagId).distinct()))
-            }
-            return
-        }
-
-        val selected = task.tagIds.toMutableSet()
-        AlertDialog.Builder(this)
-            .setTitle(c.tags)
-            .setMultiChoiceItems(
-                tags.map { it.name }.toTypedArray(),
-                tags.map { it.id in selected }.toBooleanArray()
-            ) { _, which, isChecked ->
-                if (isChecked) selected += tags[which].id else selected -= tags[which].id
-            }
-            .setNeutralButton(c.newTag) { _, _ ->
-                showCreateTagDialog { tagId ->
-                    saveTask(task.goalId, task, task.toDraft(tagIds = (selected + tagId).toList()))
-                }
-            }
-            .setNegativeButton(c.cancel, null)
-            .setPositiveButton(c.save) { _, _ ->
-                saveTask(task.goalId, task, task.toDraft(tagIds = selected.toList()))
-            }
-            .show()
-    }
-
-    private fun showCreateTagDialog(onCreated: (String) -> Unit) {
-        val c = copy()
-        val nameInput = dialogInput(c.newTag, "")
-        val colorInput = dialogInput(
-            c.colorField,
-            "#2F6B57",
-            inputPurpose = TextInputPurpose.Code,
-            inputTypeOverride = codeInputType()
-        )
-        val beforeIds = taskTags.map { it.id }.toSet()
-        AlertDialog.Builder(this)
-            .setTitle(c.newTag)
-            .setView(dialogForm(nameInput, colorInput))
-            .setNegativeButton(c.cancel, null)
-            .setPositiveButton(c.save) { _, _ ->
-                val session = currentSession ?: return@setPositiveButton
-                val draft = TaskTagDraft(
-                    name = nameInput.text.toString().trim(),
-                    color = colorInput.text.toString().trim().ifBlank { "#2F6B57" }
-                )
-                if (draft.name.isBlank()) {
-                    message = c.nameRequired
-                    render()
-                    return@setPositiveButton
-                }
-                setBusy(true)
-                message = null
-                scope.launch {
-                    try {
-                        val result = planningRepository.createTag(session, draft)
-                        applyPlanningResult(result)
-                        val tagId = result.snapshot.taskTags.firstOrNull { it.id !in beforeIds && it.name == draft.name }?.id
-                            ?: result.snapshot.taskTags.firstOrNull { it.name == draft.name }?.id
-                        tagId?.let(onCreated)
-                    } catch (error: Exception) {
-                        message = humanError(error)
-                    } finally {
-                        setBusy(false)
-                    }
-                }
-            }
-            .show()
-    }
-
     private fun showRecurrenceDialog(task: PlanningTask) {
         val c = copy()
         val labels = arrayOf(c.noRecurrence, c.daily, c.weekly, c.monthly)
@@ -3840,6 +3869,36 @@ class MainActivity : Activity() {
             .show()
     }
 
+    private fun showRecurrenceChoiceDialog(
+        task: PlanningTask?,
+        plannedTime: String?,
+        dueTime: String?,
+        currentRaw: String?,
+        onSelected: (String?) -> Unit
+    ) {
+        val c = copy()
+        val labels = arrayOf(c.noRecurrence, c.daily, c.weekly, c.monthly)
+        val modes = arrayOf("", "daily", "weekly", "monthly")
+        val currentMode = recurrenceMode(currentRaw)
+        val checked = modes.indexOf(currentMode).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(c.recurrence)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                onSelected(
+                    buildRecurrencePayload(
+                        currentRaw = currentRaw,
+                        selectedMode = modes[which],
+                        active = which != 0,
+                        plannedTime = plannedTime,
+                        dueTime = dueTime,
+                        fallbackTask = task
+                    ).toString()
+                )
+                dialog.dismiss()
+            }
+            .show()
+    }
+
     private fun recurrenceHelpText(task: PlanningTask): String {
         val anchor = when {
             !task.plannedTime.isNullOrBlank() -> copy().planned
@@ -3851,6 +3910,99 @@ class MainActivity : Activity() {
         } else {
             "Повтор начинается от поля «Когда делать». Если оно пустое, используется дедлайн; если оба поля пустые, используется текущее время. Сейчас источник: $anchor."
         }
+    }
+
+    private fun currentReminderDraft(task: PlanningTask): ReminderDraft? {
+        val userId = currentSession?.user?.id ?: return null
+        val setting = taskReminderStore.read(userId, task.id)?.takeIf { it.enabled } ?: return null
+        return ReminderDraft(
+            triggerAt = Instant.ofEpochMilli(setting.triggerAtMillis).atZone(zone).toLocalDateTime(),
+            repeat = setting.repeat
+        )
+    }
+
+    private fun describeReminderDraft(draft: ReminderDraft?): String {
+        return draft?.let { listOfNotNull(formatReminderDateTime(it.triggerAt), reminderRepeatLabel(it.repeat)).joinToString(", ") }
+            ?: copy().noDate
+    }
+
+    private fun reminderRepeatLabel(repeat: TaskReminderRepeat): String? {
+        return when (repeat) {
+            TaskReminderRepeat.None -> null
+            TaskReminderRepeat.Daily -> copy().daily
+            TaskReminderRepeat.Weekly -> copy().weekly
+            TaskReminderRepeat.Monthly -> copy().monthly
+        }
+    }
+
+    private fun showReminderDraftDialog(
+        task: PlanningTask?,
+        currentDraft: ReminderDraft?,
+        onSelected: (ReminderDraft?) -> Unit
+    ) {
+        val c = copy()
+        var selectedDateTime = currentDraft?.triggerAt ?: task?.let(::defaultReminderDateTime)
+            ?: LocalDateTime.now(zone).plusHours(1).withSecond(0).withNano(0)
+        var selectedRepeat = currentDraft?.repeat ?: TaskReminderRepeat.None
+        val selectedTime = TextView(this).apply {
+            textSize = 16f
+            setTextColor(color(Ui.TEXT))
+            setPadding(0, 0, 0, dp(8))
+        }
+        fun updateSelectedTime() {
+            selectedTime.text = formatReminderDateTime(selectedDateTime)
+        }
+        updateSelectedTime()
+
+        val pickTime = Button(this).apply {
+            text = c.pickDate
+            setOnClickListener {
+                pickReminderDateTime(selectedDateTime) { picked ->
+                    selectedDateTime = picked
+                    updateSelectedTime()
+                }
+            }
+        }
+        val repeatIds = mutableMapOf<Int, TaskReminderRepeat>()
+        val repeatGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            listOf(
+                TaskReminderRepeat.None to c.noRecurrence,
+                TaskReminderRepeat.Daily to c.daily,
+                TaskReminderRepeat.Weekly to c.weekly,
+                TaskReminderRepeat.Monthly to c.monthly
+            ).forEach { (repeat, label) ->
+                val id = View.generateViewId()
+                repeatIds[id] = repeat
+                addView(RadioButton(this@MainActivity).apply {
+                    this.id = id
+                    text = label
+                    textSize = 15f
+                    setTextColor(color(Ui.TEXT))
+                    isChecked = repeat == selectedRepeat
+                })
+            }
+            setOnCheckedChangeListener { _, checkedId ->
+                selectedRepeat = repeatIds[checkedId] ?: TaskReminderRepeat.None
+            }
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), 0)
+            addView(selectedTime)
+            addView(pickTime)
+            addView(dialogLabel(c.recurrence))
+            addView(repeatGroup)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(c.reminders)
+            .setView(form)
+            .setNegativeButton(c.cancel, null)
+            .setNeutralButton(c.clearDate) { _, _ -> onSelected(null) }
+            .setPositiveButton(c.save) { _, _ ->
+                onSelected(ReminderDraft(selectedDateTime, selectedRepeat))
+            }
+            .show()
     }
 
     private fun showRemindersDialog(task: PlanningTask) {
@@ -3965,6 +4117,41 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun saveLocalReminder(task: PlanningTask, draft: ReminderDraft) {
+        val session = currentSession ?: return
+        val triggerAtMillis = draft.triggerAt.atZone(zone).toInstant().toEpochMilli()
+        if (triggerAtMillis <= System.currentTimeMillis()) {
+            message = reminderFutureTimeMessage()
+            return
+        }
+        val current = taskReminderStore.read(session.user.id, task.id)
+        val setting = TaskReminderSetting(
+            userId = session.user.id,
+            taskId = task.id,
+            taskTitle = task.title,
+            triggerAtMillis = triggerAtMillis,
+            repeat = draft.repeat,
+            enabled = true
+        )
+        current?.let(taskReminderAlarmScheduler::cancel)
+        taskReminderStore.save(setting)
+        val result = taskReminderAlarmScheduler.schedule(setting)
+        message = if (result.exact) copy().remindersOn else reminderApproximateMessage()
+        if (!notificationRuntime.hasNotificationPermission()) {
+            notificationRuntime.requestNotificationPermission(this)
+        }
+        if (!result.exact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            showExactAlarmSettingsDialog()
+        }
+    }
+
+    private fun clearLocalReminder(task: PlanningTask) {
+        val session = currentSession ?: return
+        taskReminderStore.read(session.user.id, task.id)?.let(taskReminderAlarmScheduler::cancel)
+        taskReminderStore.clear(session.user.id, task.id)
+        message = copy().remindersOff
+    }
+
     private fun pickReminderDateTime(
         initial: LocalDateTime,
         onPicked: (LocalDateTime) -> Unit
@@ -4057,8 +4244,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun saveTask(goalId: String, task: PlanningTask?, draft: TaskDraft, successMessage: String? = null) {
+    private fun saveTask(
+        goalId: String,
+        task: PlanningTask?,
+        draft: TaskDraft,
+        successMessage: String? = null,
+        reminderDraft: ReminderDraft? = null,
+        clearReminder: Boolean = false
+    ) {
         val session = currentSession ?: return
+        val previousTaskIds = allTasks().map { it.id }.toSet()
         setBusy(true)
         message = null
         scope.launch {
@@ -4080,8 +4275,20 @@ class MainActivity : Activity() {
                     ?: result.snapshot.sharedGoals.firstOrNull { it.id == goalId }
                 selectedFolderId = parentGoal?.folderId ?: selectedFolderId
                 selectedGoalId = goalId
-                selectedTaskId = result.snapshot.tasks.firstOrNull { it.title == draft.title }?.id ?: selectedTaskId
-                selectedTaskDetail = selectedTaskId?.let(::findTask)
+                val savedTask = if (task == null) {
+                    (result.snapshot.tasks + result.snapshot.sharedTasks).firstOrNull { it.id !in previousTaskIds && it.goalId == goalId }
+                        ?: (result.snapshot.tasks + result.snapshot.sharedTasks).firstOrNull { it.goalId == goalId && it.title == draft.title }
+                } else {
+                    (result.snapshot.tasks + result.snapshot.sharedTasks).firstOrNull { it.id == task.id }
+                }
+                selectedTaskId = savedTask?.id ?: selectedTaskId
+                selectedTaskDetail = savedTask ?: selectedTaskId?.let(::findTask)
+                val currentSavedTask = selectedTaskDetail
+                if (reminderDraft != null && currentSavedTask != null) {
+                    saveLocalReminder(currentSavedTask, reminderDraft)
+                } else if (clearReminder && currentSavedTask != null) {
+                    clearLocalReminder(currentSavedTask)
+                }
             } catch (error: Exception) {
                 message = humanError(error)
             } finally {
@@ -4134,11 +4341,6 @@ class MainActivity : Activity() {
                     title = c.links,
                     value = links.size.toString(),
                     expanded = linksExpanded,
-                    actionIcon = if (canWriteEntity(entityType, entityId)) R.drawable.ic_link_nodes else null,
-                    actionDescription = if (canWriteEntity(entityType, entityId)) c.addLink else null,
-                    onAction = if (canWriteEntity(entityType, entityId)) {
-                        { showCreateLinkDialog(entityType, entityId) }
-                    } else null
                 ) {
                     linksExpanded = !linksExpanded
                     render()
@@ -4181,9 +4383,19 @@ class MainActivity : Activity() {
                 if (linked.isEmpty()) {
                     addView(hintRow(c.nothingHere, indentLevel = 0))
                 } else {
-                    linked.forEach { note -> addView(noteRow(note, indentLevel = 0)) }
+                    linked.forEach { note -> addView(linkedNoteRow(note)) }
                 }
             }
+        }
+    }
+
+    private fun linkedNoteRow(note: PlanningNote): View {
+        return hierarchyContainer(indentLevel = 0, heightDp = 38, selected = false).apply {
+            addView(iconView(R.drawable.ic_pen_write, sizeDp = 24, tint = Ui.AMBER))
+            addView(rowText(note.title, notePath(note), weight = 1f, titleSize = 15.5f, titleStyle = Typeface.BOLD).apply {
+                setOnClickListener { openNoteDetail(note.id) }
+            })
+            setOnClickListener { openNoteDetail(note.id) }
         }
     }
 
@@ -4436,6 +4648,9 @@ class MainActivity : Activity() {
 
     private fun openTaskDetail(taskId: String, consumePendingOnSuccess: Boolean = false) {
         val session = currentSession ?: return
+        if (selectedTaskId != taskId) {
+            taskDetailScrollY = 0
+        }
         selectedTaskId = taskId
         selectedTaskDetail = findTask(taskId)
         currentScreen = Screen.Detail
@@ -4522,13 +4737,6 @@ class MainActivity : Activity() {
 
         val folderId = localStore.createFolder(session.user.id, FolderDraft(data.folder, ""))
         val goalId = localStore.createGoal(session.user.id, folderId, GoalDraft(data.goal, ""))
-        val tagId = localStore.createTag(
-            session.user.id,
-            TaskTagDraft(
-                name = if (language == "en") "QA" else "QA",
-                color = "#2F6B57"
-            )
-        )
         val recurrenceJson = JSONObject()
             .put("mode", "weekly")
             .put("interval", 1)
@@ -4552,7 +4760,6 @@ class MainActivity : Activity() {
                 status = "in_progress",
                 plannedTime = "2026-05-02T09:00:00Z",
                 dueTime = "2026-05-02T09:00:00Z",
-                tagIds = listOf(tagId),
                 recurrenceJson = recurrenceJson,
                 remindersJson = remindersJson
             )
@@ -4851,6 +5058,14 @@ class MainActivity : Activity() {
             setLineSpacing(dp(2).toFloat(), 1f)
             setPadding(dp(12), dp(9), dp(12), dp(9))
             background = roundedDrawable(Ui.ACCENT_SOFT, radiusDp = 8)
+            if (!busy) {
+                isClickable = true
+                setOnClickListener {
+                    transientMessageJob?.cancel()
+                    message = null
+                    render()
+                }
+            }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -4973,7 +5188,7 @@ class MainActivity : Activity() {
                 }
             )
             addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
-            addView(counterText("${copy().priorityShort}${task.priority}"))
+            addView(counterText(task.priority.toString()))
             dueChip(task)?.let { addView(it) }
             addView(
                 View(context).apply {
@@ -5754,9 +5969,12 @@ class MainActivity : Activity() {
         return due?.let(::formatDateTime) ?: localizedStatus(task.status)
     }
 
-    private fun describeTaskTags(task: PlanningTask): String {
-        val names = task.tagIds.mapNotNull { id -> taskTags.firstOrNull { it.id == id }?.name }
-        return names.joinToString(", ").ifBlank { copy().noDate }
+    private fun formatEffort(effort: Int): String = effort.coerceAtLeast(0).toString()
+
+    private fun effortProgressText(doneEffort: Int, totalEffort: Int): String {
+        if (totalEffort <= 0) return "0/0"
+        val percent = (doneEffort.coerceAtLeast(0) * 100 / totalEffort).coerceIn(0, 100)
+        return "$doneEffort/$totalEffort ($percent%)"
     }
 
     private fun describeRecurrence(raw: String?): String {
@@ -5824,8 +6042,26 @@ class MainActivity : Activity() {
     }
 
     private fun recurrencePayload(task: PlanningTask, selectedMode: String, active: Boolean): JSONObject {
-        val mode = selectedMode.ifBlank { recurrenceMode(task.recurrenceJson).ifBlank { "daily" } }
-        val startAt = task.plannedTime ?: task.dueTime ?: Instant.now().toString()
+        return buildRecurrencePayload(
+            currentRaw = task.recurrenceJson,
+            selectedMode = selectedMode,
+            active = active,
+            plannedTime = task.plannedTime,
+            dueTime = task.dueTime,
+            fallbackTask = task
+        )
+    }
+
+    private fun buildRecurrencePayload(
+        currentRaw: String?,
+        selectedMode: String,
+        active: Boolean,
+        plannedTime: String?,
+        dueTime: String?,
+        fallbackTask: PlanningTask?
+    ): JSONObject {
+        val mode = selectedMode.ifBlank { recurrenceMode(currentRaw).ifBlank { "daily" } }
+        val startAt = plannedTime ?: dueTime ?: fallbackTask?.plannedTime ?: fallbackTask?.dueTime ?: Instant.now().toString()
         val startDate = parseInstant(startAt)?.atZone(zone)?.toLocalDate() ?: LocalDate.now(zone)
         return JSONObject()
             .put("mode", mode)
@@ -6133,9 +6369,18 @@ class MainActivity : Activity() {
             return
         }
         val titleInput = dialogInput(c.titleField, "", inputPurpose = TextInputPurpose.Name)
+        val bodyInput = dialogInput(c.noteBodyHint, "", multiline = true, inputPurpose = TextInputPurpose.Notes).apply {
+            minLines = 12
+            maxLines = Int.MAX_VALUE
+            isVerticalScrollBarEnabled = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(10) }
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (entityType == "task") c.addComment else c.addNote)
-            .setView(dialogForm(dialogContextLine(c.folder, folderPath(folder)), titleInput))
+            .setView(dialogForm(dialogContextLine(c.folder, folderPath(folder)), titleInput, bodyInput))
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.save) { _, _ ->
                 val title = titleInput.text.toString().trim()
@@ -6144,20 +6389,21 @@ class MainActivity : Activity() {
                     render()
                     return@setPositiveButton
                 }
-                createLinkedNote(entityType, entityId, folderId, title)
+                createLinkedNote(entityType, entityId, folderId, title, bodyInput.text.toString())
             }
             .show()
+        dialog.window?.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
         focusDialogInput(dialog, titleInput)
     }
 
-    private fun createLinkedNote(entityType: String, entityId: String, folderId: String, title: String) {
+    private fun createLinkedNote(entityType: String, entityId: String, folderId: String, title: String, body: String) {
         val session = currentSession ?: return
         val previousNoteIds = allNotes().map { it.id }.toSet()
         setBusy(true)
         message = null
         scope.launch {
             try {
-                val noteResult = planningRepository.createNote(session, folderId, NoteDraft(title = title, body = ""))
+                val noteResult = planningRepository.createNote(session, folderId, NoteDraft(title = title, body = body))
                 val createdNote = (noteResult.snapshot.notes + noteResult.snapshot.sharedNotes)
                     .firstOrNull { it.id !in previousNoteIds && it.folderId == folderId }
                     ?: (noteResult.snapshot.notes + noteResult.snapshot.sharedNotes)
@@ -6316,6 +6562,7 @@ class MainActivity : Activity() {
         type: String = this.type,
         status: String = this.status,
         priority: Int = this.priority,
+        effort: Int = this.effort,
         plannedTime: String? = this.plannedTime,
         dueTime: String? = this.dueTime,
         tagIds: List<String>? = this.tagIds,
@@ -6327,6 +6574,7 @@ class MainActivity : Activity() {
             description = description,
             type = normalizeTaskType(type),
             priority = priority,
+            effort = effort,
             status = status,
             plannedTime = plannedTime,
             dueTime = dueTime,
@@ -6695,9 +6943,9 @@ class MainActivity : Activity() {
                 notes = "Notes",
                 status = "Status",
                 priority = "Priority",
+                effort = "Effort",
                 planned = "Planned",
                 due = "Due",
-                tags = "Tags",
                 recurrence = "Repeat",
                 noRecurrence = "No repeat",
                 daily = "Daily",
@@ -6705,9 +6953,6 @@ class MainActivity : Activity() {
                 monthly = "Monthly",
                 remindersBeforeDue = "Before due",
                 remindersBeforePlanned = "Before planned",
-                addTag = "Add tag",
-                newTag = "New tag",
-                colorField = "Color, for example #2F6B57",
                 metadata = "Scheduling",
                 path = "Path",
                 details = "Details",
@@ -6790,8 +7035,10 @@ class MainActivity : Activity() {
                 dueField = "Due",
                 plannedField = "Plan",
                 priorityField = "Priority 1-10",
+                effortField = "Effort",
+                effortRequired = "Effort must be 0 or more.",
                 priorityRequired = "Priority must be from 1 to 10.",
-                priorityShort = "P",
+                priorityShort = "",
                 sharing = "Sharing",
                 share = "Share",
                 shareByEmail = "Email",
@@ -6885,9 +7132,9 @@ class MainActivity : Activity() {
                 notes = "Заметки",
                 status = "Статус",
                 priority = "Приоритет",
+                effort = "Трудоемкость",
                 planned = "\u041a\u043e\u0433\u0434\u0430 \u0434\u0435\u043b\u0430\u0442\u044c",
                 due = "\u0414\u0435\u0434\u043b\u0430\u0439\u043d",
-                tags = "Теги",
                 recurrence = "Повтор",
                 noRecurrence = "Без повтора",
                 daily = "Каждый день",
@@ -6895,9 +7142,6 @@ class MainActivity : Activity() {
                 monthly = "Каждый месяц",
                 remindersBeforeDue = "до срока",
                 remindersBeforePlanned = "до плана",
-                addTag = "Добавить тег",
-                newTag = "Новый тег",
-                colorField = "Цвет, например #2F6B57",
                 metadata = "Расписание",
                 path = "Путь",
                 details = "Детали",
@@ -6980,8 +7224,10 @@ class MainActivity : Activity() {
                 dueField = "Срок",
                 plannedField = "План",
                 priorityField = "Приоритет 1-10",
+                effortField = "Трудоемкость",
+                effortRequired = "Трудоемкость должна быть 0 или больше.",
                 priorityRequired = "Приоритет должен быть от 1 до 10.",
-                priorityShort = "П",
+                priorityShort = "",
                 sharing = "Доступ",
                 share = "Поделиться",
                 shareByEmail = "Email",

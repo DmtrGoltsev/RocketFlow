@@ -72,6 +72,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 description TEXT NOT NULL,
                 type TEXT NOT NULL,
                 priority INTEGER NOT NULL,
+                effort INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL,
                 planned_time TEXT,
                 due_time TEXT,
@@ -140,6 +141,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 10) {
                 addEntityLinkRedactionColumns(db)
             }
+            if (oldVersion < 11) {
+                addTaskEffortColumn(db)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -154,6 +158,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             addColumnIfMissing(db, TABLE_TASKS, "creator_user_id", "TEXT")
             addColumnIfMissing(db, TABLE_TASKS, "creator_email", "TEXT")
             addColumnIfMissing(db, TABLE_TASKS, "creator_name", "TEXT")
+            addTaskEffortColumn(db)
             createIdeasTable(db)
             createIdeaNotesTable(db)
             addIdeaContractColumns(db)
@@ -378,6 +383,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     description = draft.description,
                     type = draft.type,
                     priority = draft.priority,
+                    effort = draft.effort,
                     status = draft.status,
                     plannedTime = draft.plannedTime,
                     dueTime = draft.dueTime,
@@ -429,6 +435,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 put("description", draft.description)
                 put("type", draft.type)
                 put("priority", draft.priority)
+                put("effort", draft.effort)
                 put("status", draft.status)
                 put("planned_time", draft.plannedTime)
                 put("due_time", draft.dueTime)
@@ -1293,6 +1300,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             draft.description == task.description &&
             draft.type == task.type &&
             draft.priority == task.priority &&
+            draft.effort == task.effort &&
             draft.plannedTime == task.plannedTime &&
             draft.dueTime == task.dueTime &&
             (draft.tagIds ?: task.tagIds) == task.tagIds &&
@@ -1493,6 +1501,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("description", task.description)
             put("type", task.type)
             put("priority", task.priority)
+            put("effort", task.effort)
             put("status", task.status)
             put("planned_time", task.plannedTime)
             put("due_time", task.dueTime)
@@ -1680,6 +1689,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             description = string("description"),
             type = string("type"),
             priority = int("priority"),
+            effort = optionalInt("effort"),
             status = string("status"),
             plannedTime = stringOrNull("planned_time"),
             dueTime = stringOrNull("due_time"),
@@ -2006,6 +2016,10 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         addColumnIfMissing(db, TABLE_IDEAS, "full_access", "INTEGER NOT NULL DEFAULT 0")
     }
 
+    private fun addTaskEffortColumn(db: SQLiteDatabase) {
+        addColumnIfMissing(db, TABLE_TASKS, "effort", "INTEGER NOT NULL DEFAULT 0")
+    }
+
     private fun addEntityLinkPendingColumns(db: SQLiteDatabase) {
         addColumnIfMissing(db, TABLE_ENTITY_LINKS, "pending_action", "TEXT")
         addColumnIfMissing(db, TABLE_ENTITY_LINKS, "last_error", "TEXT")
@@ -2103,7 +2117,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 10
+        private const val DATABASE_VERSION = 11
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"

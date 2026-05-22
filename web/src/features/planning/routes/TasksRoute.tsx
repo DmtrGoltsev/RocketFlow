@@ -134,6 +134,7 @@ interface TaskDraft {
   type: TaskType;
   status: TaskStatus;
   priority: string;
+  effort: string;
   plannedTime: string;
   dueTime: string;
   recurrence: ReturnType<typeof createDefaultRecurrenceDraft>;
@@ -186,6 +187,7 @@ function toDraft(task: TaskDto | null): TaskDraft {
     type: task?.type ?? 'green',
     status: task?.status ?? 'todo',
     priority: String(task?.priority ?? 2),
+    effort: String(task?.effort ?? 0),
     plannedTime: toDateTimeInputValue(task?.plannedTime ?? null),
     dueTime: toDateTimeInputValue(task?.dueTime ?? null),
     recurrence: toTaskRecurrenceDraft(task),
@@ -278,16 +280,34 @@ function progress(tasks: TaskDto[]) {
   return `${done}/${tasks.length}`;
 }
 
+function taskEffort(task: TaskDto) {
+  return Math.max(0, task.effort ?? 0);
+}
+
+function totalEffort(tasks: TaskDto[]) {
+  return tasks.reduce((sum, task) => sum + taskEffort(task), 0);
+}
+
+function completedEffort(tasks: TaskDto[]) {
+  return tasks.filter((task) => task.status === 'done').reduce((sum, task) => sum + taskEffort(task), 0);
+}
+
+function effortProgress(tasks: TaskDto[]) {
+  return `${completedEffort(tasks)}/${totalEffort(tasks)}`;
+}
+
 function isComplete(task: TaskDto) {
   return task.status === 'done' || task.status === 'cancelled';
 }
 
 function progressPercent(tasks: TaskDto[]) {
-  if (tasks.length === 0) {
+  const effort = totalEffort(tasks);
+
+  if (effort === 0) {
     return 0;
   }
 
-  return (tasks.filter(isComplete).length / tasks.length) * 100;
+  return (completedEffort(tasks) / effort) * 100;
 }
 
 function markerToneForTask(task: TaskDto): MarkerTone {
@@ -488,6 +508,8 @@ function usePlanCopy() {
     status: locale === 'ru' ? 'Статус' : 'Status',
     type: locale === 'ru' ? 'Тип' : 'Type',
     priority: locale === 'ru' ? 'Приоритет' : 'Priority',
+    effort: locale === 'ru' ? 'Трудоёмкость' : 'Effort',
+    progress: locale === 'ru' ? 'Прогресс' : 'Progress',
     planned: locale === 'ru' ? 'Когда делать' : 'Planned',
     due: locale === 'ru' ? 'Дедлайн' : 'Due',
     creator: locale === 'ru' ? 'Создатель' : 'Creator',
@@ -660,6 +682,10 @@ export function TasksRoute() {
   const panelFolder = isCreatingTask ? taskCreationFolder : selectedFolder;
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase(locale === 'ru' ? 'ru-RU' : 'en-US');
   const isSearching = normalizedSearch.length > 0;
+  const draftEffort = Number(draft.effort);
+  const currentEffortError = draft.effort.trim() && Number.isInteger(draftEffort) && draftEffort >= 0
+    ? null
+    : planningCopy.tasks.validationEffort;
   const currentRecurrenceError = recurrenceError(draft, planningCopy.tasks);
   const canArchiveSelectedTask = !isCreatingTask && selectedTask ? canMutateShared(selectedTask) : false;
   const canEditSelectedTaskFields = isCreatingTask || canMutateShared(selectedTask);
@@ -1265,7 +1291,7 @@ export function TasksRoute() {
     await runAction(async () => {
       const note = await createNote(authorizedFetch, createNoteFolderId, {
         title: noteDraft.title.trim(),
-        body: '',
+        body: noteDraft.body,
       });
       setNotesByFolder((current) => ({
         ...current,
@@ -1512,7 +1538,8 @@ export function TasksRoute() {
     }
 
     const priority = Number(draft.priority);
-    if (!draft.title.trim() || !Number.isInteger(priority) || priority < 1 || priority > 10) {
+    const effort = Number(draft.effort);
+    if (!draft.title.trim() || !Number.isInteger(priority) || priority < 1 || priority > 10 || !Number.isInteger(effort) || effort < 0) {
       return;
     }
 
@@ -1527,6 +1554,7 @@ export function TasksRoute() {
           description: draft.description.trim(),
           type: draft.type,
           priority,
+          effort,
           status: draft.status,
           plannedTime: fromDateTimeInputValue(draft.plannedTime),
           dueTime: fromDateTimeInputValue(draft.dueTime),
@@ -1553,6 +1581,7 @@ export function TasksRoute() {
         description: draft.description.trim(),
         type: draft.type,
         priority,
+        effort,
         status: draft.status,
         plannedTime: fromDateTimeInputValue(draft.plannedTime),
         dueTime: fromDateTimeInputValue(draft.dueTime),
@@ -1583,6 +1612,7 @@ export function TasksRoute() {
         description: task.description,
         type: task.type,
         priority: task.priority,
+        effort: taskEffort(task),
         status: isComplete(task) ? 'todo' : 'done',
         plannedTime: task.plannedTime,
         dueTime: task.dueTime,
@@ -2228,6 +2258,11 @@ export function TasksRoute() {
         disabled={saving}
         onClick={(event) => {
           event.stopPropagation();
+          if (isLinkEditorOpen && linkTargetKey) {
+            void handleCreateEntityLink();
+            return;
+          }
+
           openSection('links');
           setIsLinkEditorOpen((current) => !current);
         }}
@@ -2311,12 +2346,6 @@ export function TasksRoute() {
             ) : (
               <p className="field__hint detail-grid__wide">{copy.dependencyHint}</p>
             )}
-            <div className="cluster detail-grid__wide detail-editor__actions">
-              <button className="button button--primary" type="button" disabled={saving || !linkTargetKey} onClick={() => void handleCreateEntityLink()}>
-                <Waypoints aria-hidden="true" size={16} strokeWidth={1.75} />
-                <span>{copy.addLink}</span>
-              </button>
-            </div>
           </div>
         ) : null}
       </>
@@ -2518,7 +2547,7 @@ export function TasksRoute() {
                 <span className="plan-row__title">{goal.name}</span>
                 <span className="plan-row__progress" aria-hidden="true"><span style={{ width: `${progressPercent(allTasks)}%` }} /></span>
               </span>
-              <span className="plan-row__meta">{progress(allTasks)}</span>
+              <span className="plan-row__meta">{effortProgress(allTasks)}</span>
               <span className="plan-row__actions">
                 <span className="plan-row__icon" title={copy.more}><MoreHorizontal size={15} strokeWidth={1.75} /></span>
               </span>
@@ -2793,20 +2822,27 @@ export function TasksRoute() {
         ) : isCreatingNote && noteCreationFolder ? (
           <>
             {renderDetailHeader(planningCopy.notes.createTitle, null, null)}
-            <div className="detail-panel__body">
+            <div className="detail-panel__body detail-panel__body--note-create">
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(noteCreationFolder.id)}</span></div></div>
-              {renderSection('create-note-details', copy.details, (
-                <div className="detail-editor">
-                  <label className="field detail-grid__wide">
-                    <span>{planningCopy.notes.titleLabel}</span>
-                    <input className="field__control" autoFocus value={noteDraft.title} onChange={(event) => setNoteDraft((current) => ({ ...current, title: event.target.value }))} />
-                  </label>
-                  <div className="cluster detail-grid__wide detail-editor__actions">
-                    <button className="button button--ghost" type="button" disabled={saving} onClick={() => { setCreateNoteFolderId(null); setCreateNoteLinkEntity(null); setNoteDraft(toNoteDraft(null)); }}>{copy.cancel}</button>
-                    <button className="button button--primary" type="button" disabled={saving || !noteDraft.title.trim()} onClick={() => void handleSaveNewNote()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
-                  </div>
+              <div className="detail-section note-compose note-compose--create">
+                <label className="field detail-grid__wide">
+                  <span>{planningCopy.notes.titleLabel}</span>
+                  <input className="field__control" autoFocus value={noteDraft.title} onChange={(event) => setNoteDraft((current) => ({ ...current, title: event.target.value }))} />
+                </label>
+                <label className="field detail-grid__wide note-compose__body">
+                  <span>{planningCopy.notes.bodyLabel}</span>
+                  <textarea
+                    className="field__control field__control--area note-body-textarea note-body-textarea--create"
+                    placeholder={copy.notePlaceholder}
+                    value={noteDraft.body}
+                    onChange={(event) => setNoteDraft((current) => ({ ...current, body: event.target.value }))}
+                  />
+                </label>
+                <div className="cluster detail-grid__wide detail-editor__actions">
+                  <button className="button button--ghost" type="button" disabled={saving} onClick={() => { setCreateNoteFolderId(null); setCreateNoteLinkEntity(null); setNoteDraft(toNoteDraft(null)); }}>{copy.cancel}</button>
+                  <button className="button button--primary" type="button" disabled={saving || !noteDraft.title.trim()} onClick={() => void handleSaveNewNote()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
                 </div>
-              ))}
+              </div>
             </div>
           </>
         ) : selectedNote && selectedFolder ? (
@@ -2859,6 +2895,8 @@ export function TasksRoute() {
                 <span className="meta-chip"><Target aria-hidden="true" size={14} strokeWidth={1.75} />{copy.goal}</span>
                 <span className="meta-chip">{copy.status}: {planningCopy.enums.goalStatus[selectedGoal.status]}</span>
                 <span className="meta-chip">{copy.task}: {selectedGoalTasks.length}</span>
+                <span className="meta-chip">{copy.effort}: {totalEffort(selectedGoalTasks)}</span>
+                <span className="meta-chip">{copy.progress}: {effortProgress(selectedGoalTasks)}</span>
               </div>
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(selectedFolder.id)} / {selectedGoal.name}</span></div></div>
               <div className="detail-section"><div className="detail-label">{planningCopy.goals.description}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedGoal.description || planningCopy.common.noDescription}</p></div></div>
@@ -2920,7 +2958,8 @@ export function TasksRoute() {
               {!isCreatingTask && selectedTask ? (
                 <div className="detail-panel__badges" aria-label={copy.details}>
                   <span className="meta-chip" title={copy.status}><span className={`marker-dot marker-dot--${markerToneForTask(selectedTask)}`} aria-hidden="true" />{planningCopy.enums.taskStatus[selectedTask.status]}</span>
-                  <span className="meta-chip" title={copy.priority}>P{selectedTask.priority}</span>
+                  <span className="meta-chip" title={copy.priority}>{selectedTask.priority}</span>
+                  <span className="meta-chip" title={copy.effort}>{taskEffort(selectedTask)}</span>
                   {selectedTask.dueTime ? <span className={`meta-chip meta-chip--${dueTone(selectedTask.dueTime)}`} title={copy.due}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.dueTime, locale)}</span> : null}
                   {selectedTask.plannedTime ? <span className="meta-chip" title={copy.planned}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.plannedTime, locale)}</span> : null}
                   {selectedTask.recurrence?.active ? <span className="meta-chip" title={planningCopy.tasks.recurrenceLabel}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{describeRecurrence(selectedTask.recurrence, locale)}</span> : null}
@@ -2935,6 +2974,7 @@ export function TasksRoute() {
                   <label className="field"><span>{planningCopy.tasks.typeLabel}</span><select className="field__control" disabled={!canEditSelectedTaskFields} value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as TaskType }))}><option value="green">{planningCopy.enums.taskType.green}</option><option value="red">{planningCopy.enums.taskType.red}</option></select></label>
                   <label className="field"><span>{planningCopy.tasks.statusLabel}</span><select className="field__control" disabled={!canEditSelectedTaskFields} value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as TaskStatus }))}>{TASK_STATUSES.map((status) => <option key={status} value={status}>{planningCopy.enums.taskStatus[status]}</option>)}</select></label>
                   <label className="field"><span>{planningCopy.tasks.priorityLabel}</span><input className="field__control" inputMode="numeric" disabled={!canEditSelectedTaskFields} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} /></label>
+                  <label className="field"><span>{planningCopy.tasks.effortLabel}</span><input className="field__control" inputMode="numeric" disabled={!canEditSelectedTaskFields} value={draft.effort} onChange={(event) => setDraft((current) => ({ ...current, effort: event.target.value }))} />{currentEffortError ? <span className="field__error">{currentEffortError}</span> : null}</label>
                   <label className="field"><span>{planningCopy.tasks.plannedTimeLabel}</span><input className="field__control" type="datetime-local" disabled={!canEditSelectedTaskFields} value={draft.plannedTime} onChange={(event) => setDraft((current) => ({ ...current, plannedTime: event.target.value }))} /></label>
                   <label className="field"><span>{planningCopy.tasks.dueTimeLabel}</span><input className="field__control" type="datetime-local" disabled={!canEditSelectedTaskFields} value={draft.dueTime} onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))} /></label>
                   <div className="recurrence-editor detail-grid__wide">
@@ -2961,7 +3001,7 @@ export function TasksRoute() {
                     ) : null}
                   </div>
                   <div className="cluster detail-grid__wide detail-editor__actions">
-                    <button className="button button--primary" type="button" disabled={saving || !canEditSelectedTaskFields || !draft.title.trim() || Boolean(currentRecurrenceError)} onClick={() => void handleSaveTask()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
+                    <button className="button button--primary" type="button" disabled={saving || !canEditSelectedTaskFields || !draft.title.trim() || Boolean(currentEffortError) || Boolean(currentRecurrenceError)} onClick={() => void handleSaveTask()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
                     {canArchiveSelectedTask && selectedTask && selectedGoal ? <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleArchiveTask(selectedTask, selectedGoal)}><Archive aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.archive}</span></button> : null}
                   </div>
                 </div>

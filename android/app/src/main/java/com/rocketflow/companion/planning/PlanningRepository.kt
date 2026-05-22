@@ -839,6 +839,7 @@ class PlanningRepository(
             .put("description", description)
             .put("type", type)
             .put("priority", priority)
+            .put("effort", effort)
             .put("status", status)
             .putNullable("plannedTime", plannedTime)
             .putNullable("dueTime", dueTime)
@@ -851,6 +852,7 @@ class PlanningRepository(
             .put("description", description)
             .put("type", type)
             .put("priority", priority)
+            .put("effort", effort)
             .put("status", status)
             .putNullable("plannedTime", plannedTime)
             .putNullable("dueTime", dueTime)
@@ -951,6 +953,7 @@ class PlanningRepository(
             description = text("description"),
             type = text("type").ifBlank { "green" },
             priority = optInt("priority", 5),
+            effort = optInt("effort", 0),
             status = text("status").ifBlank { "todo" },
             plannedTime = nullableText("plannedTime"),
             dueTime = nullableText("dueTime"),

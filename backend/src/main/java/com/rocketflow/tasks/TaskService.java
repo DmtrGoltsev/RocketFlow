@@ -90,6 +90,7 @@ public class TaskService {
         task.setDescription(request.description());
         task.setType(request.type());
         task.setPriority(request.priority());
+        task.setEffort(normalizeEffort(request.effort()));
         task.setStatus(request.status());
         task.setPlannedTime(request.plannedTime());
         task.setDueTime(request.dueTime());
@@ -142,6 +143,9 @@ public class TaskService {
         task.setDescription(request.description());
         task.setType(request.type());
         task.setPriority(request.priority());
+        if (request.effort() != null) {
+            task.setEffort(normalizeEffort(request.effort()));
+        }
         task.setStatus(request.status());
         task.setPlannedTime(request.plannedTime());
         task.setDueTime(request.dueTime());
@@ -199,6 +203,7 @@ public class TaskService {
         clone.setDescription(source.getDescription());
         clone.setType(source.getType());
         clone.setPriority(source.getPriority());
+        clone.setEffort(source.getEffort());
         clone.setStatus(source.getStatus());
         clone.setPlannedTime(source.getPlannedTime());
         clone.setDueTime(source.getDueTime());
@@ -256,6 +261,7 @@ public class TaskService {
                 task.getDescription(),
                 task.getType(),
                 task.getPriority(),
+                task.getEffort(),
                 task.getStatus(),
                 task.getPlannedTime(),
                 task.getDueTime(),
@@ -337,6 +343,10 @@ public class TaskService {
         return null;
     }
 
+    private int normalizeEffort(Integer effort) {
+        return effort == null ? 0 : effort;
+    }
+
     private void ensureTaskCanUseStatus(Task task, String requestedStatus) {
         if ("done".equals(requestedStatus) && !"done".equals(task.getStatus())) {
             entityLinkService.ensureTaskCanBeDone(task.getId());
@@ -348,6 +358,7 @@ public class TaskService {
                 || !Objects.equals(task.getDescription(), request.description())
                 || !Objects.equals(task.getType(), request.type())
                 || task.getPriority() != request.priority().intValue()
+                || (request.effort() != null && task.getEffort() != request.effort().intValue())
                 || !Objects.equals(task.getPlannedTime(), request.plannedTime())
                 || !Objects.equals(task.getDueTime(), request.dueTime())
                 || task.isArchived() != request.archived()

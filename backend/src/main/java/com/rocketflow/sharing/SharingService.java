@@ -763,6 +763,7 @@ public class SharingService {
                 task.getDescription(),
                 task.getType(),
                 task.getPriority(),
+                task.getEffort(),
                 task.getStatus(),
                 task.getPlannedTime(),
                 task.getDueTime(),

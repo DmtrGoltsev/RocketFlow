@@ -12,6 +12,10 @@ tmp/notification-smoke/
 tmp/
 scripts/Set-NotificationSmokeStagingEnv.ps1
 *.log
+rocketflow-web-sha-*.tar.gz
+tmp-android-login*.png
+tmp-window.xml
+test-artifacts/**/gradle-user-home/caches/
 
 # Локальное состояние и рабочие файлы Terraform
 **/.terraform/

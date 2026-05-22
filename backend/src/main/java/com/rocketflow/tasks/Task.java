@@ -37,6 +37,9 @@ public class Task {
     @Column(nullable = false)
     private int priority;
 
+    @Column(nullable = false)
+    private int effort;
+
     @Column(nullable = false, length = 32)
     private String status;
 
@@ -77,6 +80,8 @@ public class Task {
     public void setType(String type) { this.type = type; }
     public int getPriority() { return priority; }
     public void setPriority(int priority) { this.priority = priority; }
+    public int getEffort() { return effort; }
+    public void setEffort(int effort) { this.effort = effort; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public Instant getPlannedTime() { return plannedTime; }

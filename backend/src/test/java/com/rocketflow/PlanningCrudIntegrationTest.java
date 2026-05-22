@@ -118,6 +118,7 @@ class PlanningCrudIntegrationTest {
                                   "description": "Outline achievements and next steps",
                                   "type": "green",
                                   "priority": 8,
+                                  "effort": 5,
                                   "status": "todo",
                                   "plannedTime": "2026-05-01T09:00:00Z",
                                   "dueTime": "2026-05-02T18:00:00Z",
@@ -125,6 +126,7 @@ class PlanningCrudIntegrationTest {
                                 }
                                 """.formatted(tagId)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.effort").value(5))
                 .andExpect(jsonPath("$.tags[0].name").value("career"))
                 .andReturn().getResponse().getContentAsString();
         String taskId = read(taskResponse, "/id");
@@ -133,7 +135,8 @@ class PlanningCrudIntegrationTest {
         mockMvc.perform(get("/api/goals/" + goalId + "/tasks")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].title").value("Prepare promotion plan"));
+                .andExpect(jsonPath("$.items[0].title").value("Prepare promotion plan"))
+                .andExpect(jsonPath("$.items[0].effort").value(5));
 
         mockMvc.perform(patch("/api/folders/" + folderId)
                         .header("Authorization", "Bearer " + accessToken)
@@ -173,6 +176,7 @@ class PlanningCrudIntegrationTest {
                                   "description": "Outline achievements and next steps in writing",
                                   "type": "green",
                                   "priority": 7,
+                                  "effort": 9,
                                   "status": "in_progress",
                                   "plannedTime": "2026-05-01T10:00:00Z",
                                   "dueTime": "2026-05-02T18:00:00Z",
@@ -183,6 +187,7 @@ class PlanningCrudIntegrationTest {
                                 """.formatted(tagId, taskVersion)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Prepare promotion plan draft"))
+                .andExpect(jsonPath("$.effort").value(9))
                 .andExpect(jsonPath("$.status").value("in_progress"));
 
         mockMvc.perform(delete("/api/tasks/" + taskId)
@@ -192,6 +197,7 @@ class PlanningCrudIntegrationTest {
         mockMvc.perform(get("/api/tasks/" + taskId)
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.effort").value(9))
                 .andExpect(jsonPath("$.archived").value(true));
 
         mockMvc.perform(delete("/api/goals/" + goalId)
@@ -264,6 +270,7 @@ class PlanningCrudIntegrationTest {
                                   "description": "Has a tag created by another client",
                                   "type": "green",
                                   "priority": 6,
+                                  "effort": 4,
                                   "status": "todo",
                                   "plannedTime": "2026-05-01T09:00:00Z",
                                   "dueTime": "2026-05-02T18:00:00Z",
@@ -271,6 +278,7 @@ class PlanningCrudIntegrationTest {
                                 }
                                 """.formatted(tagId)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.effort").value(4))
                 .andExpect(jsonPath("$.tags[0].id").value(tagId))
                 .andReturn().getResponse().getContentAsString();
         String taskId = read(taskResponse, "/id");
@@ -293,7 +301,81 @@ class PlanningCrudIntegrationTest {
                                 }
                                 """.formatted(taskVersion)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.effort").value(4))
                 .andExpect(jsonPath("$.tags[0].id").value(tagId));
+    }
+
+    @Test
+    void taskEffortDefaultsFromNullAndRejectsNegativeValues() throws Exception {
+        String tokens = registerAndLogin();
+        String accessToken = read(tokens, "/tokens/accessToken");
+
+        String folderId = read(mockMvc.perform(post("/api/folders")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Defaults",
+                                  "description": "Default task fields"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        String goalId = read(mockMvc.perform(post("/api/folders/" + folderId + "/goals")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Task defaults",
+                                  "description": "Verify compatible defaults"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        String taskResponse = mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Nullable effort task",
+                                  "description": "Client sends null effort",
+                                  "type": "green",
+                                  "priority": 5,
+                                  "effort": null,
+                                  "status": "todo",
+                                  "plannedTime": "2026-05-03T09:00:00Z",
+                                  "dueTime": "2026-05-04T18:00:00Z"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.effort").value(0))
+                .andReturn().getResponse().getContentAsString();
+        String taskId = read(taskResponse, "/id");
+
+        mockMvc.perform(get("/api/tasks/" + taskId)
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.effort").value(0));
+
+        mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Negative effort task",
+                                  "description": "Rejected by validation",
+                                  "type": "green",
+                                  "priority": 5,
+                                  "effort": -1,
+                                  "status": "todo",
+                                  "plannedTime": "2026-05-03T09:00:00Z",
+                                  "dueTime": "2026-05-04T18:00:00Z"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("validation_error"));
     }
 
     private String registerAndLogin() throws Exception {

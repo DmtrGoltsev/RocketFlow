@@ -23,6 +23,7 @@ export interface TaskEditorDraft {
   type: TaskType;
   status: TaskStatus;
   priority: string;
+  effort: string;
   plannedTime: string;
   dueTime: string;
   recurrence: TaskRecurrenceDraft;
@@ -93,14 +94,6 @@ export function findById<TItem extends { id: string }>(items: TItem[], id: strin
   return items.find((item) => item.id === id) ?? null;
 }
 
-export function describeTags(task: TaskDto) {
-  if (task.tags.length === 0) {
-    return EMPTY_VALUE;
-  }
-
-  return task.tags.map((tag) => tag.name).join(', ');
-}
-
 export function namedEntityMap<TItem extends NamedEntity>(items: TItem[]) {
   return new Map(items.map((item) => [item.id, item.name]));
 }
@@ -156,6 +149,7 @@ export function toTaskEditorDraft(task: TaskDto | null): TaskEditorDraft {
     type: task?.type ?? 'green',
     status: task?.status ?? 'todo',
     priority: String(task?.priority ?? 5),
+    effort: String(task?.effort ?? 0),
     plannedTime: toDateTimeInputValue(task?.plannedTime ?? null),
     dueTime: toDateTimeInputValue(task?.dueTime ?? null),
     recurrence: toTaskRecurrenceDraft(task),
@@ -169,6 +163,7 @@ export function toTaskUpsertPayload(draft: TaskEditorDraft): TaskUpsertPayload {
     type: draft.type,
     status: draft.status,
     priority: Number(draft.priority),
+    effort: Number(draft.effort),
     plannedTime: fromDateTimeInputValue(draft.plannedTime),
     dueTime: fromDateTimeInputValue(draft.dueTime),
   };

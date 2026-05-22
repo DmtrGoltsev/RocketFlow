@@ -62,6 +62,7 @@ export interface TaskDto {
   description: string;
   type: TaskType;
   priority: number;
+  effort?: number;
   status: TaskStatus;
   plannedTime: string | null;
   dueTime: string | null;
@@ -176,6 +177,7 @@ export interface TaskUpsertPayload {
   description: string;
   type: TaskType;
   priority: number;
+  effort: number;
   status: TaskStatus;
   plannedTime: string | null;
   dueTime: string | null;
