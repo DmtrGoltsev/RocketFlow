@@ -89,7 +89,7 @@ const advancedMessages = {
       quickRescheduleTitle: 'Быстрый перенос',
       movedNotice: 'Плановое время обновлено.',
       rescheduledNotice: 'Быстрый перенос выполнен.',
-      priorityDecayApplied: 'Снижение приоритета применено.',
+      priorityDecayApplied: 'Правила приоритета применены.',
       missingSelection: 'Выберите задачу слева, чтобы увидеть детали и действия.',
     },
     sharing: {
@@ -139,6 +139,7 @@ const advancedMessages = {
       threshold: 'Порог',
       decayAmount: 'Снижение приоритета',
       syncHint: 'Сохраненный язык сразу синхронизируется с текущим языком веб-интерфейса.',
+      notificationsHint: 'В вебе и на iPhone локальные напоминания хранятся в этом браузере; фоновые push и экран блокировки не гарантируются без серверного Web Push.',
       saveAction: 'Сохранить настройки',
     },
     locale: {
@@ -284,6 +285,7 @@ const advancedMessages = {
       threshold: 'Threshold',
       decayAmount: 'Decay amount',
       syncHint: 'The saved language is synchronized with the current interface language immediately.',
+      notificationsHint: 'On web and iPhone, local reminders stay in this browser; background push and lock-screen delivery are not guaranteed without server Web Push.',
       saveAction: 'Save settings',
     },
     locale: {

@@ -1,6 +1,7 @@
 import { type DragEvent, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
+  Bell,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
@@ -87,6 +88,15 @@ import {
   toTaskRecurrenceDraft,
   toTaskRecurrenceUpsertPayload,
 } from '../planning-utils';
+import {
+  createLocalReminderDraft,
+  deleteLocalTaskReminders,
+  loadLocalTaskReminders,
+  saveLocalTaskReminders,
+  tickLocalReminderNotifications,
+  type LocalReminderRepeat,
+  type LocalTaskReminder,
+} from '../local-reminders';
 import type {
   DayOfWeek,
   EntityLinkDto,
@@ -284,6 +294,10 @@ function taskEffort(task: TaskDto) {
   return Math.max(0, task.effort ?? 0);
 }
 
+function hasTaskEstimate(task: TaskDto) {
+  return taskEffort(task) > 0;
+}
+
 function totalEffort(tasks: TaskDto[]) {
   return tasks.reduce((sum, task) => sum + taskEffort(task), 0);
 }
@@ -292,22 +306,84 @@ function completedEffort(tasks: TaskDto[]) {
   return tasks.filter((task) => task.status === 'done').reduce((sum, task) => sum + taskEffort(task), 0);
 }
 
-function effortProgress(tasks: TaskDto[]) {
-  return `${completedEffort(tasks)}/${totalEffort(tasks)}`;
+function formatEffortValue(hours: number, locale: 'ru' | 'en') {
+  if (hours <= 0) {
+    return locale === 'ru' ? 'нет оценки' : 'no estimate';
+  }
+
+  return formatHours(hours, locale);
+}
+
+function formatHours(hours: number, locale: 'ru' | 'en') {
+  return locale === 'ru' ? `${hours} ч` : `${hours} h`;
+}
+
+function formatTaskEffort(task: TaskDto, locale: 'ru' | 'en') {
+  return formatEffortValue(taskEffort(task), locale);
+}
+
+function formatGoalEffort(tasks: TaskDto[], locale: 'ru' | 'en') {
+  const assessedTasks = tasks.filter(hasTaskEstimate);
+  if (assessedTasks.length === 0) {
+    return formatEffortValue(0, locale);
+  }
+
+  return formatEffortValue(totalEffort(assessedTasks), locale);
+}
+
+function formatEffortProgress(tasks: TaskDto[], locale: 'ru' | 'en') {
+  return `${formatHours(completedEffort(tasks), locale)} / ${formatHours(totalEffort(tasks), locale)}`;
 }
 
 function isComplete(task: TaskDto) {
   return task.status === 'done' || task.status === 'cancelled';
 }
 
+function statusProgressPercent(tasks: TaskDto[]) {
+  if (tasks.length === 0) {
+    return 0;
+  }
+
+  return (tasks.filter((task) => task.status === 'done').length / tasks.length) * 100;
+}
+
 function progressPercent(tasks: TaskDto[]) {
   const effort = totalEffort(tasks);
 
   if (effort === 0) {
-    return 0;
+    return statusProgressPercent(tasks);
   }
 
   return (completedEffort(tasks) / effort) * 100;
+}
+
+function goalProgressDetails(tasks: TaskDto[], locale: 'ru' | 'en') {
+  const assessedTasks = tasks.filter(hasTaskEstimate);
+
+  if (assessedTasks.length === 0) {
+    const percent = Math.round(statusProgressPercent(tasks));
+    return {
+      percent,
+      estimateLabel: formatEffortValue(0, locale),
+      progressLabel: locale === 'ru' ? `${percent}% по статусам` : `${percent}% by status`,
+    };
+  }
+
+  const percent = Math.round(progressPercent(assessedTasks));
+  return {
+    percent,
+    estimateLabel: formatEffortProgress(assessedTasks, locale),
+    progressLabel: `${percent}%`,
+  };
+}
+
+function isPlannedOverdue(task: TaskDto) {
+  if (isComplete(task) || !task.plannedTime) {
+    return false;
+  }
+
+  const plannedTime = new Date(task.plannedTime).getTime();
+  return !Number.isNaN(plannedTime) && plannedTime < Date.now();
 }
 
 function markerToneForTask(task: TaskDto): MarkerTone {
@@ -635,6 +711,7 @@ export function TasksRoute() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [draft, setDraft] = useState<TaskDraft>(() => toDraft(null));
+  const [reminderDrafts, setReminderDrafts] = useState<LocalTaskReminder[]>([]);
   const [folderDraft, setFolderDraft] = useState<FolderDraft>(() => toFolderDraft(null));
   const [goalDraft, setGoalDraft] = useState<GoalDraft>(() => toGoalDraft(null));
   const [ideaDraft, setIdeaDraft] = useState<IdeaDraft>(() => toIdeaDraft(null, planningCopy.ideas.defaultStatus));
@@ -687,6 +764,29 @@ export function TasksRoute() {
     ? null
     : planningCopy.tasks.validationEffort;
   const currentRecurrenceError = recurrenceError(draft, planningCopy.tasks);
+  const reminderCopy = {
+    title: locale === 'ru' ? 'Локальные напоминания' : 'Local reminders',
+    hint: locale === 'ru'
+      ? 'Хранятся только в этом браузере. Уведомление сработает best-effort, пока приложение открыто или активно; фоновые push/экран блокировки на iPhone не гарантируются.'
+      : 'Stored only in this browser. Notifications are best-effort while the app is open or active; iPhone background push or lock-screen delivery is not guaranteed.',
+    add: locale === 'ru' ? 'Добавить напоминание' : 'Add reminder',
+    time: locale === 'ru' ? 'Когда напомнить' : 'Reminder time',
+    repeat: locale === 'ru' ? 'Повтор' : 'Repeat',
+    note: locale === 'ru' ? 'Текст' : 'Text',
+    once: locale === 'ru' ? 'Один раз' : 'Once',
+    hourly: locale === 'ru' ? 'Каждый час' : 'Hourly',
+    delete: locale === 'ru' ? 'Удалить напоминание' : 'Delete reminder',
+    sent: locale === 'ru' ? 'отправлено' : 'sent',
+    permission: locale === 'ru' ? 'Разрешить уведомления браузера' : 'Allow browser notifications',
+    validationTime: locale === 'ru' ? 'У каждого напоминания должно быть корректное время.' : 'Each reminder needs a valid time.',
+  };
+  const currentReminderError = reminderDrafts.some((reminder) => {
+    if (!reminder.fireAt) {
+      return true;
+    }
+
+    return Number.isNaN(new Date(reminder.fireAt).getTime());
+  }) ? reminderCopy.validationTime : null;
   const canArchiveSelectedTask = !isCreatingTask && selectedTask ? canMutateShared(selectedTask) : false;
   const canEditSelectedTaskFields = isCreatingTask || canMutateShared(selectedTask);
   const canEditSelectedIdea = canMutateShared(selectedIdea);
@@ -796,6 +896,30 @@ export function TasksRoute() {
       setDraft(toDraft(selectedTask));
     }
   }, [isCreatingTask, selectedTask?.id]);
+
+  useEffect(() => {
+    if (isCreatingTask || !selectedTask || !session?.user.id) {
+      if (!isCreatingTask) {
+        setReminderDrafts([]);
+      }
+      return;
+    }
+
+    setReminderDrafts(loadLocalTaskReminders(session.user.id, selectedTask.id));
+  }, [isCreatingTask, selectedTask?.id, session?.user.id]);
+
+  useEffect(() => {
+    if (!session?.user.id) {
+      return undefined;
+    }
+
+    tickLocalReminderNotifications(session.user.id, tasks, locale);
+    const interval = window.setInterval(() => {
+      tickLocalReminderNotifications(session.user.id, tasks, locale);
+    }, 30_000);
+
+    return () => window.clearInterval(interval);
+  }, [locale, session?.user.id, tasks]);
 
   useEffect(() => {
     setFolderDraft(toFolderDraft(selectedFolder));
@@ -1194,6 +1318,7 @@ export function TasksRoute() {
     setCreateTaskGoalId(goalId);
     setSelection({ folderId: targetGoal.folderId, goalId, taskId: null, ideaId: null, noteId: null });
     setDraft(toDraft(null));
+    setReminderDrafts([]);
     setIsPanelOpen(true);
   }
 
@@ -1531,6 +1656,39 @@ export function TasksRoute() {
     });
   }
 
+  function normalizedReminderDrafts() {
+    return reminderDrafts
+      .filter((reminder) => reminder.fireAt && !Number.isNaN(new Date(reminder.fireAt).getTime()))
+      .map((reminder) => ({
+        ...reminder,
+        note: reminder.note.trim(),
+      }));
+  }
+
+  function updateReminderDraft(reminderId: string, patch: Partial<LocalTaskReminder>) {
+    setReminderDrafts((current) => current.map((reminder) => (
+      reminder.id === reminderId
+        ? { ...reminder, ...patch, completedAt: patch.fireAt || patch.repeat ? null : reminder.completedAt }
+        : reminder
+    )));
+  }
+
+  function handleAddLocalReminder() {
+    setReminderDrafts((current) => [...current, createLocalReminderDraft()]);
+  }
+
+  function handleDeleteLocalReminder(reminderId: string) {
+    setReminderDrafts((current) => current.filter((reminder) => reminder.id !== reminderId));
+  }
+
+  function handleRequestNotificationPermission() {
+    if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'default') {
+      return;
+    }
+
+    void Notification.requestPermission();
+  }
+
   async function handleSaveTask() {
     const targetGoal = isCreatingTask ? taskCreationGoal : selectedGoal;
     if (!targetGoal || (!isCreatingTask && !selectedTask)) {
@@ -1544,6 +1702,10 @@ export function TasksRoute() {
     }
 
     if (currentRecurrenceError) {
+      return;
+    }
+
+    if (currentReminderError) {
       return;
     }
 
@@ -1563,6 +1725,10 @@ export function TasksRoute() {
         const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
         if (recurrencePayload) {
           await upsertTaskRecurrence(authorizedFetch, task.id, recurrencePayload);
+        }
+
+        if (session?.user.id) {
+          saveLocalTaskReminders(session.user.id, task.id, normalizedReminderDrafts());
         }
 
         setCreateTaskGoalId(null);
@@ -1594,6 +1760,10 @@ export function TasksRoute() {
       if (recurrencePayload) {
         const recurrenceResult = await upsertTaskRecurrence(authorizedFetch, selectedTask.id, recurrencePayload);
         nextTask = { ...updated, recurrence: recurrenceResult.recurrence };
+      }
+
+      if (session?.user.id) {
+        saveLocalTaskReminders(session.user.id, selectedTask.id, normalizedReminderDrafts());
       }
 
       setTasksByGoal((current) => ({
@@ -1640,6 +1810,9 @@ export function TasksRoute() {
 
     await runAction(async () => {
       await deleteTask(authorizedFetch, task.id);
+      if (session?.user.id) {
+        deleteLocalTaskReminders(session.user.id, task.id);
+      }
       const nextGoalTasks = (tasksByGoal[goal.id] ?? []).filter((item) => item.id !== task.id);
       setTasksByGoal((current) => ({
         ...current,
@@ -2055,6 +2228,107 @@ export function TasksRoute() {
     );
   }
 
+  function renderLocalReminders(editable: boolean) {
+    const canRequestNotifications = typeof window !== 'undefined'
+      && 'Notification' in window
+      && Notification.permission === 'default';
+
+    return (
+      <section className="detail-section local-reminders">
+        <div className="recurrence-editor">
+          <div className="recurrence-editor__heading">
+            <div>
+              <strong>{reminderCopy.title}</strong>
+              <p>{reminderCopy.hint}</p>
+            </div>
+            {editable ? (
+              <button className="button button--ghost" type="button" disabled={!canEditSelectedTaskFields} onClick={handleAddLocalReminder}>
+                <Bell aria-hidden="true" size={15} strokeWidth={1.75} />
+                <span>{reminderCopy.add}</span>
+              </button>
+            ) : null}
+          </div>
+
+          {reminderDrafts.length === 0 ? (
+            <p className="field__hint">{locale === 'ru' ? 'Напоминаний пока нет.' : 'No reminders yet.'}</p>
+          ) : (
+            <div className="local-reminders__list">
+              {reminderDrafts.map((reminder) => (
+                <article className="local-reminder" key={reminder.id}>
+                  {editable ? (
+                    <>
+                      <label className="field">
+                        <span>{reminderCopy.time}</span>
+                        <input
+                          className="field__control"
+                          type="datetime-local"
+                          disabled={!canEditSelectedTaskFields}
+                          value={toDateTimeInputValue(reminder.fireAt || null)}
+                          onChange={(event) => updateReminderDraft(reminder.id, { fireAt: fromDateTimeInputValue(event.target.value) ?? '' })}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>{reminderCopy.repeat}</span>
+                        <select
+                          className="field__control"
+                          disabled={!canEditSelectedTaskFields}
+                          value={reminder.repeat}
+                          onChange={(event) => updateReminderDraft(reminder.id, { repeat: event.target.value as LocalReminderRepeat })}
+                        >
+                          <option value="none">{reminderCopy.once}</option>
+                          <option value="hourly">{reminderCopy.hourly}</option>
+                        </select>
+                      </label>
+                      <label className="field local-reminder__note">
+                        <span>{reminderCopy.note}</span>
+                        <input
+                          className="field__control"
+                          disabled={!canEditSelectedTaskFields}
+                          value={reminder.note}
+                          onChange={(event) => updateReminderDraft(reminder.id, { note: event.target.value })}
+                        />
+                      </label>
+                      <button
+                        className="icon-button local-reminder__delete"
+                        type="button"
+                        disabled={!canEditSelectedTaskFields}
+                        aria-label={reminderCopy.delete}
+                        title={reminderCopy.delete}
+                        onClick={() => handleDeleteLocalReminder(reminder.id)}
+                      >
+                        <Trash2 aria-hidden="true" size={16} strokeWidth={1.75} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="breadcrumb">
+                        <Bell aria-hidden="true" size={15} strokeWidth={1.75} />
+                        <strong>{formatDateTime(reminder.fireAt, locale)}</strong>
+                      </div>
+                      <div className="detail-panel__badges">
+                        <span className="meta-chip">{reminder.repeat === 'hourly' ? reminderCopy.hourly : reminderCopy.once}</span>
+                        {reminder.completedAt ? <span className="meta-chip">{reminderCopy.sent}</span> : null}
+                        {reminder.note ? <span className="meta-chip">{reminder.note}</span> : null}
+                      </div>
+                    </>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+
+          {editable && currentReminderError ? <div className="field__error">{currentReminderError}</div> : null}
+          {editable && canRequestNotifications ? (
+            <button className="button button--ghost local-reminders__permission" type="button" onClick={handleRequestNotificationPermission}>
+              <Bell aria-hidden="true" size={15} strokeWidth={1.75} />
+              <span>{reminderCopy.permission}</span>
+            </button>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
   function renderMoreMenu(entity: EntitySelection) {
     return (
       <div className="create-menu">
@@ -2417,8 +2691,9 @@ export function TasksRoute() {
     const visibleGoals = allGoals
       .map((goal) => {
         const allTasks = tasksByGoal[goal.id] ?? [];
+        const activeTasks = allTasks.filter((task) => !isComplete(task));
         const goalMatches = isSearching && (matchesQuery(goal.name, normalizedSearch, locale) || matchesQuery(goal.description, normalizedSearch, locale));
-        const visibleTasks = allTasks.filter((task) => {
+        const visibleTasks = activeTasks.filter((task) => {
           if (!isSearching || currentFolderMatches || goalMatches) {
             return true;
           }
@@ -2517,7 +2792,10 @@ export function TasksRoute() {
           </button>
         ))}
 
-        {visibleGoals.map(({ goal, allTasks, tasks: goalTasks }) => (
+        {visibleGoals.map(({ goal, allTasks, tasks: goalTasks }) => {
+          const goalProgress = goalProgressDetails(allTasks, locale);
+
+          return (
           <div className="plan-tree__group" key={goal.id}>
             <button
               type="button"
@@ -2545,15 +2823,15 @@ export function TasksRoute() {
               <Target aria-hidden="true" size={18} strokeWidth={1.75} />
               <span className="plan-row__main">
                 <span className="plan-row__title">{goal.name}</span>
-                <span className="plan-row__progress" aria-hidden="true"><span style={{ width: `${progressPercent(allTasks)}%` }} /></span>
+                <span className="plan-row__progress" aria-hidden="true"><span style={{ width: `${goalProgress.percent}%` }} /></span>
               </span>
-              <span className="plan-row__meta">{effortProgress(allTasks)}</span>
+              <span className="plan-row__meta">{formatGoalEffort(allTasks, locale)}</span>
               <span className="plan-row__actions">
                 <span className="plan-row__icon" title={copy.more}><MoreHorizontal size={15} strokeWidth={1.75} /></span>
               </span>
             </button>
 
-            {allTasks.length === 0 && canCreateTaskInGoal(goal) ? (
+            {goalTasks.length === 0 && canCreateTaskInGoal(goal) ? (
               <button type="button" className="plan-row plan-row--inline plan-row--task" style={{ marginLeft: 40 + indent, width: `calc(100% - ${40 + indent}px)` }} onClick={() => handleCreateTask(goal.id)}>
                 <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
                 <span>{copy.addTask}</span>
@@ -2588,7 +2866,11 @@ export function TasksRoute() {
                   </button>
                   <button type="button" className="plan-row__content" onClick={() => selectTask(task)}>
                     <span className={`marker-dot marker-dot--${markerToneForTask(task)}`} aria-label={`${copy.status}: ${statusLabel}`} title={statusLabel} />
-                    <span className="plan-row__title">{task.title}</span>
+                    <span className="plan-row__task-copy">
+                      <span className="plan-row__title">{task.title}</span>
+                      <span className="plan-row__effort">{formatTaskEffort(task, locale)}</span>
+                    </span>
+                    {isPlannedOverdue(task) ? <span className="plan-row__overdue" title={copy.planned}>!</span> : null}
                   </button>
                   {dueChip ? <span className={`due-chip due-chip--${dueTone(task.dueTime)}`} title={formatDateTime(task.dueTime, locale)}>{dueChip}</span> : null}
                   <span className="plan-row__actions">
@@ -2600,7 +2882,8 @@ export function TasksRoute() {
               );
             })}
           </div>
-        ))}
+          );
+        })}
       </div>
     );
   }
@@ -2887,7 +3170,10 @@ export function TasksRoute() {
               {renderOperationPanel()}
             </div>
           </>
-        ) : !isCreatingTask && !selectedTask && selectedGoal && selectedFolder ? (
+        ) : !isCreatingTask && !selectedTask && selectedGoal && selectedFolder ? (() => {
+          const selectedGoalProgress = goalProgressDetails(selectedGoalTasks, locale);
+
+          return (
           <>
             {renderDetailHeader(selectedGoal.name, renderAddMenu(null, selectedGoal), { type: 'goal', id: selectedGoal.id })}
             <div className="detail-panel__body">
@@ -2895,11 +3181,31 @@ export function TasksRoute() {
                 <span className="meta-chip"><Target aria-hidden="true" size={14} strokeWidth={1.75} />{copy.goal}</span>
                 <span className="meta-chip">{copy.status}: {planningCopy.enums.goalStatus[selectedGoal.status]}</span>
                 <span className="meta-chip">{copy.task}: {selectedGoalTasks.length}</span>
-                <span className="meta-chip">{copy.effort}: {totalEffort(selectedGoalTasks)}</span>
-                <span className="meta-chip">{copy.progress}: {effortProgress(selectedGoalTasks)}</span>
+                <span className="meta-chip">{copy.effort}: {formatGoalEffort(selectedGoalTasks, locale)}</span>
+                <span className="meta-chip">{copy.progress}: {selectedGoalProgress.progressLabel}</span>
+              </div>
+              <div className="goal-progress detail-section">
+                <div className="detail-label">{copy.progress}</div>
+                <div className="goal-progress__bar" aria-hidden="true"><span style={{ width: `${selectedGoalProgress.percent}%` }} /></div>
+                <div className="field__hint">{selectedGoalProgress.estimateLabel}</div>
               </div>
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(selectedFolder.id)} / {selectedGoal.name}</span></div></div>
               <div className="detail-section"><div className="detail-label">{planningCopy.goals.description}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedGoal.description || planningCopy.common.noDescription}</p></div></div>
+              {selectedGoalTasks.length > 0 ? (
+                <section className="detail-section">
+                  <div className="detail-label">{planningCopy.tasks.title}</div>
+                  <div className="goal-task-list">
+                    {selectedGoalTasks.map((task) => (
+                      <button className="goal-task-list__item" type="button" key={task.id} onClick={() => selectTask(task)}>
+                        <span className={`marker-dot marker-dot--${markerToneForTask(task)}`} aria-hidden="true" />
+                        <span className="goal-task-list__title">{task.title}</span>
+                        <span className="meta-chip">{planningCopy.enums.taskStatus[task.status]}</span>
+                        <span className="meta-chip">{formatTaskEffort(task, locale)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
               {editingEntity?.type === 'goal' && editingEntity.id === selectedGoal.id ? (
                 <details className="detail-disclosure" open>
                   <summary>{copy.edit}</summary>
@@ -2920,7 +3226,8 @@ export function TasksRoute() {
               {renderOperationPanel()}
             </div>
           </>
-        ) : !isCreatingTask && !selectedTask && selectedFolder ? (
+          );
+        })() : !isCreatingTask && !selectedTask && selectedFolder ? (
           <>
             {renderDetailHeader(selectedFolder.name, renderAddMenu(selectedFolder), { type: 'folder', id: selectedFolder.id })}
             <div className="detail-panel__body">
@@ -2959,7 +3266,7 @@ export function TasksRoute() {
                 <div className="detail-panel__badges" aria-label={copy.details}>
                   <span className="meta-chip" title={copy.status}><span className={`marker-dot marker-dot--${markerToneForTask(selectedTask)}`} aria-hidden="true" />{planningCopy.enums.taskStatus[selectedTask.status]}</span>
                   <span className="meta-chip" title={copy.priority}>{selectedTask.priority}</span>
-                  <span className="meta-chip" title={copy.effort}>{taskEffort(selectedTask)}</span>
+                  <span className="meta-chip" title={copy.effort}>{formatTaskEffort(selectedTask, locale)}</span>
                   {selectedTask.dueTime ? <span className={`meta-chip meta-chip--${dueTone(selectedTask.dueTime)}`} title={copy.due}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.dueTime, locale)}</span> : null}
                   {selectedTask.plannedTime ? <span className="meta-chip" title={copy.planned}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.plannedTime, locale)}</span> : null}
                   {selectedTask.recurrence?.active ? <span className="meta-chip" title={planningCopy.tasks.recurrenceLabel}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{describeRecurrence(selectedTask.recurrence, locale)}</span> : null}
@@ -2967,6 +3274,7 @@ export function TasksRoute() {
               ) : null}
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(panelFolder.id)} / {panelGoal.name}</span></div></div>
               <div className="detail-section"><div className="detail-label">{planningCopy.tasks.descriptionLabel}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedTask?.description || planningCopy.common.noDescription}</p></div></div>
+              {!isCreatingTask && !(selectedTask && editingEntity?.type === 'task' && editingEntity.id === selectedTask.id) ? renderLocalReminders(false) : null}
               {isCreatingTask || (selectedTask && editingEntity?.type === 'task' && editingEntity.id === selectedTask.id) ? renderSection('task-details', isCreatingTask ? copy.details : copy.edit, (
                 <div className="detail-editor">
                   <label className="field detail-grid__wide"><span>{planningCopy.tasks.titleLabel}</span><input className="field__control" disabled={!canEditSelectedTaskFields} value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} /></label>
@@ -3000,8 +3308,11 @@ export function TasksRoute() {
                       </div>
                     ) : null}
                   </div>
+                  <div className="detail-grid__wide">
+                    {renderLocalReminders(true)}
+                  </div>
                   <div className="cluster detail-grid__wide detail-editor__actions">
-                    <button className="button button--primary" type="button" disabled={saving || !canEditSelectedTaskFields || !draft.title.trim() || Boolean(currentEffortError) || Boolean(currentRecurrenceError)} onClick={() => void handleSaveTask()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
+                    <button className="button button--primary" type="button" disabled={saving || !canEditSelectedTaskFields || !draft.title.trim() || Boolean(currentEffortError) || Boolean(currentRecurrenceError) || Boolean(currentReminderError)} onClick={() => void handleSaveTask()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
                     {canArchiveSelectedTask && selectedTask && selectedGoal ? <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleArchiveTask(selectedTask, selectedGoal)}><Archive aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.archive}</span></button> : null}
                   </div>
                 </div>

@@ -1,0 +1,107 @@
+{"at":"2026-05-23T21:11:09.221Z","type":"console","level":"debug","text":"[vite] connecting..."}
+{"at":"2026-05-23T21:11:09.225Z","type":"console","level":"debug","text":"[vite] connected."}
+{"at":"2026-05-23T21:11:09.275Z","type":"console","level":"info","text":"%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold"}
+{"at":"2026-05-23T21:11:09.311Z","type":"console","level":"warning","text":"⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."}
+{"at":"2026-05-23T21:11:09.313Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:09.315Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:09.338Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:09.338Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:09.339Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:09.340Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:09.341Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:09.341Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:09.347Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:09.348Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:09.351Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:09.352Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:09.355Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:09.356Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:09.357Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:09.357Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:09.863Z","type":"console","level":"debug","text":"[vite] connecting..."}
+{"at":"2026-05-23T21:11:09.868Z","type":"console","level":"debug","text":"[vite] connected."}
+{"at":"2026-05-23T21:11:09.968Z","type":"console","level":"warning","text":"⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."}
+{"at":"2026-05-23T21:11:09.971Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:09.973Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:09.995Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:09.996Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:09.997Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:09.997Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:09.998Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:09.998Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:10.002Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:10.003Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:10.005Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:10.005Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:10.007Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:10.008Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:10.009Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:10.009Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:10.555Z","type":"console","level":"debug","text":"[vite] connecting..."}
+{"at":"2026-05-23T21:11:10.566Z","type":"console","level":"debug","text":"[vite] connected."}
+{"at":"2026-05-23T21:11:10.652Z","type":"console","level":"warning","text":"⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."}
+{"at":"2026-05-23T21:11:10.653Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:10.654Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:10.677Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:10.678Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:10.678Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:10.679Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:10.679Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:10.680Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:10.684Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:10.685Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:10.687Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:10.688Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:10.690Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:10.691Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:10.692Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:10.692Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:11.242Z","type":"console","level":"debug","text":"[vite] connecting..."}
+{"at":"2026-05-23T21:11:11.248Z","type":"console","level":"debug","text":"[vite] connected."}
+{"at":"2026-05-23T21:11:11.332Z","type":"console","level":"warning","text":"⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."}
+{"at":"2026-05-23T21:11:11.334Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:11.336Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:11.357Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:11.357Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:11.358Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:11.359Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:11.359Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:11.360Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:11.363Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:11.363Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:11.365Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:11.366Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:11.368Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:11.368Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:11.370Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:11.370Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:11.765Z","type":"api","method":"GET","pathname":"/entity-links","search":"?entityType=goal&entityId=goal-1"}
+{"at":"2026-05-23T21:11:11.768Z","type":"api","method":"GET","pathname":"/entity-links","search":"?entityType=goal&entityId=goal-1"}
+{"at":"2026-05-23T21:11:12.317Z","type":"console","level":"debug","text":"[vite] connecting..."}
+{"at":"2026-05-23T21:11:12.326Z","type":"console","level":"debug","text":"[vite] connected."}
+{"at":"2026-05-23T21:11:12.424Z","type":"console","level":"warning","text":"⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."}
+{"at":"2026-05-23T21:11:12.426Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:12.427Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:12.448Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:12.448Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:12.449Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:12.449Z","type":"api","method":"GET","pathname":"/folders","search":""}
+{"at":"2026-05-23T21:11:12.450Z","type":"api","method":"GET","pathname":"/shares/resources","search":""}
+{"at":"2026-05-23T21:11:12.450Z","type":"api","method":"GET","pathname":"/shares/invitations","search":""}
+{"at":"2026-05-23T21:11:12.453Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:12.454Z","type":"api","method":"GET","pathname":"/folders/folder-1/goals","search":""}
+{"at":"2026-05-23T21:11:12.456Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:12.457Z","type":"api","method":"GET","pathname":"/goals/goal-1/tasks","search":""}
+{"at":"2026-05-23T21:11:12.460Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:12.461Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:12.462Z","type":"api","method":"GET","pathname":"/folders/folder-1/ideas","search":""}
+{"at":"2026-05-23T21:11:12.462Z","type":"api","method":"GET","pathname":"/folders/folder-1/notes","search":""}
+{"at":"2026-05-23T21:11:12.856Z","type":"api","method":"GET","pathname":"/entity-links","search":"?entityType=task&entityId=task-unscheduled"}
+{"at":"2026-05-23T21:11:12.872Z","type":"api","method":"GET","pathname":"/entity-links","search":"?entityType=task&entityId=task-unscheduled"}
+{"at":"2026-05-23T21:11:14.878Z","type":"console","level":"debug","text":"[vite] connecting..."}
+{"at":"2026-05-23T21:11:14.889Z","type":"console","level":"debug","text":"[vite] connected."}
+{"at":"2026-05-23T21:11:14.979Z","type":"console","level":"warning","text":"⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition."}
+{"at":"2026-05-23T21:11:14.981Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:14.981Z","type":"api","method":"GET","pathname":"/me","search":""}
+{"at":"2026-05-23T21:11:14.994Z","type":"api","method":"GET","pathname":"/me/settings","search":""}
+{"at":"2026-05-23T21:11:14.994Z","type":"api","method":"GET","pathname":"/me/settings","search":""}

@@ -41,8 +41,10 @@ export function SettingsRoute() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function loadSettings() {
-    setLoading(true);
+  async function loadSettings(options: { quiet?: boolean } = {}) {
+    if (!options.quiet) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -50,7 +52,9 @@ export function SettingsRoute() {
     } catch (loadError) {
       setError(mapAdvancedError(loadError, copy).formError);
     } finally {
-      setLoading(false);
+      if (!options.quiet) {
+        setLoading(false);
+      }
     }
   }
 
@@ -128,7 +132,7 @@ export function SettingsRoute() {
   }
 
   return (
-    <section className="planner">
+    <section className="planner planner--settings">
       <div className="planner-canvas">
         <header className="planner-header">
           <div>
@@ -138,7 +142,7 @@ export function SettingsRoute() {
               <span>{copy.common.version}: {draft.version}</span>
             </div>
           </div>
-          <button className="icon-button" type="button" aria-label={copy.common.refresh} title={copy.common.refresh} onClick={() => void loadSettings()}>
+          <button className="icon-button" type="button" aria-label={copy.common.refresh} title={copy.common.refresh} onClick={() => void loadSettings({ quiet: true })}>
             <Settings size={19} aria-hidden="true" />
           </button>
         </header>
@@ -173,6 +177,7 @@ export function SettingsRoute() {
                 <option value="enabled">{copy.common.enabled}</option>
                 <option value="disabled">{copy.common.disabled}</option>
               </select>
+              <span className="field__hint">{copy.settings.notificationsHint}</span>
             </label>
           </section>
 
