@@ -15,7 +15,7 @@ Current Android runtime contract:
 
 - `google-services` is applied only when `android/app/google-services.json` exists
 - manual Firebase bootstrap is supported through the four `ROCKETFLOW_ANDROID_FIREBASE_*` values or matching Gradle properties
-- debug and release builds default to the reachable production API at `http://45.10.110.42/rocket-api/api`
+- debug and release builds default to the reachable production API at `http://45.10.110.42/rocket-api`
 - API base URL overrides are supported through `rocketflowApiBaseUrl` / `ROCKETFLOW_ANDROID_API_BASE_URL`, or build-type-specific `rocketflowDebugApiBaseUrl`, `rocketflowReleaseApiBaseUrl`, `ROCKETFLOW_ANDROID_DEBUG_API_BASE_URL`, and `ROCKETFLOW_ANDROID_RELEASE_API_BASE_URL`
 - use `rocketflowDebugApiBaseUrl` or `ROCKETFLOW_ANDROID_DEBUG_API_BASE_URL` for emulator-only smoke tests such as `http://10.0.2.2:8081/api`; release tasks reject local-only URLs
 - cleartext traffic is enabled only when the selected API base URL uses `http://`

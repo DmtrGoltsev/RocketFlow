@@ -267,6 +267,37 @@ class AuthRepositoryRefreshRaceUnitTest {
         assertEquals(1, clearedCallbacks.get())
     }
 
+    @Test
+    fun rocketApiBaseComposesAuthUrlsWithoutDuplicatingApiPrefix() = runBlocking {
+        val storage = InMemorySessionStorage(null)
+        val requestedPaths = mutableListOf<String>()
+        server = TestHttpServer(basePath = "/rocket-api") { request ->
+            requestedPaths.add(request.path)
+            when {
+                request.method == "POST" && request.path == "/rocket-api/auth/login" ->
+                    TestResponse.ok(authSessionBody("access-login", "refresh-login"))
+                request.method == "GET" && request.path == "/rocket-api/protected" ->
+                    protectedResponse(request.accessToken)
+                request.method == "POST" && request.path == "/rocket-api/auth/refresh" ->
+                    TestResponse.ok(tokensBody("access-new", "refresh-new"))
+                request.method == "GET" && request.path == "/rocket-api/me" ->
+                    currentUserResponse(request.accessToken)
+                else -> TestResponse.notFound()
+            }
+        }.also { it.start() }
+
+        val authRepository = repository(storage)
+        authRepository.login("user@example.test", "password")
+        val initial = session("expired-access", "refresh-old")
+        storage.writeSession(initial)
+        authRepository.authorizedGet(initial, "/protected")
+
+        assertTrue(requestedPaths.contains("/rocket-api/auth/login"))
+        assertTrue(requestedPaths.contains("/rocket-api/auth/refresh"))
+        assertTrue(requestedPaths.contains("/rocket-api/me"))
+        assertTrue(requestedPaths.none { it.contains("/api/api") || it.contains("/rocket-api/api") })
+    }
+
     private fun repository(sessionStorage: AuthSessionStorage): AuthRepository {
         val baseUrl = requireNotNull(server).baseUrl
         return AuthRepository(HttpJsonClient(baseUrl), sessionStorage)
@@ -396,11 +427,12 @@ class AuthRepositoryRefreshRaceUnitTest {
     }
 
     private class TestHttpServer(
+        private val basePath: String = "/api",
         private val handler: (TestRequest) -> TestResponse
     ) : AutoCloseable {
         private val serverSocket = ServerSocket(0)
         private var running = true
-        val baseUrl: String = "http://127.0.0.1:${serverSocket.localPort}/api"
+        val baseUrl: String = "http://127.0.0.1:${serverSocket.localPort}$basePath"
 
         fun start() {
             thread(start = true, isDaemon = true) {

@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val productionApiBaseUrl = "http://45.10.110.42/rocket-api/api"
+val productionApiBaseUrl = "http://45.10.110.42/rocket-api"
 
 fun resolveConfigValue(
     gradlePropertyName: String,
