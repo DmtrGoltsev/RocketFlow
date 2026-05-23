@@ -100,10 +100,11 @@ class TaskReminderAlarmScheduler(
             action = ACTION_TASK_REMINDER
             putExtra(EXTRA_USER_ID, setting.userId)
             putExtra(EXTRA_TASK_ID, setting.taskId)
+            putExtra(EXTRA_REMINDER_ID, setting.reminderId)
         }
         return PendingIntent.getBroadcast(
             context,
-            requestCode(setting.userId, setting.taskId),
+            requestCode(setting.userId, setting.taskId, setting.reminderId),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -117,7 +118,7 @@ class TaskReminderAlarmScheduler(
         }
         return PendingIntent.getActivity(
             context,
-            requestCode(setting.userId, setting.taskId),
+            requestCode(setting.userId, setting.taskId, setting.reminderId),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -127,9 +128,10 @@ class TaskReminderAlarmScheduler(
         const val ACTION_TASK_REMINDER = "com.rocketflow.companion.notifications.TASK_REMINDER"
         const val EXTRA_USER_ID = "userId"
         const val EXTRA_TASK_ID = "taskId"
+        const val EXTRA_REMINDER_ID = "reminderId"
 
-        fun requestCode(userId: String, taskId: String): Int {
-            return "$userId::$taskId".hashCode()
+        fun requestCode(userId: String, taskId: String, reminderId: String): Int {
+            return "$userId::$taskId::$reminderId".hashCode()
         }
     }
 }

@@ -12,12 +12,15 @@ class TaskReminderAlarmReceiver : BroadcastReceiver() {
 
         val userId = intent.getStringExtra(TaskReminderAlarmScheduler.EXTRA_USER_ID)?.trim().orEmpty()
         val taskId = intent.getStringExtra(TaskReminderAlarmScheduler.EXTRA_TASK_ID)?.trim().orEmpty()
+        val reminderId = intent.getStringExtra(TaskReminderAlarmScheduler.EXTRA_REMINDER_ID)?.trim().orEmpty()
         if (userId.isBlank() || taskId.isBlank()) {
             return
         }
 
         val store = TaskReminderStore(context)
-        val setting = store.read(userId, taskId)?.takeIf { it.enabled } ?: return
+        val setting = store.readAll(userId, taskId)
+            .firstOrNull { it.enabled && (reminderId.isBlank() || it.reminderId == reminderId) }
+            ?: return
         NotificationRuntime(context).showTaskReminderNotification(
             taskId = setting.taskId,
             title = setting.taskTitle,
@@ -25,7 +28,7 @@ class TaskReminderAlarmReceiver : BroadcastReceiver() {
         )
 
         if (setting.repeat == TaskReminderRepeat.None) {
-            store.clear(setting.userId, setting.taskId)
+            store.clear(setting.userId, setting.taskId, setting.reminderId)
             return
         }
 

@@ -42,6 +42,30 @@ class TaskReminderScheduleUnitTest {
     }
 
     @Test
+    fun hourlyAlarmAdvancesToNextFutureOccurrence() {
+        val trigger = millis(2026, 5, 14, 9, 30)
+        val now = millis(2026, 5, 14, 12, 5)
+        val expected = millis(2026, 5, 14, 12, 30)
+
+        assertEquals(
+            expected,
+            TaskReminderSchedule.nextTriggerAtOrAfter(trigger, TaskReminderRepeat.Hourly, now, zone)
+        )
+    }
+
+    @Test
+    fun hourlyAlarmAdvancesAfterLongOfflineGap() {
+        val trigger = millis(2025, 1, 1, 9, 30)
+        val now = millis(2026, 5, 14, 12, 5)
+        val expected = millis(2026, 5, 14, 12, 30)
+
+        assertEquals(
+            expected,
+            TaskReminderSchedule.nextTriggerAtOrAfter(trigger, TaskReminderRepeat.Hourly, now, zone)
+        )
+    }
+
+    @Test
     fun weeklyAlarmPreservesWeekdayAndTime() {
         val trigger = millis(2026, 5, 7, 18, 45)
         val now = millis(2026, 5, 14, 18, 45)
@@ -70,6 +94,7 @@ class TaskReminderScheduleUnitTest {
         val setting = TaskReminderSetting(
             userId = "user-1",
             taskId = "task-1",
+            reminderId = "reminder-1",
             taskTitle = "Prepare release",
             triggerAtMillis = millis(2026, 5, 14, 9, 30),
             repeat = TaskReminderRepeat.Weekly,

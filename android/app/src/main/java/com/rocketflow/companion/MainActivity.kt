@@ -44,6 +44,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
@@ -130,6 +131,7 @@ class MainActivity : Activity() {
         Auth,
         Planner,
         Detail,
+        GoalDetail,
         IdeaDetail,
         NoteDetail,
         Settings
@@ -187,7 +189,8 @@ class MainActivity : Activity() {
 
     private data class ReminderDraft(
         val triggerAt: LocalDateTime,
-        val repeat: TaskReminderRepeat
+        val repeat: TaskReminderRepeat,
+        val reminderId: String? = null
     )
 
     private data class Copy(
@@ -442,6 +445,7 @@ class MainActivity : Activity() {
     private var selectedGoalId: String? = null
     private var selectedTaskId: String? = null
     private var selectedTaskDetail: PlanningTask? = null
+    private var selectedGoalDetail: PlanningGoal? = null
     private var selectedIdeaId: String? = null
     private var selectedIdeaDetail: PlanningIdea? = null
     private var selectedNoteId: String? = null
@@ -466,6 +470,8 @@ class MainActivity : Activity() {
     private var plannerRefreshJob: Job? = null
     private var taskDetailScrollY = 0
     private var taskDetailScrollView: ScrollView? = null
+    private var settingsScrollY = 0
+    private var settingsScrollView: ScrollView? = null
 
     private var emailInput: EditText? = null
     private var passwordInput: EditText? = null
@@ -515,7 +521,7 @@ class MainActivity : Activity() {
 
     override fun onBackPressed() {
         when (currentScreen) {
-            Screen.Detail, Screen.IdeaDetail, Screen.NoteDetail, Screen.Settings -> {
+            Screen.Detail, Screen.GoalDetail, Screen.IdeaDetail, Screen.NoteDetail, Screen.Settings -> {
                 currentScreen = Screen.Planner
                 render()
             }
@@ -681,6 +687,7 @@ class MainActivity : Activity() {
 
         selectedGoalId = selectedGoalId
             ?.takeIf { id -> goals.any { it.id == id } || sharedGoals.any { it.id == id } }
+        selectedGoalDetail = selectedGoalId?.let(::findGoal)
 
         selectedTaskId = selectedTaskId?.takeIf { id -> allTasks().any { it.id == id } }
         selectedTaskDetail = selectedTaskId?.let(::findTask)
@@ -709,8 +716,11 @@ class MainActivity : Activity() {
         planningLastSyncError = null
         taskDetailScrollY = 0
         taskDetailScrollView = null
+        settingsScrollY = 0
+        settingsScrollView = null
         selectedFolderId = null
         selectedGoalId = null
+        selectedGoalDetail = null
         selectedTaskId = null
         selectedTaskDetail = null
         selectedIdeaId = null
@@ -771,6 +781,9 @@ class MainActivity : Activity() {
         if (currentScreen == Screen.Detail) {
             taskDetailScrollY = taskDetailScrollView?.scrollY ?: taskDetailScrollY
         }
+        if (currentScreen == Screen.Settings) {
+            settingsScrollY = settingsScrollView?.scrollY ?: settingsScrollY
+        }
         val session = currentSession
         if (session == null) {
             currentScreen = Screen.Auth
@@ -781,6 +794,7 @@ class MainActivity : Activity() {
         when (currentScreen) {
             Screen.Auth, Screen.Planner -> renderPlanner()
             Screen.Detail -> renderDetail()
+            Screen.GoalDetail -> renderGoalDetail()
             Screen.IdeaDetail -> renderIdeaDetail()
             Screen.NoteDetail -> renderNoteDetail()
             Screen.Settings -> renderSettings(session)
@@ -1028,11 +1042,13 @@ class MainActivity : Activity() {
         if (goal.id in collapsedGoalIds) return
 
         val goalTasks = tasksForGoal(goal.id, includeShared = shared)
-        if (goalTasks.isEmpty()) {
-            parent.addView(hintRow(copy().noTaskYet, indentLevel = indentLevel + 1))
+        val openGoalTasks = goalTasks.filterNot { isClosed(it) }
+        if (openGoalTasks.isEmpty()) {
+            val hint = if (goalTasks.isEmpty()) copy().noTaskYet else if (currentLanguage == "en") "No open tasks" else "\u041d\u0435\u0442 \u043e\u0442\u043a\u0440\u044b\u0442\u044b\u0445 \u0437\u0430\u0434\u0430\u0447"
+            parent.addView(hintRow(hint, indentLevel = indentLevel + 1))
             parent.addView(rowDivider(indentLevel = indentLevel + 1))
         } else {
-            goalTasks.forEach { task ->
+            openGoalTasks.forEach { task ->
                 parent.addView(taskRow(task, indentLevel = indentLevel + 1))
                 parent.addView(rowDivider(indentLevel = indentLevel + 1))
             }
@@ -1120,6 +1136,77 @@ class MainActivity : Activity() {
         shell.addView(scrollView)
         setContentView(shell)
         scrollView.post { scrollView.scrollTo(0, taskDetailScrollY) }
+    }
+
+    private fun renderGoalDetail() {
+        val c = copy()
+        val goal = selectedGoalDetail ?: selectedGoalId?.let(::findGoal)
+        selectedGoalDetail = goal
+        val shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(Ui.CANVAS))
+        }
+        shell.addView(appBar(title = goal?.name ?: c.goal, showBack = true, mode = Screen.GoalDetail))
+        shell.addView(divider())
+        messageLine(inset = true)?.let { shell.addView(it) }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(96))
+        }
+
+        if (goal == null) {
+            content.addView(emptyDetailView())
+        } else {
+            val folder = findFolder(goal.folderId)
+            val goalTasks = tasksForGoal(goal.id, includeShared = goal.shared)
+            val progress = goalProgress(goalTasks)
+            content.addView(
+                TextView(this).apply {
+                    text = goal.name
+                    textSize = 22f
+                    setTextColor(color(Ui.TEXT))
+                    setTypeface(typeface, Typeface.BOLD)
+                    maxLines = 2
+                    ellipsize = TextUtils.TruncateAt.END
+                    includeFontPadding = false
+                    setPadding(0, dp(4), 0, dp(14))
+                }
+            )
+            content.addView(pathLine(folder?.name ?: c.folder))
+            content.addView(propertyRow(c.status, localizedStatus(goal.status), clickable = false))
+            content.addView(propertyRow(c.notes, goal.description.ifBlank { c.noDate }, clickable = false))
+            content.addView(propertyRow(c.task, goalTasks.size.toString(), clickable = false))
+            content.addView(propertyRow(c.effort, goalEffortSummary(goalTasks), clickable = false))
+            if (goalTasks.isNotEmpty()) {
+                content.addView(goalProgressView(progress))
+            }
+            content.addView(linksSection("goal", goal.id))
+            content.addView(linkedNotesSection("goal", goal.id))
+            content.addView(sectionLabel(c.task))
+            if (goalTasks.isEmpty()) {
+                content.addView(hintRow(c.noTaskYet, indentLevel = 0))
+            } else {
+                goalTasks.forEach { task ->
+                    content.addView(goalTaskDetailRow(task))
+                    content.addView(rowDivider(indentLevel = 0))
+                }
+            }
+        }
+
+        shell.addView(
+            ScrollView(this).apply {
+                addView(content)
+                setBackgroundColor(color(Ui.CANVAS))
+                clipToPadding = false
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f
+                )
+            }
+        )
+        setContentView(shell)
     }
 
     private fun renderIdeaDetail() {
@@ -1342,8 +1429,7 @@ class MainActivity : Activity() {
         content.addView(textButton(c.syncNow, quiet = true) { reloadPlanner(showBusy = true) })
         content.addView(textButton(c.signOut, danger = true) { logout() })
 
-        shell.addView(
-            ScrollView(this).apply {
+        val scrollView = ScrollView(this).apply {
                 addView(content)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1351,8 +1437,10 @@ class MainActivity : Activity() {
                     1f
                 )
             }
-        )
+        settingsScrollView = scrollView
+        shell.addView(scrollView)
         setContentView(shell)
+        scrollView.post { scrollView.scrollTo(0, settingsScrollY) }
     }
 
     private fun loadUserSettings() {
@@ -1382,7 +1470,25 @@ class MainActivity : Activity() {
             textSize = 15f
             setPadding(0, dp(8), 0, dp(4))
         }
-        val thresholdInput = dialogInput(c.threshold, policy.thresholdPreset)
+        var selectedPreset = normalizeDecayPreset(policy.thresholdPreset)
+        val presetIds = mutableMapOf<Int, String>()
+        val thresholdGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            decayPresetOptions().forEach { (preset, label) ->
+                val id = View.generateViewId()
+                presetIds[id] = preset
+                addView(RadioButton(this@MainActivity).apply {
+                    this.id = id
+                    text = label
+                    textSize = 15f
+                    setTextColor(color(Ui.TEXT))
+                    isChecked = preset == selectedPreset
+                })
+            }
+            setOnCheckedChangeListener { _, checkedId ->
+                selectedPreset = presetIds[checkedId] ?: selectedPreset
+            }
+        }
         val amountInput = dialogInput(
             c.decayAmount,
             policy.decayAmount.toString(),
@@ -1391,12 +1497,11 @@ class MainActivity : Activity() {
         )
         AlertDialog.Builder(this)
             .setTitle(if (policy.taskType == "red") c.redTasks else c.greenTasks)
-            .setView(dialogForm(enabledInput, thresholdInput, amountInput))
+            .setView(dialogForm(enabledInput, dialogLabel(c.threshold), thresholdGroup, amountInput))
             .setNegativeButton(c.cancel, null)
             .setPositiveButton(c.save) { _, _ ->
-                val preset = thresholdInput.text.toString().trim().lowercase(Locale.ROOT)
                 val amount = amountInput.text.toString().trim().toIntOrNull()
-                if (preset !in setOf("day", "week", "month") || amount == null || amount < 1) {
+                if (selectedPreset !in setOf("day", "week", "month") || amount == null || amount < 1) {
                     message = c.invalidDate
                     render()
                     return@setPositiveButton
@@ -1404,7 +1509,7 @@ class MainActivity : Activity() {
                 updateDecayPolicy(
                     policy.copy(
                         enabled = enabledInput.isChecked,
-                        thresholdPreset = preset,
+                        thresholdPreset = selectedPreset,
                         decayAmount = amount
                     )
                 )
@@ -1501,6 +1606,22 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun normalizeDecayPreset(preset: String): String {
+        return when (preset.trim().lowercase(Locale.ROOT)) {
+            "week" -> "week"
+            "month" -> "month"
+            else -> "day"
+        }
+    }
+
+    private fun decayPresetOptions(): List<Pair<String, String>> {
+        return listOf(
+            "day" to readableThresholdLabel("day"),
+            "week" to readableThresholdLabel("week"),
+            "month" to readableThresholdLabel("month")
+        )
+    }
+
     private fun appBar(title: String, showBack: Boolean, mode: Screen): LinearLayout {
         val c = copy()
         return LinearLayout(this).apply {
@@ -1534,7 +1655,7 @@ class MainActivity : Activity() {
                     textSize = 20f
                     setTextColor(color(Ui.TEXT))
                     setTypeface(typeface, Typeface.BOLD)
-                    maxLines = if (mode == Screen.Detail) 2 else 1
+                    maxLines = if (mode == Screen.Detail || mode == Screen.GoalDetail) 2 else 1
                     ellipsize = TextUtils.TruncateAt.END
                     includeFontPadding = false
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -1556,6 +1677,18 @@ class MainActivity : Activity() {
                             addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("task", task.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showTaskDialog(task) })
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
+                        }
+                    }
+                }
+                Screen.GoalDetail -> {
+                    selectedGoalDetail?.let { goal ->
+                        if (canCreateTasks(goal)) {
+                            addView(iconButton(R.drawable.ic_add, c.add) { showTaskDialog(null, goal.id) })
+                        }
+                        if (canWrite(goal)) {
+                            addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("goal", goal.id) })
+                            addView(iconButton(R.drawable.ic_edit, c.edit) { showGoalDialog(goal) })
+                            addView(iconButton(R.drawable.ic_more_horiz, c.details) { showGoalActions(goal) })
                         }
                     }
                 }
@@ -1641,15 +1774,12 @@ class MainActivity : Activity() {
                 }
             )
             addView(iconView(R.drawable.ic_target))
-            addView(rowText(goal.name, goal.description, weight = 1f, titleSize = 15f, titleStyle = Typeface.BOLD).apply {
+            val subtitle = listOf(goal.description, goalEffortSummary(goalTasks))
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+            addView(rowText(goal.name, subtitle, weight = 1f, titleSize = 15f, titleStyle = Typeface.BOLD).apply {
                 setOnClickListener {
-                    selectedGoalId = goal.id
-                    selectedFolderId = goal.folderId.takeIf { it.isNotBlank() } ?: selectedFolderId
-                    selectedTaskId = null
-                    selectedTaskDetail = null
-                    selectedIdeaId = null
-                    selectedIdeaDetail = null
-                    showGoalDetails(goal)
+                    openGoalDetail(goal.id)
                 }
                 if (canWrite(goal)) enableEntityDragSource(dragPayload)
             })
@@ -1667,7 +1797,7 @@ class MainActivity : Activity() {
     private fun taskRow(task: PlanningTask, indentLevel: Int): View {
         val c = copy()
         val dragPayload = EntityDragPayload("task", task.id, task.title)
-        return hierarchyContainer(indentLevel = indentLevel, heightDp = 48, selected = task.id == selectedTaskId).apply {
+        return hierarchyContainer(indentLevel = indentLevel, heightDp = 56, selected = task.id == selectedTaskId).apply {
             addView(
                 iconButton(
                     if (isDone(task)) R.drawable.ic_check_circle else R.drawable.ic_radio_button_unchecked,
@@ -1677,10 +1807,16 @@ class MainActivity : Activity() {
                 }
             )
             addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
-            addView(rowText(task.title, "", weight = 1f, titleSize = 15.5f, titleStyle = Typeface.NORMAL).apply {
+            addView(rowText(task.title, formatEffort(task.effort), weight = 1f, titleSize = 15.5f, titleStyle = Typeface.NORMAL).apply {
                 setOnClickListener { openTaskDetail(task.id) }
                 if (canWrite(task)) enableEntityDragSource(dragPayload)
             })
+            if (isPlannedOverdue(task)) {
+                addView(counterText("!").apply {
+                    setTextColor(color(Ui.DANGER))
+                    contentDescription = if (currentLanguage == "en") "Planned time has passed" else "\u0412\u0440\u0435\u043c\u044f \"\u043a\u043e\u0433\u0434\u0430 \u0434\u0435\u043b\u0430\u0442\u044c\" \u043f\u0440\u043e\u0448\u043b\u043e"
+                })
+            }
             dueChip(task)?.let { addView(it) } ?: addView(counterText(task.priority.toString()))
             if (canWrite(task)) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
@@ -2176,11 +2312,12 @@ class MainActivity : Activity() {
     }
 
     private fun dueChip(task: PlanningTask): TextView? {
-        val due = task.dueTime ?: task.plannedTime ?: return null
+        val source = if (!task.plannedTime.isNullOrBlank()) copy().planned else copy().due
+        val due = task.plannedTime ?: task.dueTime ?: return null
         val label = formatDateTime(due)
         return TextView(this).apply {
             text = label
-            contentDescription = "${copy().due}: $label"
+            contentDescription = "$source: $label"
             textSize = 12f
             setTextColor(color(Ui.MUTED))
             gravity = Gravity.CENTER
@@ -2524,7 +2661,7 @@ class MainActivity : Activity() {
     private fun showGoalActions(goal: PlanningGoal) {
         val c = copy()
         val actions = buildList<Pair<String, () -> Unit>> {
-            add(c.details to { showGoalDetails(goal) })
+            add(c.details to { openGoalDetail(goal.id) })
             if (canCreateTasks(goal)) add(c.add to { showTaskDialog(null, goal.id) })
             if (canWrite(goal)) {
                 add(c.share to { showShareDialog(goal.toShareTarget()) })
@@ -3650,6 +3787,11 @@ class MainActivity : Activity() {
                     render()
                     return@setPositiveButton
                 }
+                if (isRecurrenceActive(recurrenceJson) && draft.plannedTime.isNullOrBlank() && draft.dueTime.isNullOrBlank()) {
+                    message = recurrenceRequiresScheduleMessage()
+                    render()
+                    return@setPositiveButton
+                }
                 saveTask(goalId, task, draft, reminderDraft = reminderDraft, clearReminder = reminderTouched && reminderDraft == null)
             }
             .show()
@@ -3862,6 +4004,10 @@ class MainActivity : Activity() {
             .setTitle(c.recurrence)
             .setMessage(recurrenceHelpText(task))
             .setSingleChoiceItems(labels, checked) { dialog, which ->
+                if (which != 0 && task.plannedTime.isNullOrBlank() && task.dueTime.isNullOrBlank()) {
+                    Toast.makeText(this, recurrenceRequiresScheduleMessage(), Toast.LENGTH_SHORT).show()
+                    return@setSingleChoiceItems
+                }
                 val payload = recurrencePayload(task, modes[which], active = which != 0)
                 saveTask(task.goalId, task, task.toDraft(recurrenceJson = payload.toString()))
                 dialog.dismiss()
@@ -3884,6 +4030,14 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle(c.recurrence)
             .setSingleChoiceItems(labels, checked) { dialog, which ->
+                val hasAnchor = !plannedTime.isNullOrBlank() ||
+                    !dueTime.isNullOrBlank() ||
+                    !task?.plannedTime.isNullOrBlank() ||
+                    !task?.dueTime.isNullOrBlank()
+                if (which != 0 && !hasAnchor) {
+                    Toast.makeText(this, recurrenceRequiresScheduleMessage(), Toast.LENGTH_SHORT).show()
+                    return@setSingleChoiceItems
+                }
                 onSelected(
                     buildRecurrencePayload(
                         currentRaw = currentRaw,
@@ -3903,12 +4057,12 @@ class MainActivity : Activity() {
         val anchor = when {
             !task.plannedTime.isNullOrBlank() -> copy().planned
             !task.dueTime.isNullOrBlank() -> copy().due
-            else -> if (currentLanguage == "en") "current time" else "текущее время"
+            else -> if (currentLanguage == "en") "not set" else "не задан"
         }
         return if (currentLanguage == "en") {
-            "Recurrence starts from Planned time. If it is empty, RocketFlow uses Deadline; if both are empty, it uses the current time. Current source: $anchor."
+            "Recurrence starts from When to do. If it is empty, RocketFlow uses Deadline. One of them is required before repeat can be saved. Current source: $anchor."
         } else {
-            "Повтор начинается от поля «Когда делать». Если оно пустое, используется дедлайн; если оба поля пустые, используется текущее время. Сейчас источник: $anchor."
+            "Повтор идет от поля «Когда делать». Если оно пустое, используется дедлайн. Одно из этих полей нужно до сохранения повтора. Сейчас источник: $anchor."
         }
     }
 
@@ -3917,7 +4071,8 @@ class MainActivity : Activity() {
         val setting = taskReminderStore.read(userId, task.id)?.takeIf { it.enabled } ?: return null
         return ReminderDraft(
             triggerAt = Instant.ofEpochMilli(setting.triggerAtMillis).atZone(zone).toLocalDateTime(),
-            repeat = setting.repeat
+            repeat = setting.repeat,
+            reminderId = setting.reminderId
         )
     }
 
@@ -3929,10 +4084,25 @@ class MainActivity : Activity() {
     private fun reminderRepeatLabel(repeat: TaskReminderRepeat): String? {
         return when (repeat) {
             TaskReminderRepeat.None -> null
+            TaskReminderRepeat.Hourly -> if (currentLanguage == "en") "hourly" else "\u043a\u0430\u0436\u0434\u044b\u0439 \u0447\u0430\u0441"
             TaskReminderRepeat.Daily -> copy().daily
             TaskReminderRepeat.Weekly -> copy().weekly
             TaskReminderRepeat.Monthly -> copy().monthly
         }
+    }
+
+    private fun reminderRepeatOptions(): List<Pair<TaskReminderRepeat, String>> {
+        return listOf(
+            TaskReminderRepeat.None to copy().noRecurrence,
+            TaskReminderRepeat.Hourly to if (currentLanguage == "en") "Hourly" else "\u041a\u0430\u0436\u0434\u044b\u0439 \u0447\u0430\u0441",
+            TaskReminderRepeat.Daily to copy().daily,
+            TaskReminderRepeat.Weekly to copy().weekly,
+            TaskReminderRepeat.Monthly to copy().monthly
+        )
+    }
+
+    private fun newReminderId(): String {
+        return "local-${System.currentTimeMillis()}"
     }
 
     private fun showReminderDraftDialog(
@@ -3968,6 +4138,7 @@ class MainActivity : Activity() {
             orientation = RadioGroup.VERTICAL
             listOf(
                 TaskReminderRepeat.None to c.noRecurrence,
+                TaskReminderRepeat.Hourly to if (currentLanguage == "en") "Hourly" else "\u041a\u0430\u0436\u0434\u044b\u0439 \u0447\u0430\u0441",
                 TaskReminderRepeat.Daily to c.daily,
                 TaskReminderRepeat.Weekly to c.weekly,
                 TaskReminderRepeat.Monthly to c.monthly
@@ -4000,7 +4171,7 @@ class MainActivity : Activity() {
             .setNegativeButton(c.cancel, null)
             .setNeutralButton(c.clearDate) { _, _ -> onSelected(null) }
             .setPositiveButton(c.save) { _, _ ->
-                onSelected(ReminderDraft(selectedDateTime, selectedRepeat))
+                onSelected(ReminderDraft(selectedDateTime, selectedRepeat, currentDraft?.reminderId))
             }
             .show()
     }
@@ -4008,12 +4179,57 @@ class MainActivity : Activity() {
     private fun showRemindersDialog(task: PlanningTask) {
         val session = currentSession ?: return
         val c = copy()
-        val current = taskReminderStore.read(session.user.id, task.id)
+        val reminders = taskReminderStore.readAll(session.user.id, task.id)
+            .filter { it.enabled }
+            .sortedBy { it.triggerAtMillis }
+        val labels = (reminders.map { reminder ->
+            listOfNotNull(formatReminderDateTime(reminder.triggerAtMillis), reminderRepeatLabel(reminder.repeat)).joinToString(", ")
+        } + c.add).toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle(c.reminders)
+            .setItems(labels) { dialog, which ->
+                dialog.dismiss()
+                if (which == reminders.size) {
+                    showReminderEditorDialog(task, null)
+                } else {
+                    showReminderActionDialog(task, reminders[which])
+                }
+            }
+            .setNegativeButton(c.cancel, null)
+            .setNeutralButton(c.clearDate) { _, _ ->
+                reminders.forEach(taskReminderAlarmScheduler::cancel)
+                taskReminderStore.clear(session.user.id, task.id)
+                message = c.remindersOff
+                render()
+            }
+            .show()
+    }
+
+    private fun showReminderActionDialog(task: PlanningTask, reminder: TaskReminderSetting) {
+        val c = copy()
+        AlertDialog.Builder(this)
+            .setTitle(listOfNotNull(formatReminderDateTime(reminder.triggerAtMillis), reminderRepeatLabel(reminder.repeat)).joinToString(", "))
+            .setItems(arrayOf(c.edit, c.delete)) { _, which ->
+                if (which == 0) {
+                    showReminderEditorDialog(task, reminder)
+                } else {
+                    taskReminderAlarmScheduler.cancel(reminder)
+                    taskReminderStore.clear(reminder.userId, reminder.taskId, reminder.reminderId)
+                    message = c.remindersOff
+                    render()
+                }
+            }
+            .show()
+    }
+
+    private fun showReminderEditorDialog(task: PlanningTask, current: TaskReminderSetting?) {
+        val session = currentSession ?: return
+        val c = copy()
         var selectedDateTime = current?.triggerAtMillis
             ?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime() }
             ?: defaultReminderDateTime(task)
         var selectedRepeat = current?.repeat ?: TaskReminderRepeat.None
-
         val selectedTime = TextView(this).apply {
             textSize = 16f
             setTextColor(color(Ui.TEXT))
@@ -4024,26 +4240,10 @@ class MainActivity : Activity() {
         }
         updateSelectedTime()
 
-        val pickTime = Button(this).apply {
-            text = c.pickDate
-            setOnClickListener {
-                pickReminderDateTime(selectedDateTime) { picked ->
-                    selectedDateTime = picked
-                    updateSelectedTime()
-                }
-            }
-        }
-
-        val repeats = listOf(
-            TaskReminderRepeat.None to c.noRecurrence,
-            TaskReminderRepeat.Daily to c.daily,
-            TaskReminderRepeat.Weekly to c.weekly,
-            TaskReminderRepeat.Monthly to c.monthly
-        )
         val repeatIds = mutableMapOf<Int, TaskReminderRepeat>()
         val repeatGroup = RadioGroup(this).apply {
             orientation = RadioGroup.VERTICAL
-            repeats.forEach { (repeat, label) ->
+            reminderRepeatOptions().forEach { (repeat, label) ->
                 val id = View.generateViewId()
                 repeatIds[id] = repeat
                 addView(RadioButton(this@MainActivity).apply {
@@ -4063,13 +4263,16 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), 0)
             addView(selectedTime)
-            addView(pickTime)
-            addView(TextView(this@MainActivity).apply {
-                text = c.recurrence
-                textSize = 13f
-                setTextColor(color(Ui.MUTED))
-                setPadding(0, dp(14), 0, dp(4))
+            addView(Button(this@MainActivity).apply {
+                text = c.pickDate
+                setOnClickListener {
+                    pickReminderDateTime(selectedDateTime) { picked ->
+                        selectedDateTime = picked
+                        updateSelectedTime()
+                    }
+                }
             })
+            addView(dialogLabel(c.recurrence))
             addView(repeatGroup)
         }
 
@@ -4077,17 +4280,8 @@ class MainActivity : Activity() {
             .setTitle(c.reminders)
             .setView(form)
             .setNegativeButton(c.cancel, null)
-            .setNeutralButton(c.clearDate, null)
             .setPositiveButton(c.save, null)
             .show()
-
-        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-            current?.let(taskReminderAlarmScheduler::cancel)
-            taskReminderStore.clear(session.user.id, task.id)
-            message = c.remindersOff
-            dialog.dismiss()
-            render()
-        }
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val triggerAtMillis = selectedDateTime.atZone(zone).toInstant().toEpochMilli()
             if (triggerAtMillis <= System.currentTimeMillis()) {
@@ -4097,6 +4291,7 @@ class MainActivity : Activity() {
             val setting = TaskReminderSetting(
                 userId = session.user.id,
                 taskId = task.id,
+                reminderId = current?.reminderId ?: newReminderId(),
                 taskTitle = task.title,
                 triggerAtMillis = triggerAtMillis,
                 repeat = selectedRepeat,
@@ -4128,6 +4323,7 @@ class MainActivity : Activity() {
         val setting = TaskReminderSetting(
             userId = session.user.id,
             taskId = task.id,
+            reminderId = draft.reminderId ?: "task-dialog-${task.id}",
             taskTitle = task.title,
             triggerAtMillis = triggerAtMillis,
             repeat = draft.repeat,
@@ -4147,7 +4343,9 @@ class MainActivity : Activity() {
 
     private fun clearLocalReminder(task: PlanningTask) {
         val session = currentSession ?: return
-        taskReminderStore.read(session.user.id, task.id)?.let(taskReminderAlarmScheduler::cancel)
+        taskReminderStore.readAll(session.user.id, task.id)
+            .filter { it.enabled }
+            .forEach(taskReminderAlarmScheduler::cancel)
         taskReminderStore.clear(session.user.id, task.id)
         message = copy().remindersOff
     }
@@ -4673,6 +4871,20 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun openGoalDetail(goalId: String) {
+        selectedGoalId = goalId
+        selectedGoalDetail = findGoal(goalId)
+        selectedGoalDetail?.let { goal ->
+            selectedFolderId = goal.folderId.takeIf { it.isNotBlank() } ?: selectedFolderId
+        }
+        selectedTaskId = null
+        selectedTaskDetail = null
+        selectedIdeaId = null
+        selectedIdeaDetail = null
+        currentScreen = Screen.GoalDetail
+        render()
+    }
+
     private fun handleIncomingIntent(intent: Intent?) {
         val taskId = NotificationIntents.extractTaskId(intent) ?: return
         pendingTaskOpenId = taskId
@@ -5195,6 +5407,63 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
                 }
             )
+        }
+    }
+
+    private data class GoalProgress(
+        val percent: Int,
+        val label: String
+    )
+
+    private fun goalProgressView(progress: GoalProgress): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(8), 0, dp(16))
+            addView(
+                TextView(context).apply {
+                    text = progress.label
+                    textSize = 14f
+                    setTextColor(color(Ui.TEXT))
+                    includeFontPadding = false
+                    setPadding(0, 0, 0, dp(8))
+                }
+            )
+            addView(
+                ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100
+                    this.progress = progress.percent
+                    progressDrawable = progressDrawable.mutate()
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(10)
+                    )
+                }
+            )
+        }
+    }
+
+    private fun goalTaskDetailRow(task: PlanningTask): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(56)
+            setPadding(0, dp(4), 0, dp(4))
+            addView(
+                iconButton(
+                    if (isDone(task)) R.drawable.ic_check_circle else R.drawable.ic_radio_button_unchecked,
+                    localizedStatus(task.status)
+                ) {
+                    if (canWrite(task)) toggleTaskDone(task)
+                }
+            )
+            addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
+            addView(rowText(task.title, "${localizedStatus(task.status)} · ${formatEffort(task.effort)}", weight = 1f, titleSize = 15f).apply {
+                setOnClickListener { openTaskDetail(task.id) }
+            })
+            dueChip(task)?.let { addView(it) }
+            if (canWrite(task)) {
+                addView(iconButton(R.drawable.ic_more_horiz, copy().details) { showTaskActions(task) })
+            }
         }
     }
 
@@ -5964,12 +6233,57 @@ class MainActivity : Activity() {
 
     private fun isDone(task: PlanningTask): Boolean = task.status == "done"
 
+    private fun isClosed(task: PlanningTask): Boolean = task.status == "done" || task.status == "cancelled"
+
+    private fun isPlannedOverdue(task: PlanningTask): Boolean {
+        if (isClosed(task)) return false
+        val planned = task.plannedTime?.let(::parseInstant) ?: return false
+        return planned.isBefore(Instant.now())
+    }
+
     private fun taskSubtitle(task: PlanningTask): String {
         val due = task.dueTime ?: task.plannedTime
         return due?.let(::formatDateTime) ?: localizedStatus(task.status)
     }
 
-    private fun formatEffort(effort: Int): String = effort.coerceAtLeast(0).toString()
+    private fun formatEffort(effort: Int): String {
+        val hours = effort.coerceAtLeast(0)
+        return if (hours == 0) {
+            if (currentLanguage == "en") "no estimate" else "\u043d\u0435\u0442 \u043e\u0446\u0435\u043d\u043a\u0438"
+        } else {
+            if (currentLanguage == "en") "$hours h" else "$hours \u0447"
+        }
+    }
+
+    private fun goalEffortSummary(tasks: List<PlanningTask>): String {
+        val total = tasks.sumOf { it.effort.coerceAtLeast(0) }
+        return if (total == 0) {
+            if (currentLanguage == "en") "no estimate" else "\u043d\u0435\u0442 \u043e\u0446\u0435\u043d\u043a\u0438"
+        } else {
+            if (currentLanguage == "en") "$total h" else "$total \u0447"
+        }
+    }
+
+    private fun goalProgress(tasks: List<PlanningTask>): GoalProgress {
+        val estimated = tasks.filter { it.effort.coerceAtLeast(0) > 0 }
+        val percent = if (estimated.isNotEmpty()) {
+            val totalEffort = estimated.sumOf { it.effort.coerceAtLeast(0) }
+            val doneEffort = estimated.filter { isDone(it) }.sumOf { it.effort.coerceAtLeast(0) }
+            (doneEffort * 100 / totalEffort).coerceIn(0, 100)
+        } else if (tasks.isNotEmpty()) {
+            (tasks.count { isDone(it) } * 100 / tasks.size).coerceIn(0, 100)
+        } else {
+            0
+        }
+        val label = if (estimated.isNotEmpty()) {
+            val totalEffort = estimated.sumOf { it.effort.coerceAtLeast(0) }
+            val doneEffort = estimated.filter { isDone(it) }.sumOf { it.effort.coerceAtLeast(0) }
+            if (currentLanguage == "en") "$percent% · ${doneEffort}/${totalEffort} h closed" else "$percent% · ${doneEffort}/${totalEffort} \u0447 \u0437\u0430\u043a\u0440\u044b\u0442\u043e"
+        } else {
+            if (currentLanguage == "en") "$percent% · by task status, no estimates" else "$percent% · \u043f\u043e \u0441\u0442\u0430\u0442\u0443\u0441\u0430\u043c, \u043d\u0435\u0442 \u043e\u0446\u0435\u043d\u043a\u0438"
+        }
+        return GoalProgress(percent, label)
+    }
 
     private fun effortProgressText(doneEffort: Int, totalEffort: Int): String {
         if (totalEffort <= 0) return "0/0"
@@ -6011,13 +6325,15 @@ class MainActivity : Activity() {
 
     private fun describeLocalReminder(task: PlanningTask): String {
         val userId = currentSession?.user?.id ?: return copy().noDate
-        val setting = taskReminderStore.read(userId, task.id)?.takeIf { it.enabled } ?: return copy().noDate
-        val repeat = when (setting.repeat) {
-            TaskReminderRepeat.None -> null
-            TaskReminderRepeat.Daily -> copy().daily
-            TaskReminderRepeat.Weekly -> copy().weekly
-            TaskReminderRepeat.Monthly -> copy().monthly
+        val settings = taskReminderStore.readAll(userId, task.id)
+            .filter { it.enabled }
+            .sortedBy { it.triggerAtMillis }
+        if (settings.isEmpty()) return copy().noDate
+        if (settings.size > 1) {
+            return if (currentLanguage == "en") "${settings.size} reminders" else "${settings.size} \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f"
         }
+        val setting = settings.first()
+        val repeat = reminderRepeatLabel(setting.repeat)
         return listOfNotNull(formatReminderDateTime(setting.triggerAtMillis), repeat).joinToString(", ")
     }
 
@@ -6041,6 +6357,18 @@ class MainActivity : Activity() {
         return if (json.optBoolean("active", false)) json.optString("mode") else ""
     }
 
+    private fun isRecurrenceActive(raw: String?): Boolean {
+        return raw?.let(::jsonObjectOrNull)?.optBoolean("active", false) == true
+    }
+
+    private fun recurrenceRequiresScheduleMessage(): String {
+        return if (currentLanguage == "en") {
+            "Choose When to do or Deadline before saving repeat."
+        } else {
+            "\u0423\u043a\u0430\u0436\u0438\u0442\u0435 «\u041a\u043e\u0433\u0434\u0430 \u0434\u0435\u043b\u0430\u0442\u044c» \u0438\u043b\u0438 \u0434\u0435\u0434\u043b\u0430\u0439\u043d \u0434\u043e \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f \u043f\u043e\u0432\u0442\u043e\u0440\u0430."
+        }
+    }
+
     private fun recurrencePayload(task: PlanningTask, selectedMode: String, active: Boolean): JSONObject {
         return buildRecurrencePayload(
             currentRaw = task.recurrenceJson,
@@ -6061,7 +6389,8 @@ class MainActivity : Activity() {
         fallbackTask: PlanningTask?
     ): JSONObject {
         val mode = selectedMode.ifBlank { recurrenceMode(currentRaw).ifBlank { "daily" } }
-        val startAt = plannedTime ?: dueTime ?: fallbackTask?.plannedTime ?: fallbackTask?.dueTime ?: Instant.now().toString()
+        val startAt = plannedTime ?: dueTime ?: fallbackTask?.plannedTime ?: fallbackTask?.dueTime
+            ?: return JSONObject().put("active", false)
         val startDate = parseInstant(startAt)?.atZone(zone)?.toLocalDate() ?: LocalDate.now(zone)
         return JSONObject()
             .put("mode", mode)
@@ -6352,7 +6681,7 @@ class MainActivity : Activity() {
 
     private fun openEntityDetail(type: String, id: String) {
         when (type) {
-            "goal" -> findGoal(id)?.let { showGoalDetails(it) }
+            "goal" -> openGoalDetail(id)
             "task" -> openTaskDetail(id)
             "idea" -> openIdeaDetail(id)
             "note" -> openNoteDetail(id)
@@ -6529,7 +6858,11 @@ class MainActivity : Activity() {
     }
 
     private fun notificationRegistrationLabel(): String {
-        return if (currentDeviceRegistration?.active == true) copy().remindersOn else copy().remindersOff
+        return if (currentDeviceRegistration?.active == true) {
+            if (currentLanguage == "en") "Push enabled" else "\u041f\u0443\u0448 \u0432\u043a\u043b\u044e\u0447\u0435\u043d"
+        } else {
+            if (currentLanguage == "en") "Push off or phone not registered" else "\u041f\u0443\u0448 \u043e\u0442\u043a\u043b\u044e\u0447\u0435\u043d \u0438\u043b\u0438 \u0442\u0435\u043b\u0435\u0444\u043e\u043d \u043d\u0435 \u0437\u0430\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043e\u0432\u0430\u043d"
+        }
     }
 
     private fun canEditIdea(idea: PlanningIdea): Boolean {
@@ -6973,10 +7306,10 @@ class MainActivity : Activity() {
                 language = "Language",
                 sharingHelp = "Accept an invitation link to add shared folders, goals, or tasks.",
                 reminders = "Reminders",
-                remindersHelp = "Android permission allows notifications; this phone connects task reminder delivery.",
+                remindersHelp = "Android permission controls notification display. Push status below is only for this phone; task reminders are local to the app.",
                 androidPermission = "Android permission",
                 accountReminders = "Account reminders",
-                deviceRegistration = "This phone",
+                deviceRegistration = "Push on this phone",
                 priorityDecay = "Priority decay",
                 priorityDecayHelp = "When you postpone a task, RocketFlow totals the delay. After the selected threshold, priority drops by the chosen amount.",
                 greenTasks = "Green tasks",
@@ -7162,10 +7495,10 @@ class MainActivity : Activity() {
                 language = "Язык",
                 sharingHelp = "Здесь можно принять ссылку-приглашение к папке, цели или задаче.",
                 reminders = "Напоминания",
-                remindersHelp = "Разрешение Android включает показ уведомлений, а подключение телефона привязывает напоминания к этому устройству.",
+                remindersHelp = "Разрешение Android управляет показом уведомлений. Статус push ниже относится только к этому телефону; напоминания задач локальные.",
                 androidPermission = "Разрешение Android",
                 accountReminders = "Напоминания аккаунта",
-                deviceRegistration = "Этот телефон",
+                deviceRegistration = "Статус push на этом телефоне",
                 priorityDecay = "Снижение приоритета",
                 priorityDecayHelp = "Если вы переносите задачу на позже, RocketFlow суммирует задержку. Когда набирается выбранный срок, приоритет уменьшается на указанное число.",
                 greenTasks = "Зеленые задачи",

@@ -7,13 +7,33 @@ class TaskReminderStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     fun read(userId: String, taskId: String): TaskReminderSetting? {
-        return TaskReminderJson.decode(prefs.getString(key(userId, taskId), null))
+        return readAll(userId, taskId).firstOrNull()
+    }
+
+    fun readAll(userId: String, taskId: String): List<TaskReminderSetting> {
+        return TaskReminderJson.decodeList(prefs.getString(key(userId, taskId), null))
     }
 
     fun save(setting: TaskReminderSetting) {
+        val settings = readAll(setting.userId, setting.taskId)
+            .filterNot { it.reminderId == setting.reminderId } + setting
+        saveAll(setting.userId, setting.taskId, settings)
+    }
+
+    fun saveAll(userId: String, taskId: String, settings: List<TaskReminderSetting>) {
+        val active = settings.filter { it.enabled }
+        if (active.isEmpty()) {
+            clear(userId, taskId)
+            return
+        }
         prefs.edit()
-            .putString(key(setting.userId, setting.taskId), TaskReminderJson.encode(setting))
+            .putString(key(userId, taskId), TaskReminderJson.encodeList(active))
             .apply()
+    }
+
+    fun clear(userId: String, taskId: String, reminderId: String) {
+        val remaining = readAll(userId, taskId).filterNot { it.reminderId == reminderId }
+        saveAll(userId, taskId, remaining)
     }
 
     fun clear(userId: String, taskId: String) {
@@ -22,7 +42,7 @@ class TaskReminderStore(context: Context) {
 
     fun readActive(): List<TaskReminderSetting> {
         return prefs.all.values
-            .mapNotNull { value -> TaskReminderJson.decode(value as? String) }
+            .flatMap { value -> TaskReminderJson.decodeList(value as? String) }
             .filter { it.enabled }
     }
 
