@@ -121,6 +121,16 @@ class PlanningRepository(
         )
     }
 
+    suspend fun deleteIdea(session: AuthSession, idea: PlanningIdea): PlanningLoadResult {
+        val refreshed = authRepository.authorizedDelete(session, "/ideas/${idea.id}")
+        localStore.removeIdea(refreshed.user.id, idea.id)
+        val activeSession = pullRemote(refreshed)
+        return PlanningLoadResult(
+            session = activeSession,
+            snapshot = localStore.snapshot(activeSession.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
     suspend fun createIdeaNote(session: AuthSession, ideaId: String, draft: IdeaNoteDraft): PlanningLoadResult {
         val result = authRepository.authorizedPost(
             session,
@@ -153,6 +163,16 @@ class PlanningRepository(
         return PlanningLoadResult(
             session = refreshed,
             snapshot = localStore.snapshot(refreshed.user.id, offline = false, lastSyncError = null)
+        )
+    }
+
+    suspend fun deleteIdeaNote(session: AuthSession, note: IdeaNote): PlanningLoadResult {
+        val refreshed = authRepository.authorizedDelete(session, "/idea-notes/${note.id}")
+        localStore.removeIdeaNote(refreshed.user.id, note.id)
+        val activeSession = pullRemote(refreshed)
+        return PlanningLoadResult(
+            session = activeSession,
+            snapshot = localStore.snapshot(activeSession.user.id, offline = false, lastSyncError = null)
         )
     }
 
@@ -236,11 +256,9 @@ class PlanningRepository(
     }
 
     private suspend fun syncAfterLocalChange(session: AuthSession): PlanningLoadResult {
-        val result = syncAndLoad(session)
-        if (result.snapshot.offline || result.snapshot.pendingCount > 0) {
-            syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
-        }
-        return result
+        val snapshot = localStore.snapshot(session.user.id, offline = false, lastSyncError = null)
+        syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
+        return PlanningLoadResult(session = session, snapshot = snapshot)
     }
 
     suspend fun quickRescheduleTask(
@@ -711,12 +729,14 @@ class PlanningRepository(
         val sharedFolderObjects = sharedResult.value.optJSONArray("folders").orEmptyArray()
         val sharedGoalObjects = sharedResult.value.optJSONArray("goals").orEmptyArray()
         val sharedTaskObjects = sharedResult.value.optJSONArray("tasks").orEmptyArray()
+        val sharedIdeaObjects = sharedResult.value.optJSONArray("ideas").orEmptyArray()
         val createTaskGoalIds = sharedResult.value.optJSONArray("createTaskGoalIds").toStringSet()
         val sharedFolders = sharedFolderObjects.toFolders(shared = true).toMutableList()
         val sharedGoals = sharedGoalObjects.toGoals(shared = true)
             .map { goal -> goal.copy(canCreateTasks = goal.fullAccess || goal.id in createTaskGoalIds) }
             .toMutableList()
         val sharedTasks = sharedTaskObjects.toTasks(shared = true)
+        val directSharedIdeas = sharedIdeaObjects.toIdeas(shared = true)
         sharedGoalObjects.forEachObject { goalJson ->
             goalJson.optJSONObject("folder")?.toFolder(shared = true)?.let { sharedFolders += it }
         }
@@ -732,12 +752,18 @@ class PlanningRepository(
             userId,
             folders = sharedFolders.distinctBy { it.id },
             goals = sharedGoals.distinctBy { it.id },
-            tasks = sharedTasks
+            tasks = sharedTasks,
+            ideas = directSharedIdeas
         )
 
-        val sharedIdeas = mutableListOf<PlanningIdea>()
+        val sharedIdeas = directSharedIdeas.toMutableList()
         val sharedIdeaNotes = mutableListOf<IdeaNote>()
         val sharedNotes = mutableListOf<PlanningNote>()
+        directSharedIdeas.filterNot { it.archived }.forEach { idea ->
+            val notesResult = syncOptionalItems(activeSession, "/ideas/${idea.id}/notes")
+            activeSession = notesResult.first
+            sharedIdeaNotes += notesResult.second.toIdeaNotes(idea.id)
+        }
         sharedFolders.distinctBy { it.id }.filterNot { it.archived }.forEach { folder ->
             val ideasResult = syncOptionalItems(activeSession, "/folders/${folder.id}/ideas")
             activeSession = ideasResult.first
@@ -986,6 +1012,9 @@ class PlanningRepository(
             shared = shared,
             fullAccess = optBoolean("fullAccess", !shared),
             allowAuthorNoteEdits = optBoolean("allowAuthorNoteEdits", false),
+            creatorUserId = nullableText("creatorUserId"),
+            creatorEmail = nullableText("creatorEmail"),
+            creatorName = nullableText("creatorName"),
             version = optLong("version", 0),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
             updatedAt = text("updatedAt").ifBlank { PlanningLocalStore.nowIso() },

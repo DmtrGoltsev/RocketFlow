@@ -74,6 +74,12 @@ public class IdeaController {
         return ideaService.updateIdeaNote(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(noteId), request);
     }
 
+    @DeleteMapping("/idea-notes/{noteId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteIdeaNote(@PathVariable String noteId) {
+        ideaService.deleteIdeaNote(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(noteId));
+    }
+
     @PostMapping("/ideas/{ideaId}/move")
     public IdeaDto moveIdea(@PathVariable String ideaId, @Valid @RequestBody MoveIdeaRequest request) {
         return ideaService.moveIdea(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(ideaId), request);

@@ -20,6 +20,7 @@ import com.rocketflow.notifications.ReminderNotificationRuleRepository;
 import com.rocketflow.recurrence.TaskRecurrenceRuleRepository;
 import com.rocketflow.sharing.FolderShareRepository;
 import com.rocketflow.sharing.GoalShareRepository;
+import com.rocketflow.sharing.IdeaShareRepository;
 import com.rocketflow.sharing.ShareInvitationRepository;
 import com.rocketflow.sharing.ShareLinkRepository;
 import com.rocketflow.sharing.TaskShareRepository;
@@ -81,6 +82,9 @@ class RocketFlowApplicationTests {
 
     @MockitoBean
     private TaskShareRepository taskShareRepository;
+
+    @MockitoBean
+    private IdeaShareRepository ideaShareRepository;
 
     @MockitoBean
     private TaskRecurrenceRuleRepository taskRecurrenceRuleRepository;

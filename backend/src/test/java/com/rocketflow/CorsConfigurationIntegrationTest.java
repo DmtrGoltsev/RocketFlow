@@ -29,6 +29,7 @@ import com.rocketflow.reminders.TaskReminderRuleRepository;
 import com.rocketflow.settings.UserSettingsRepository;
 import com.rocketflow.sharing.FolderShareRepository;
 import com.rocketflow.sharing.GoalShareRepository;
+import com.rocketflow.sharing.IdeaShareRepository;
 import com.rocketflow.sharing.ShareInvitationRepository;
 import com.rocketflow.sharing.ShareLinkRepository;
 import com.rocketflow.sharing.TaskShareRepository;
@@ -96,6 +97,9 @@ class CorsConfigurationIntegrationTest {
 
     @MockitoBean
     private TaskShareRepository taskShareRepository;
+
+    @MockitoBean
+    private IdeaShareRepository ideaShareRepository;
 
     @MockitoBean
     private TaskRecurrenceRuleRepository taskRecurrenceRuleRepository;

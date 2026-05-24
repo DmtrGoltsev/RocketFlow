@@ -161,6 +161,17 @@ export async function createTaskInvitation(
   });
 }
 
+export async function createIdeaInvitation(
+  authorizedFetch: AuthorizedFetch,
+  ideaId: string,
+  payload: ShareRequestPayload,
+) {
+  return requestJson<ShareInvitationDto>(authorizedFetch, `/ideas/${ideaId}/share`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function acceptInvitation(authorizedFetch: AuthorizedFetch, invitationId: string) {
   return requestJson<ShareInvitationActionResponse>(
     authorizedFetch,

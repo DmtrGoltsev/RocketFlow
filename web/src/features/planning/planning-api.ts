@@ -394,6 +394,12 @@ export async function updateIdeaNote(
   });
 }
 
+export async function deleteIdeaNote(authorizedFetch: AuthorizedFetch, noteId: string) {
+  return requestJson<void>(authorizedFetch, `/idea-notes/${noteId}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function listNotes(authorizedFetch: AuthorizedFetch, folderId: string) {
   const response = await requestJson<ListResponse<NoteDto>>(authorizedFetch, `/folders/${folderId}/notes`, {
     method: 'GET',

@@ -30,6 +30,7 @@ const emptyResources: SharedResourcesResponse = {
   folders: [],
   goals: [],
   tasks: [],
+  ideas: [],
   createTaskGoalIds: [],
 };
 
@@ -47,10 +48,13 @@ export function SharingRoute() {
   const [notice, setNotice] = useState<string | null>(null);
   const [actingId, setActingId] = useState<string | null>(null);
 
-  const totalResources = resources.folders.length + resources.goals.length + resources.tasks.length;
+  const totalResources = resources.folders.length + resources.goals.length + resources.tasks.length + resources.ideas.length;
   const targetLabel = (targetType: ShareInvitationDto['targetType']) => {
     if (targetType === 'folder') {
       return copy.sharing.folderLabel;
+    }
+    if (targetType === 'idea') {
+      return locale === 'ru' ? 'Идея' : 'Idea';
     }
 
     return targetType === 'goal' ? copy.common.goal : copy.common.task;
@@ -83,6 +87,7 @@ export function SharingRoute() {
         folders: nextResources.folders ?? [],
         goals: nextResources.goals ?? [],
         tasks: nextResources.tasks ?? [],
+        ideas: nextResources.ideas ?? [],
         createTaskGoalIds: nextResources.createTaskGoalIds ?? [],
       });
       setShareLink(nextLink);
@@ -270,6 +275,15 @@ export function SharingRoute() {
                     title: task.title,
                     description: task.description,
                     meta: formatDateTime(task.updatedAt, locale),
+                  }))} />
+                ) : null}
+
+                {resources.ideas.length > 0 ? (
+                  <ResourceGroup title={locale === 'ru' ? 'Общие идеи' : 'Shared ideas'} items={resources.ideas.map((idea) => ({
+                    id: idea.id,
+                    title: idea.title,
+                    description: idea.body,
+                    meta: formatDateTime(idea.updatedAt, locale),
                   }))} />
                 ) : null}
               </div>

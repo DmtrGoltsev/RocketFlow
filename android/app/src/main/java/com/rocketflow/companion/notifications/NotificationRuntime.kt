@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.rocketflow.companion.MainActivity
@@ -54,11 +55,12 @@ class NotificationRuntime(private val context: Context) {
     }
 
     fun showTaskReminderNotification(taskId: String, title: String, body: String) {
+        ensureChannel()
+
         if (!hasNotificationPermission()) {
+            Log.w(TAG, "Task reminder notification suppressed: POST_NOTIFICATIONS is not granted.")
             return
         }
-
-        ensureChannel()
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -84,11 +86,16 @@ class NotificationRuntime(private val context: Context) {
             .setAutoCancel(true)
             .build()
 
-        val manager = ContextCompat.getSystemService(context, NotificationManager::class.java) ?: return
+        val manager = ContextCompat.getSystemService(context, NotificationManager::class.java)
+            ?: run {
+                Log.w(TAG, "Task reminder notification suppressed: NotificationManager unavailable.")
+                return
+            }
         manager.notify(taskId.hashCode(), notification)
     }
 
     companion object {
+        private const val TAG = "NotificationRuntime"
         const val REQUEST_CODE = 4312
         const val CHANNEL_ID = "rocketflow.task.alarms"
     }

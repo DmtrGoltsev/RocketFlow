@@ -47,6 +47,12 @@ public class SharingController {
         return sharingService.createTaskInvitation(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(taskId), request);
     }
 
+    @PostMapping("/ideas/{ideaId}/share")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ShareInvitationDto shareIdea(@PathVariable String ideaId, @Valid @RequestBody ShareRequest request) {
+        return sharingService.createIdeaInvitation(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(ideaId), request);
+    }
+
     @PostMapping("/folders/{folderId}/share-links")
     @ResponseStatus(HttpStatus.CREATED)
     public ShareLinkCreateResponse createFolderShareLink(
@@ -99,6 +105,24 @@ public class SharingController {
     @GetMapping("/tasks/{taskId}/share-links")
     public ShareLinkListResponse listTaskShareLinks(@PathVariable String taskId) {
         return sharingService.listTaskShareLinks(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(taskId));
+    }
+
+    @PostMapping("/ideas/{ideaId}/share-links")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ShareLinkCreateResponse createIdeaShareLink(
+            @PathVariable String ideaId,
+            @Valid @RequestBody(required = false) ShareLinkRequest request
+    ) {
+        return sharingService.createIdeaShareLink(
+                currentUserService.requireAuthenticatedUser().userId(),
+                UUID.fromString(ideaId),
+                request
+        );
+    }
+
+    @GetMapping("/ideas/{ideaId}/share-links")
+    public ShareLinkListResponse listIdeaShareLinks(@PathVariable String ideaId) {
+        return sharingService.listIdeaShareLinks(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(ideaId));
     }
 
     @GetMapping("/shares/invitations")

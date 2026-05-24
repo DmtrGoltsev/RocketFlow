@@ -144,6 +144,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 11) {
                 addTaskEffortColumn(db)
             }
+            if (oldVersion < 12) {
+                addIdeaContractColumns(db)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -648,6 +651,15 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         ).use { cursor ->
             if (cursor.moveToFirst()) cursor.toIdea() else null
         }
+    }
+
+    fun removeIdea(userId: String, ideaId: String) {
+        writableDatabase.delete(TABLE_IDEA_NOTES, "user_id = ? AND idea_id = ?", arrayOf(userId, ideaId))
+        writableDatabase.delete(TABLE_IDEAS, "user_id = ? AND id = ?", arrayOf(userId, ideaId))
+    }
+
+    fun removeIdeaNote(userId: String, noteId: String) {
+        writableDatabase.delete(TABLE_IDEA_NOTES, "user_id = ? AND id = ?", arrayOf(userId, noteId))
     }
 
     fun upsertRemoteIdeas(userId: String, ideas: List<PlanningIdea>) {
@@ -1541,6 +1553,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("shared", idea.shared.toInt())
             put("full_access", idea.fullAccess.toInt())
             put("allow_author_note_edits", idea.allowAuthorNoteEdits.toInt())
+            put("creator_user_id", idea.creatorUserId)
+            put("creator_email", idea.creatorEmail)
+            put("creator_name", idea.creatorName)
             put("version", idea.version)
             put("created_at", idea.createdAt)
             put("updated_at", idea.updatedAt)
@@ -1722,6 +1737,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             shared = boolean("shared"),
             fullAccess = optionalBoolean("full_access"),
             allowAuthorNoteEdits = optionalBoolean("allow_author_note_edits"),
+            creatorUserId = optionalStringOrNull("creator_user_id"),
+            creatorEmail = optionalStringOrNull("creator_email"),
+            creatorName = optionalStringOrNull("creator_name"),
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
@@ -1963,6 +1981,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 shared INTEGER NOT NULL,
                 full_access INTEGER NOT NULL DEFAULT 0,
                 allow_author_note_edits INTEGER NOT NULL DEFAULT 0,
+                creator_user_id TEXT,
+                creator_email TEXT,
+                creator_name TEXT,
                 version INTEGER NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -2001,6 +2022,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         addColumnIfMissing(db, TABLE_IDEAS, "status", "TEXT NOT NULL DEFAULT 'active'")
         addColumnIfMissing(db, TABLE_IDEAS, "display_order", "INTEGER NOT NULL DEFAULT 0")
         addColumnIfMissing(db, TABLE_IDEAS, "allow_author_note_edits", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_IDEAS, "creator_user_id", "TEXT")
+        addColumnIfMissing(db, TABLE_IDEAS, "creator_email", "TEXT")
+        addColumnIfMissing(db, TABLE_IDEAS, "creator_name", "TEXT")
         addColumnIfMissing(db, TABLE_IDEA_NOTES, "event_type", "TEXT NOT NULL DEFAULT 'note'")
         addColumnIfMissing(db, TABLE_IDEA_NOTES, "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
         addColumnIfMissing(db, TABLE_IDEA_NOTES, "version", "INTEGER NOT NULL DEFAULT 0")
@@ -2117,7 +2141,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 11
+        private const val DATABASE_VERSION = 12
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"

@@ -1,6 +1,7 @@
 package com.rocketflow.sharing;
 
 import static com.rocketflow.goals.GoalsApi.*;
+import static com.rocketflow.ideas.IdeasApi.*;
 import static com.rocketflow.sharing.SharingApi.*;
 import static com.rocketflow.sharing.SharingValues.*;
 import static com.rocketflow.tasks.TasksApi.*;
@@ -29,10 +30,13 @@ import com.rocketflow.folders.Folder;
 import com.rocketflow.folders.FolderRepository;
 import com.rocketflow.goals.Goal;
 import com.rocketflow.goals.GoalRepository;
+import com.rocketflow.ideas.Idea;
+import com.rocketflow.ideas.IdeaRepository;
 import com.rocketflow.recurrence.RecurrenceService;
 import com.rocketflow.reminders.ReminderService;
 import com.rocketflow.sharing.SharingAccessService.FolderAccess;
 import com.rocketflow.sharing.SharingAccessService.GoalAccess;
+import com.rocketflow.sharing.SharingAccessService.IdeaAccess;
 import com.rocketflow.sharing.SharingAccessService.TaskAccess;
 import com.rocketflow.tasks.Task;
 import com.rocketflow.tasks.TaskRepository;
@@ -52,11 +56,13 @@ public class SharingService {
     private final FolderShareRepository folderShareRepository;
     private final GoalShareRepository goalShareRepository;
     private final TaskShareRepository taskShareRepository;
+    private final IdeaShareRepository ideaShareRepository;
     private final SharingAccessService sharingAccessService;
     private final UserRepository userRepository;
     private final FolderRepository folderRepository;
     private final GoalRepository goalRepository;
     private final TaskRepository taskRepository;
+    private final IdeaRepository ideaRepository;
     private final TaskTagRepository taskTagRepository;
     private final TaskTagLinkRepository taskTagLinkRepository;
     private final RecurrenceService recurrenceService;
@@ -69,11 +75,13 @@ public class SharingService {
             FolderShareRepository folderShareRepository,
             GoalShareRepository goalShareRepository,
             TaskShareRepository taskShareRepository,
+            IdeaShareRepository ideaShareRepository,
             SharingAccessService sharingAccessService,
             UserRepository userRepository,
             FolderRepository folderRepository,
             GoalRepository goalRepository,
             TaskRepository taskRepository,
+            IdeaRepository ideaRepository,
             TaskTagRepository taskTagRepository,
             TaskTagLinkRepository taskTagLinkRepository,
             RecurrenceService recurrenceService,
@@ -85,11 +93,13 @@ public class SharingService {
         this.folderShareRepository = folderShareRepository;
         this.goalShareRepository = goalShareRepository;
         this.taskShareRepository = taskShareRepository;
+        this.ideaShareRepository = ideaShareRepository;
         this.sharingAccessService = sharingAccessService;
         this.userRepository = userRepository;
         this.folderRepository = folderRepository;
         this.goalRepository = goalRepository;
         this.taskRepository = taskRepository;
+        this.ideaRepository = ideaRepository;
         this.taskTagRepository = taskTagRepository;
         this.taskTagLinkRepository = taskTagLinkRepository;
         this.recurrenceService = recurrenceService;
@@ -113,6 +123,12 @@ public class SharingService {
     public ShareInvitationDto createTaskInvitation(UUID actorUserId, UUID taskId, ShareRequest request) {
         TaskAccess taskAccess = sharingAccessService.requireTaskOwner(taskId, actorUserId);
         return createInvitation(actorUserId, taskAccess.task().getOwnerUserId(), TARGET_TASK, taskId, request);
+    }
+
+    @Transactional
+    public ShareInvitationDto createIdeaInvitation(UUID actorUserId, UUID ideaId, ShareRequest request) {
+        IdeaAccess ideaAccess = sharingAccessService.requireIdeaOwner(ideaId, actorUserId);
+        return createInvitation(actorUserId, ideaAccess.idea().getOwnerUserId(), TARGET_IDEA, ideaId, request);
     }
 
     @Transactional
@@ -142,6 +158,8 @@ public class SharingService {
             createGoalShareFromInvitation(invitation, actorUserId, now);
         } else if (TARGET_TASK.equals(invitation.getTargetType())) {
             createTaskShareFromInvitation(invitation, actorUserId, now);
+        } else if (TARGET_IDEA.equals(invitation.getTargetType())) {
+            createIdeaShareFromInvitation(invitation, actorUserId, now);
         } else if (TARGET_FOLDER.equals(invitation.getTargetType())) {
             createFolderShareFromInvitation(invitation, actorUserId, now);
         } else {
@@ -186,6 +204,7 @@ public class SharingService {
         folderShareRepository.findByInvitationId(invitationId).ifPresent(share -> revokeFolderShare(share, now));
         goalShareRepository.findByInvitationId(invitationId).ifPresent(share -> revokeGoalShare(share, now));
         taskShareRepository.findByInvitationId(invitationId).ifPresent(share -> revokeTaskShare(share, now));
+        ideaShareRepository.findByInvitationId(invitationId).ifPresent(share -> revokeIdeaShare(share, now));
         markInvitationResolved(invitation, INVITATION_REVOKED, actorUserId, now);
         return new ShareInvitationActionResponse(invitation.getId(), invitation.getStatus());
     }
@@ -195,10 +214,12 @@ public class SharingService {
         List<FolderShare> folderShares = folderShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE);
         List<GoalShare> goalShares = goalShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE);
         List<TaskShare> taskShares = taskShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE);
+        List<IdeaShare> ideaShares = ideaShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE);
 
         Map<UUID, SharedFolderResourceDto> foldersById = new LinkedHashMap<>();
         Map<UUID, Boolean> goalFullAccessById = new LinkedHashMap<>();
         Map<UUID, Boolean> taskFullAccessById = new LinkedHashMap<>();
+        Map<UUID, Boolean> ideaFullAccessById = new LinkedHashMap<>();
         for (FolderShare folderShare : folderShares.stream()
                 .sorted(Comparator.comparing(FolderShare::getCreatedAt))
                 .toList()) {
@@ -269,6 +290,15 @@ public class SharingService {
             taskFullAccessById.put(task.getId(), taskShare.isFullAccess());
         }
 
+        Map<UUID, Idea> ideasById = new LinkedHashMap<>();
+        for (IdeaShare ideaShare : ideaShares) {
+            Idea idea = sharingAccessService.requireIdeaAccess(ideaShare.getIdeaId(), actorUserId).idea();
+            Folder parentFolder = requireFolder(idea.getFolderId(), idea.getOwnerUserId());
+            foldersById.putIfAbsent(parentFolder.getId(), toSharedFolderDto(parentFolder, true, false, false));
+            ideasById.put(idea.getId(), idea);
+            ideaFullAccessById.put(idea.getId(), ideaShare.isFullAccess());
+        }
+
         List<Task> sharedTasks = tasksById.values().stream().sorted(Comparator.comparing(Task::getCreatedAt)).toList();
         List<UUID> sharedTaskIds = sharedTasks.stream().map(Task::getId).toList();
         Map<UUID, RecurrenceDto> recurrenceByTaskId = recurrenceService.findDtos(sharedTaskIds);
@@ -291,8 +321,12 @@ public class SharingService {
         List<GoalDto> goalDtos = goalsById.values().stream()
                 .sorted(Comparator.comparing(GoalDto::createdAt))
                 .toList();
+        List<IdeaDto> ideaDtos = ideasById.values().stream()
+                .sorted(Comparator.comparing(Idea::getCreatedAt))
+                .map(idea -> toIdeaDto(idea, true, ideaFullAccessById.getOrDefault(idea.getId(), false)))
+                .toList();
 
-        return new SharedResourcesResponse(folderDtos, goalDtos, taskDtos, createTaskGoalIds);
+        return new SharedResourcesResponse(folderDtos, goalDtos, taskDtos, ideaDtos, createTaskGoalIds);
     }
 
     private ShareInvitationDto createInvitation(
@@ -338,6 +372,10 @@ public class SharingService {
                 && taskShareRepository.existsByTaskIdAndCollaboratorUserIdAndStatus(targetId, targetUser.getId(), SHARE_ACTIVE)) {
             throw new ApiException(HttpStatus.CONFLICT, "conflict", "Access already exists for this task.");
         }
+        if (TARGET_IDEA.equals(targetType)
+                && ideaShareRepository.existsByIdeaIdAndCollaboratorUserIdAndStatus(targetId, targetUser.getId(), SHARE_ACTIVE)) {
+            throw new ApiException(HttpStatus.CONFLICT, "conflict", "Access already exists for this idea.");
+        }
 
         Instant now = Instant.now();
         ShareInvitation invitation = new ShareInvitation();
@@ -373,6 +411,12 @@ public class SharingService {
         return createShareLink(actorUserId, TARGET_TASK, taskAccess.task().getId(), request);
     }
 
+    @Transactional
+    public ShareLinkCreateResponse createIdeaShareLink(UUID actorUserId, UUID ideaId, ShareLinkRequest request) {
+        IdeaAccess ideaAccess = sharingAccessService.requireIdeaOwner(ideaId, actorUserId);
+        return createShareLink(actorUserId, TARGET_IDEA, ideaAccess.idea().getId(), request);
+    }
+
     @Transactional(readOnly = true)
     public ShareLinkListResponse listFolderShareLinks(UUID actorUserId, UUID folderId) {
         FolderAccess folderAccess = sharingAccessService.requireFolderOwner(folderId, actorUserId);
@@ -389,6 +433,12 @@ public class SharingService {
     public ShareLinkListResponse listTaskShareLinks(UUID actorUserId, UUID taskId) {
         TaskAccess taskAccess = sharingAccessService.requireTaskOwner(taskId, actorUserId);
         return listShareLinks(actorUserId, TARGET_TASK, taskAccess.task().getId());
+    }
+
+    @Transactional(readOnly = true)
+    public ShareLinkListResponse listIdeaShareLinks(UUID actorUserId, UUID ideaId) {
+        IdeaAccess ideaAccess = sharingAccessService.requireIdeaOwner(ideaId, actorUserId);
+        return listShareLinks(actorUserId, TARGET_IDEA, ideaAccess.idea().getId());
     }
 
     @Transactional(readOnly = true)
@@ -417,6 +467,9 @@ public class SharingService {
         } else if (TARGET_TASK.equals(link.getTargetType())) {
             TaskAccess taskAccess = sharingAccessService.requireTaskOwner(link.getTargetId(), link.getOwnerUserId());
             shareId = createTaskShare(taskAccess.task(), actorUserId, null, link.getId(), link.isFullAccess(), now).getId();
+        } else if (TARGET_IDEA.equals(link.getTargetType())) {
+            IdeaAccess ideaAccess = sharingAccessService.requireIdeaOwner(link.getTargetId(), link.getOwnerUserId());
+            shareId = createIdeaShare(ideaAccess.idea(), actorUserId, null, link.getId(), link.isFullAccess(), now).getId();
         } else {
             throw notFound("Share link");
         }
@@ -516,6 +569,11 @@ public class SharingService {
         createTaskShare(taskAccess.task(), actorUserId, invitation.getId(), null, invitation.isFullAccess(), now);
     }
 
+    private void createIdeaShareFromInvitation(ShareInvitation invitation, UUID actorUserId, Instant now) {
+        IdeaAccess ideaAccess = sharingAccessService.requireIdeaOwner(invitation.getTargetId(), invitation.getInviterUserId());
+        createIdeaShare(ideaAccess.idea(), actorUserId, invitation.getId(), null, invitation.isFullAccess(), now);
+    }
+
     private FolderShare createFolderShare(Folder folder, UUID collaboratorUserId, UUID invitationId, UUID linkId, boolean fullAccess, Instant now) {
         if (folderShareRepository.existsByFolderIdAndCollaboratorUserIdAndStatus(folder.getId(), collaboratorUserId, SHARE_ACTIVE)) {
             throw new ApiException(HttpStatus.CONFLICT, "conflict", "Access already exists for this folder.");
@@ -571,6 +629,25 @@ public class SharingService {
         share.setCreatedAt(now);
         share.setUpdatedAt(now);
         return taskShareRepository.save(share);
+    }
+
+    private IdeaShare createIdeaShare(Idea idea, UUID collaboratorUserId, UUID invitationId, UUID linkId, boolean fullAccess, Instant now) {
+        if (ideaShareRepository.existsByIdeaIdAndCollaboratorUserIdAndStatus(idea.getId(), collaboratorUserId, SHARE_ACTIVE)) {
+            throw new ApiException(HttpStatus.CONFLICT, "conflict", "Access already exists for this idea.");
+        }
+
+        IdeaShare share = new IdeaShare();
+        share.setId(UUID.randomUUID());
+        share.setIdeaId(idea.getId());
+        share.setOwnerUserId(idea.getOwnerUserId());
+        share.setCollaboratorUserId(collaboratorUserId);
+        share.setInvitationId(invitationId);
+        share.setLinkId(linkId);
+        share.setFullAccess(fullAccess);
+        share.setStatus(SHARE_ACTIVE);
+        share.setCreatedAt(now);
+        share.setUpdatedAt(now);
+        return ideaShareRepository.save(share);
     }
 
     private User resolveShareTarget(ShareRequest request) {
@@ -680,6 +757,15 @@ public class SharingService {
         }
     }
 
+    private void revokeIdeaShare(IdeaShare share, Instant now) {
+        if (!SHARE_REVOKED.equals(share.getStatus())) {
+            share.setStatus(SHARE_REVOKED);
+            share.setUpdatedAt(now);
+            share.setRevokedAt(now);
+            ideaShareRepository.save(share);
+        }
+    }
+
     private User requireUser(UUID userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> notFound("User"));
@@ -751,6 +837,28 @@ public class SharingService {
                 goal.getVersion(),
                 goal.getCreatedAt(),
                 goal.getUpdatedAt()
+        );
+    }
+
+    private IdeaDto toIdeaDto(Idea idea, boolean shared, boolean fullAccess) {
+        CreatorDetails creator = creatorDetails(idea.getCreatorUserId());
+        return new IdeaDto(
+                idea.getId(),
+                idea.getFolderId(),
+                idea.getTitle(),
+                idea.getBody(),
+                idea.getStatus(),
+                idea.getDisplayOrder(),
+                idea.isArchived(),
+                idea.isAllowAuthorNoteEdits(),
+                shared,
+                fullAccess,
+                idea.getCreatorUserId(),
+                creator.email(),
+                creator.name(),
+                idea.getVersion(),
+                idea.getCreatedAt(),
+                idea.getUpdatedAt()
         );
     }
 

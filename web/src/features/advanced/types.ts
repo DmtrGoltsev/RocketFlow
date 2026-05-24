@@ -1,7 +1,7 @@
-import type { FolderDto, GoalDto, TaskDto } from '../planning/types';
+import type { FolderDto, GoalDto, IdeaDto, TaskDto } from '../planning/types';
 
 export type CalendarPreset = 'day' | 'week' | 'month';
-export type ShareTargetType = 'folder' | 'goal' | 'task';
+export type ShareTargetType = 'folder' | 'goal' | 'task' | 'idea';
 export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
 export type ThresholdPreset = 'day' | 'week' | 'month';
 export type Locale = 'ru' | 'en';
@@ -75,6 +75,7 @@ export interface SharedResourcesResponse {
   folders: SharedFolderDto[];
   goals: GoalDto[];
   tasks: TaskDto[];
+  ideas: IdeaDto[];
   createTaskGoalIds: string[];
 }
 

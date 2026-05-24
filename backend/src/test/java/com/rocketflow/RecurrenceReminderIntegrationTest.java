@@ -76,7 +76,7 @@ class RecurrenceReminderIntegrationTest {
         try (var connection = POSTGRES.getPostgresDatabase().getConnection();
              var statement = connection.createStatement()) {
             statement.executeUpdate(
-                    "truncate table task_reminder_rules, task_recurrence_rules, task_tag_links, task_tags, tasks, goals, folders, task_shares, goal_shares, share_invitations, auth_sessions, user_settings, user_credentials, users cascade"
+                    "truncate table task_reminder_rules, task_recurrence_rules, task_tag_links, task_tags, tasks, goals, folders, idea_shares, task_shares, goal_shares, share_invitations, auth_sessions, user_settings, user_credentials, users cascade"
             );
         }
     }

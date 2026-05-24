@@ -86,6 +86,7 @@ class NotificationDeliveryIntegrationTest {
                         device_registrations,
                         task_reminder_rules,
                         task_recurrence_rules,
+                        idea_shares,
                         task_shares,
                         goal_shares,
                         share_invitations,

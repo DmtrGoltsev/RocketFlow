@@ -22,6 +22,7 @@ import {
   StickyNote,
   Target,
   Trash2,
+  TriangleAlert,
   UserCircle,
   Waypoints,
   X,
@@ -47,6 +48,7 @@ import {
   createTask,
   deleteEntityLink,
   deleteIdea,
+  deleteIdeaNote,
   deleteNote,
   deleteTask,
   listEntityLinks,
@@ -72,6 +74,7 @@ import {
 import {
   createFolderInvitation,
   createGoalInvitation,
+  createIdeaInvitation,
   createTaskInvitation,
   getInvitations,
   getSharedResources,
@@ -585,6 +588,8 @@ function usePlanCopy() {
     type: locale === 'ru' ? 'Тип' : 'Type',
     priority: locale === 'ru' ? 'Приоритет' : 'Priority',
     effort: locale === 'ru' ? 'Трудоёмкость' : 'Effort',
+    effortHours: locale === 'ru' ? 'Трудоёмкость, часы' : 'Effort, hours',
+    hoursHint: locale === 'ru' ? 'Укажите целое число часов.' : 'Enter whole hours.',
     progress: locale === 'ru' ? 'Прогресс' : 'Progress',
     planned: locale === 'ru' ? 'Когда делать' : 'Planned',
     due: locale === 'ru' ? 'Дедлайн' : 'Due',
@@ -790,6 +795,10 @@ export function TasksRoute() {
   const canArchiveSelectedTask = !isCreatingTask && selectedTask ? canMutateShared(selectedTask) : false;
   const canEditSelectedTaskFields = isCreatingTask || canMutateShared(selectedTask);
   const canEditSelectedIdea = canMutateShared(selectedIdea);
+  const canDeleteSelectedIdea = Boolean(selectedIdea && (
+    selectedIdea.creatorUserId === session?.user.id ||
+    (selectedIdea.creatorEmail !== null && selectedIdea.creatorEmail === session?.user.email)
+  ));
   const canEditSelectedNote = canMutateShared(selectedNote);
   const canEditSelectedFolder = canMutateShared(selectedFolder);
   const canEditSelectedGoal = canMutateShared(selectedGoal);
@@ -799,14 +808,15 @@ export function TasksRoute() {
   const canEditIdeaNote = (note: IdeaNoteDto) => Boolean(
     selectedIdea &&
     (
-      canEditSelectedIdea ||
-      (
-        selectedIdea.allowAuthorNoteEdits &&
-        (
-          note.authorUserId === session?.user.id ||
-          (note.authorEmail !== null && note.authorEmail === session?.user.email)
-        )
-      )
+      note.authorUserId === session?.user.id ||
+      (note.authorEmail !== null && note.authorEmail === session?.user.email)
+    )
+  );
+  const canDeleteIdeaNote = () => Boolean(
+    selectedIdea &&
+    (
+      selectedIdea.creatorUserId === session?.user.id ||
+      (selectedIdea.creatorEmail !== null && selectedIdea.creatorEmail === session?.user.email)
     )
   );
   const selectedLinkEntity = selectedTask
@@ -1103,6 +1113,7 @@ export function TasksRoute() {
           folders: [],
           goals: [],
           tasks: [],
+          ideas: [],
           createTaskGoalIds: [],
         })),
         getInvitations(authorizedFetch).catch(() => ({ items: [] as ShareInvitationDto[] })),
@@ -1149,7 +1160,8 @@ export function TasksRoute() {
 
       const nextGoalsByFolder = groupGoalsByFolder(nextGoals);
       const nextTasksByGoal = groupTasksByGoal(nextTasks);
-      const nextIdeasByFolder = groupIdeasByFolder(nextIdeaEntries.flatMap(([, folderIdeas]) => folderIdeas));
+      const nextIdeas = mergeById(nextIdeaEntries.flatMap(([, folderIdeas]) => folderIdeas), sharedResources.ideas ?? []);
+      const nextIdeasByFolder = groupIdeasByFolder(nextIdeas);
       const nextNotesByFolder = groupNotesByFolder(nextNoteEntries.flatMap(([, notesResult]) => notesResult));
       const nextFolderId = preferred.folderId !== undefined ? preferred.folderId : selection.folderId ?? nextFolders[0]?.id ?? null;
       const nextGoalId = preferred.goalId !== undefined ? preferred.goalId : selection.goalId;
@@ -1296,14 +1308,50 @@ export function TasksRoute() {
       return;
     }
 
+    const now = new Date().toISOString();
+    const optimisticId = `optimistic-goal-${Date.now()}`;
+    const optimisticGoal: GoalDto = {
+      id: optimisticId,
+      folderId,
+      ownerUserId: session?.user.id ?? null,
+      name: copy.goalName,
+      description: '',
+      status: 'todo',
+      archived: false,
+      shared: false,
+      fullAccess: true,
+      version: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
     await runAction(async () => {
-      const goal = await createGoal(authorizedFetch, folderId, {
-        name: copy.goalName,
-        description: '',
-        status: 'todo',
-      });
-      await loadPlan({ folderId, goalId: goal.id, taskId: null, ideaId: null, noteId: null });
+      setGoalsByFolder((current) => ({
+        ...current,
+        [folderId]: [...(current[folderId] ?? []), optimisticGoal],
+      }));
+      setSelection({ folderId, goalId: optimisticId, taskId: null, ideaId: null, noteId: null });
       setIsPanelOpen(true);
+
+      try {
+        const goal = await createGoal(authorizedFetch, folderId, {
+          name: copy.goalName,
+          description: '',
+          status: 'todo',
+        });
+        setGoalsByFolder((current) => ({
+          ...current,
+          [folderId]: (current[folderId] ?? []).map((item) => item.id === optimisticId ? goal : item),
+        }));
+        setSelection({ folderId, goalId: goal.id, taskId: null, ideaId: null, noteId: null });
+      } catch (error) {
+        setGoalsByFolder((current) => ({
+          ...current,
+          [folderId]: (current[folderId] ?? []).filter((item) => item.id !== optimisticId),
+        }));
+        setSelection({ folderId, goalId: null, taskId: null, ideaId: null, noteId: null });
+        throw error;
+      }
     });
   }
 
@@ -1479,19 +1527,41 @@ export function TasksRoute() {
       return;
     }
 
+    const originalGoal = selectedGoal;
+    const optimisticGoal: GoalDto = {
+      ...selectedGoal,
+      name: goalDraft.name.trim(),
+      description: goalDraft.description.trim(),
+      status: goalDraft.status,
+    };
+
     await runAction(async () => {
-      const updated = await updateGoal(authorizedFetch, selectedGoal.id, {
-        name: goalDraft.name.trim(),
-        description: goalDraft.description.trim(),
-        status: goalDraft.status,
-        archived: selectedGoal.archived,
-        version: selectedGoal.version,
-      });
       setGoalsByFolder((current) => ({
         ...current,
-        [updated.folderId]: (current[updated.folderId] ?? []).map((goal) => goal.id === updated.id ? updated : goal),
+        [optimisticGoal.folderId]: (current[optimisticGoal.folderId] ?? []).map((goal) => goal.id === optimisticGoal.id ? optimisticGoal : goal),
       }));
       setEditingEntity(null);
+
+      try {
+        const updated = await updateGoal(authorizedFetch, originalGoal.id, {
+          name: optimisticGoal.name,
+          description: optimisticGoal.description,
+          status: goalDraft.status,
+          archived: originalGoal.archived,
+          version: originalGoal.version,
+        });
+        setGoalsByFolder((current) => ({
+          ...current,
+          [updated.folderId]: (current[updated.folderId] ?? []).map((goal) => goal.id === updated.id ? updated : goal),
+        }));
+      } catch (error) {
+        setGoalsByFolder((current) => ({
+          ...current,
+          [originalGoal.folderId]: (current[originalGoal.folderId] ?? []).map((goal) => goal.id === originalGoal.id ? originalGoal : goal),
+        }));
+        setEditingEntity({ type: 'goal', id: originalGoal.id });
+        throw error;
+      }
     });
   }
 
@@ -1500,10 +1570,31 @@ export function TasksRoute() {
       return;
     }
 
+    const originalGoal = selectedGoal;
+    const previousGoals = goalsByFolder[selectedGoal.folderId] ?? [];
+    const nextGoals = previousGoals.filter((goal) => goal.id !== selectedGoal.id);
+
     await runAction(async () => {
-      await archiveGoal(authorizedFetch, selectedGoal.id);
-      await loadPlan({ folderId: selectedGoal.folderId, goalId: null, taskId: null, ideaId: null, noteId: null });
-      setIsPanelOpen(false);
+      setGoalsByFolder((current) => ({
+        ...current,
+        [originalGoal.folderId]: nextGoals,
+      }));
+      setSelection({ folderId: originalGoal.folderId, goalId: nextGoals[0]?.id ?? null, taskId: null, ideaId: null, noteId: null });
+      if (nextGoals.length === 0) {
+        setIsPanelOpen(false);
+      }
+
+      try {
+        await archiveGoal(authorizedFetch, originalGoal.id);
+      } catch (error) {
+        setGoalsByFolder((current) => ({
+          ...current,
+          [originalGoal.folderId]: previousGoals,
+        }));
+        setSelection({ folderId: originalGoal.folderId, goalId: originalGoal.id, taskId: null, ideaId: null, noteId: null });
+        setIsPanelOpen(true);
+        throw error;
+      }
     });
   }
 
@@ -1535,39 +1626,76 @@ export function TasksRoute() {
       return;
     }
 
+    const originalIdea = selectedIdea;
+    const optimisticIdea: IdeaDto = {
+      ...selectedIdea,
+      title: ideaDraft.title.trim(),
+      body: ideaDraft.description.trim(),
+      status: ideaDraft.status.trim() || selectedIdea.status,
+      allowAuthorNoteEdits: ideaDraft.allowAuthorNoteEdits,
+    };
+
     await runAction(async () => {
-      const updated = await updateIdea(authorizedFetch, selectedIdea.id, {
-        title: ideaDraft.title.trim(),
-        body: ideaDraft.description.trim(),
-        status: ideaDraft.status.trim() || selectedIdea.status,
-        displayOrder: selectedIdea.displayOrder,
-        archived: selectedIdea.archived,
-        allowAuthorNoteEdits: ideaDraft.allowAuthorNoteEdits,
-        version: selectedIdea.version,
-      });
       setIdeasByFolder((current) => ({
         ...current,
-        [updated.folderId]: (current[updated.folderId] ?? []).map((idea) => idea.id === updated.id ? updated : idea),
+        [optimisticIdea.folderId]: (current[optimisticIdea.folderId] ?? []).map((idea) => idea.id === optimisticIdea.id ? optimisticIdea : idea),
       }));
       setEditingEntity(null);
+
+      try {
+        const updated = await updateIdea(authorizedFetch, originalIdea.id, {
+          title: optimisticIdea.title,
+          body: optimisticIdea.body,
+          status: optimisticIdea.status,
+          displayOrder: originalIdea.displayOrder,
+          archived: originalIdea.archived,
+          allowAuthorNoteEdits: ideaDraft.allowAuthorNoteEdits,
+          version: originalIdea.version,
+        });
+        setIdeasByFolder((current) => ({
+          ...current,
+          [updated.folderId]: (current[updated.folderId] ?? []).map((idea) => idea.id === updated.id ? updated : idea),
+        }));
+      } catch (error) {
+        setIdeasByFolder((current) => ({
+          ...current,
+          [originalIdea.folderId]: (current[originalIdea.folderId] ?? []).map((idea) => idea.id === originalIdea.id ? originalIdea : idea),
+        }));
+        setEditingEntity({ type: 'idea', id: originalIdea.id });
+        throw error;
+      }
     });
   }
 
   async function handleArchiveIdea() {
-    if (!selectedIdea || !canEditSelectedIdea || !window.confirm(copy.archiveIdeaConfirm)) {
+    if (!selectedIdea || !canDeleteSelectedIdea || !window.confirm(copy.archiveIdeaConfirm)) {
       return;
     }
 
+    const originalIdea = selectedIdea;
+    const previousIdeas = ideasByFolder[selectedIdea.folderId] ?? [];
+    const nextIdeas = previousIdeas.filter((idea) => idea.id !== selectedIdea.id);
+
     await runAction(async () => {
-      await deleteIdea(authorizedFetch, selectedIdea.id);
-      const nextIdeas = (ideasByFolder[selectedIdea.folderId] ?? []).filter((idea) => idea.id !== selectedIdea.id);
       setIdeasByFolder((current) => ({
         ...current,
-        [selectedIdea.folderId]: nextIdeas,
+        [originalIdea.folderId]: nextIdeas,
       }));
-      setSelection({ folderId: selectedIdea.folderId, goalId: null, taskId: null, ideaId: nextIdeas[0]?.id ?? null, noteId: null });
+      setSelection({ folderId: originalIdea.folderId, goalId: null, taskId: null, ideaId: nextIdeas[0]?.id ?? null, noteId: null });
       if (nextIdeas.length === 0) {
         setIsPanelOpen(false);
+      }
+
+      try {
+        await deleteIdea(authorizedFetch, originalIdea.id);
+      } catch (error) {
+        setIdeasByFolder((current) => ({
+          ...current,
+          [originalIdea.folderId]: previousIdeas,
+        }));
+        setSelection({ folderId: originalIdea.folderId, goalId: null, taskId: null, ideaId: originalIdea.id, noteId: null });
+        setIsPanelOpen(true);
+        throw error;
       }
     });
   }
@@ -1601,18 +1729,68 @@ export function TasksRoute() {
       return;
     }
 
+    const originalNote = note;
+    const optimisticNote = { ...note, body, updatedAt: new Date().toISOString() };
+
     await runAction(async () => {
-      const updated = await updateIdeaNote(authorizedFetch, note.id, {
-        eventType: note.eventType,
-        body,
-        metadata: note.metadata,
-        version: note.version,
-      });
       setIdeaNotesByIdea((current) => ({
         ...current,
-        [selectedIdea.id]: (current[selectedIdea.id] ?? []).map((item) => item.id === updated.id ? updated : item),
+        [selectedIdea.id]: (current[selectedIdea.id] ?? []).map((item) => item.id === optimisticNote.id ? optimisticNote : item),
       }));
-      setIdeaNoteEdits((current) => ({ ...current, [updated.id]: updated.body }));
+      setIdeaNoteEdits((current) => ({ ...current, [optimisticNote.id]: optimisticNote.body }));
+
+      try {
+        const updated = await updateIdeaNote(authorizedFetch, originalNote.id, {
+          eventType: originalNote.eventType,
+          body,
+          metadata: originalNote.metadata,
+          version: originalNote.version,
+        });
+        setIdeaNotesByIdea((current) => ({
+          ...current,
+          [selectedIdea.id]: (current[selectedIdea.id] ?? []).map((item) => item.id === updated.id ? updated : item),
+        }));
+        setIdeaNoteEdits((current) => ({ ...current, [updated.id]: updated.body }));
+      } catch (error) {
+        setIdeaNotesByIdea((current) => ({
+          ...current,
+          [selectedIdea.id]: (current[selectedIdea.id] ?? []).map((item) => item.id === originalNote.id ? originalNote : item),
+        }));
+        setIdeaNoteEdits((current) => ({ ...current, [originalNote.id]: originalNote.body }));
+        throw error;
+      }
+    });
+  }
+
+  async function handleDeleteIdeaNote(note: IdeaNoteDto) {
+    if (!selectedIdea || !canDeleteIdeaNote() || !window.confirm(copy.deleteNoteConfirm)) {
+      return;
+    }
+
+    const ideaId = selectedIdea.id;
+    const previousNotes = ideaNotesByIdea[ideaId] ?? [];
+
+    await runAction(async () => {
+      setIdeaNotesByIdea((current) => ({
+        ...current,
+        [ideaId]: (current[ideaId] ?? []).filter((item) => item.id !== note.id),
+      }));
+      setIdeaNoteEdits((current) => {
+        const next = { ...current };
+        delete next[note.id];
+        return next;
+      });
+
+      try {
+        await deleteIdeaNote(authorizedFetch, note.id);
+      } catch (error) {
+        setIdeaNotesByIdea((current) => ({
+          ...current,
+          [ideaId]: previousNotes,
+        }));
+        setIdeaNoteEdits((current) => ({ ...current, [note.id]: note.body }));
+        throw error;
+      }
     });
   }
 
@@ -1621,19 +1799,40 @@ export function TasksRoute() {
       return;
     }
 
+    const originalNote = selectedNote;
+    const optimisticNote: NoteDto = {
+      ...selectedNote,
+      title: noteDraft.title.trim(),
+      body: noteDraft.body,
+    };
+
     await runAction(async () => {
-      const updated = await updateNote(authorizedFetch, selectedNote.id, {
-        title: noteDraft.title.trim(),
-        body: noteDraft.body,
-        displayOrder: selectedNote.displayOrder,
-        archived: selectedNote.archived,
-        version: selectedNote.version,
-      });
       setNotesByFolder((current) => ({
         ...current,
-        [updated.folderId]: (current[updated.folderId] ?? []).map((note) => note.id === updated.id ? updated : note),
+        [optimisticNote.folderId]: (current[optimisticNote.folderId] ?? []).map((note) => note.id === optimisticNote.id ? optimisticNote : note),
       }));
       setEditingEntity(null);
+
+      try {
+        const updated = await updateNote(authorizedFetch, originalNote.id, {
+          title: optimisticNote.title,
+          body: optimisticNote.body,
+          displayOrder: originalNote.displayOrder,
+          archived: originalNote.archived,
+          version: originalNote.version,
+        });
+        setNotesByFolder((current) => ({
+          ...current,
+          [updated.folderId]: (current[updated.folderId] ?? []).map((note) => note.id === updated.id ? updated : note),
+        }));
+      } catch (error) {
+        setNotesByFolder((current) => ({
+          ...current,
+          [originalNote.folderId]: (current[originalNote.folderId] ?? []).map((note) => note.id === originalNote.id ? originalNote : note),
+        }));
+        setEditingEntity({ type: 'note', id: originalNote.id });
+        throw error;
+      }
     });
   }
 
@@ -1642,16 +1841,30 @@ export function TasksRoute() {
       return;
     }
 
+    const originalNote = selectedNote;
+    const previousNotes = notesByFolder[selectedNote.folderId] ?? [];
+    const nextNotes = previousNotes.filter((note) => note.id !== selectedNote.id);
+
     await runAction(async () => {
-      await deleteNote(authorizedFetch, selectedNote.id);
-      const nextNotes = (notesByFolder[selectedNote.folderId] ?? []).filter((note) => note.id !== selectedNote.id);
       setNotesByFolder((current) => ({
         ...current,
-        [selectedNote.folderId]: nextNotes,
+        [originalNote.folderId]: nextNotes,
       }));
-      setSelection({ folderId: selectedNote.folderId, goalId: null, taskId: null, ideaId: null, noteId: nextNotes[0]?.id ?? null });
+      setSelection({ folderId: originalNote.folderId, goalId: null, taskId: null, ideaId: null, noteId: nextNotes[0]?.id ?? null });
       if (nextNotes.length === 0) {
         setIsPanelOpen(false);
+      }
+
+      try {
+        await deleteNote(authorizedFetch, originalNote.id);
+      } catch (error) {
+        setNotesByFolder((current) => ({
+          ...current,
+          [originalNote.folderId]: previousNotes,
+        }));
+        setSelection({ folderId: originalNote.folderId, goalId: null, taskId: null, ideaId: null, noteId: originalNote.id });
+        setIsPanelOpen(true);
+        throw error;
       }
     });
   }
@@ -1711,7 +1924,12 @@ export function TasksRoute() {
 
     await runAction(async () => {
       if (isCreatingTask) {
-        const task = await createTask(authorizedFetch, targetGoal.id, {
+        const now = new Date().toISOString();
+        const optimisticId = `optimistic-task-${Date.now()}`;
+        const optimisticTask: TaskDto = {
+          id: optimisticId,
+          goalId: targetGoal.id,
+          ownerUserId: session?.user.id ?? null,
           title: draft.title.trim(),
           description: draft.description.trim(),
           type: draft.type,
@@ -1720,21 +1938,65 @@ export function TasksRoute() {
           status: draft.status,
           plannedTime: fromDateTimeInputValue(draft.plannedTime),
           dueTime: fromDateTimeInputValue(draft.dueTime),
-        });
+          archived: false,
+          shared: false,
+          fullAccess: true,
+          creatorUserId: session?.user.id ?? null,
+          creatorEmail: session?.user.email ?? null,
+          creatorName: session?.user.displayName ?? null,
+          version: 0,
+          tags: [],
+          recurrence: null,
+          createdAt: now,
+          updatedAt: now,
+        };
 
-        const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
-        if (recurrencePayload) {
-          await upsertTaskRecurrence(authorizedFetch, task.id, recurrencePayload);
-        }
-
-        if (session?.user.id) {
-          saveLocalTaskReminders(session.user.id, task.id, normalizedReminderDrafts());
-        }
-
+        setTasksByGoal((current) => ({
+          ...current,
+          [targetGoal.id]: [...(current[targetGoal.id] ?? []), optimisticTask],
+        }));
         setCreateTaskGoalId(null);
         setEditingEntity(null);
-        await loadPlan({ folderId: targetGoal.folderId, goalId: targetGoal.id, taskId: task.id, ideaId: null, noteId: null });
+        setSelection({ folderId: targetGoal.folderId, goalId: targetGoal.id, taskId: optimisticId, ideaId: null, noteId: null });
         setIsPanelOpen(true);
+
+        try {
+          const task = await createTask(authorizedFetch, targetGoal.id, {
+            title: optimisticTask.title,
+            description: optimisticTask.description,
+            type: draft.type,
+            priority,
+            effort,
+            status: draft.status,
+            plannedTime: optimisticTask.plannedTime,
+            dueTime: optimisticTask.dueTime,
+          });
+
+          const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
+          let nextTask = task;
+          if (recurrencePayload) {
+            const recurrenceResult = await upsertTaskRecurrence(authorizedFetch, task.id, recurrencePayload);
+            nextTask = { ...task, recurrence: recurrenceResult.recurrence };
+          }
+
+          if (session?.user.id) {
+            saveLocalTaskReminders(session.user.id, task.id, normalizedReminderDrafts());
+          }
+
+          setTasksByGoal((current) => ({
+            ...current,
+            [targetGoal.id]: (current[targetGoal.id] ?? []).map((item) => item.id === optimisticId ? nextTask : item),
+          }));
+          setSelection({ folderId: targetGoal.folderId, goalId: targetGoal.id, taskId: nextTask.id, ideaId: null, noteId: null });
+        } catch (error) {
+          setTasksByGoal((current) => ({
+            ...current,
+            [targetGoal.id]: (current[targetGoal.id] ?? []).filter((item) => item.id !== optimisticId),
+          }));
+          setCreateTaskGoalId(targetGoal.id);
+          setSelection({ folderId: targetGoal.folderId, goalId: targetGoal.id, taskId: null, ideaId: null, noteId: null });
+          throw error;
+        }
         return;
       }
 
@@ -1742,7 +2004,9 @@ export function TasksRoute() {
         return;
       }
 
-      const updated = await updateTask(authorizedFetch, selectedTask.id, {
+      const originalTask = selectedTask;
+      const optimisticTask: TaskDto = {
+        ...selectedTask,
         title: draft.title.trim(),
         description: draft.description.trim(),
         type: draft.type,
@@ -1751,55 +2015,98 @@ export function TasksRoute() {
         status: draft.status,
         plannedTime: fromDateTimeInputValue(draft.plannedTime),
         dueTime: fromDateTimeInputValue(draft.dueTime),
-        archived: selectedTask.archived,
-        version: selectedTask.version,
-      });
-
-      const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
-      let nextTask = updated;
-      if (recurrencePayload) {
-        const recurrenceResult = await upsertTaskRecurrence(authorizedFetch, selectedTask.id, recurrencePayload);
-        nextTask = { ...updated, recurrence: recurrenceResult.recurrence };
-      }
-
-      if (session?.user.id) {
-        saveLocalTaskReminders(session.user.id, selectedTask.id, normalizedReminderDrafts());
-      }
+      };
 
       setTasksByGoal((current) => ({
         ...current,
-        [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) => task.id === nextTask.id ? nextTask : task),
+        [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) => task.id === optimisticTask.id ? optimisticTask : task),
       }));
-      setSelection((current) => ({ ...current, taskId: nextTask.id, ideaId: null, noteId: null }));
+      setSelection((current) => ({ ...current, taskId: optimisticTask.id, ideaId: null, noteId: null }));
       setEditingEntity(null);
+
+      try {
+        const updated = await updateTask(authorizedFetch, originalTask.id, {
+          title: optimisticTask.title,
+          description: optimisticTask.description,
+          type: optimisticTask.type,
+          priority,
+          effort,
+          status: optimisticTask.status,
+          plannedTime: optimisticTask.plannedTime,
+          dueTime: optimisticTask.dueTime,
+          archived: originalTask.archived,
+          version: originalTask.version,
+        });
+
+        const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
+        let nextTask = updated;
+        if (recurrencePayload) {
+          const recurrenceResult = await upsertTaskRecurrence(authorizedFetch, originalTask.id, recurrencePayload);
+          nextTask = { ...updated, recurrence: recurrenceResult.recurrence };
+        }
+
+        if (session?.user.id) {
+          saveLocalTaskReminders(session.user.id, originalTask.id, normalizedReminderDrafts());
+        }
+
+        setTasksByGoal((current) => ({
+          ...current,
+          [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) => task.id === nextTask.id ? nextTask : task),
+        }));
+        setSelection((current) => ({ ...current, taskId: nextTask.id, ideaId: null, noteId: null }));
+      } catch (error) {
+        setTasksByGoal((current) => ({
+          ...current,
+          [selectedGoal.id]: (current[selectedGoal.id] ?? []).map((task) => task.id === originalTask.id ? originalTask : task),
+        }));
+        setEditingEntity({ type: 'task', id: originalTask.id });
+        throw error;
+      }
     });
   }
 
   async function handleToggleTask(task: TaskDto, goal: GoalDto) {
+    const optimisticTask: TaskDto = { ...task, status: isComplete(task) ? 'todo' : 'done' };
+
     await runAction(async () => {
-      const updated = await updateTask(authorizedFetch, task.id, {
-        title: task.title,
-        description: task.description,
-        type: task.type,
-        priority: task.priority,
-        effort: taskEffort(task),
-        status: isComplete(task) ? 'todo' : 'done',
-        plannedTime: task.plannedTime,
-        dueTime: task.dueTime,
-        archived: task.archived,
-        version: task.version,
-      });
-
-      if (task.shared) {
-        await loadPlan({ folderId: goal.folderId, goalId: goal.id, taskId: updated.id, ideaId: null, noteId: null });
-        return;
-      }
-
       setTasksByGoal((current) => ({
         ...current,
-        [goal.id]: (current[goal.id] ?? []).map((item) => item.id === updated.id ? updated : item),
+        [goal.id]: (current[goal.id] ?? []).map((item) => item.id === optimisticTask.id ? optimisticTask : item),
       }));
-      setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: updated.id, ideaId: null, noteId: null });
+      setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: optimisticTask.id, ideaId: null, noteId: null });
+
+      try {
+        const updated = await updateTask(authorizedFetch, task.id, {
+          title: task.title,
+          description: task.description,
+          type: task.type,
+          priority: task.priority,
+          effort: taskEffort(task),
+          status: optimisticTask.status,
+          plannedTime: task.plannedTime,
+          dueTime: task.dueTime,
+          archived: task.archived,
+          version: task.version,
+        });
+
+        if (task.shared) {
+          await loadPlan({ folderId: goal.folderId, goalId: goal.id, taskId: updated.id, ideaId: null, noteId: null });
+          return;
+        }
+
+        setTasksByGoal((current) => ({
+          ...current,
+          [goal.id]: (current[goal.id] ?? []).map((item) => item.id === updated.id ? updated : item),
+        }));
+        setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: updated.id, ideaId: null, noteId: null });
+      } catch (error) {
+        setTasksByGoal((current) => ({
+          ...current,
+          [goal.id]: (current[goal.id] ?? []).map((item) => item.id === task.id ? task : item),
+        }));
+        setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: task.id, ideaId: null, noteId: null });
+        throw error;
+      }
     });
   }
 
@@ -1808,12 +2115,10 @@ export function TasksRoute() {
       return;
     }
 
+    const previousGoalTasks = tasksByGoal[goal.id] ?? [];
+    const nextGoalTasks = previousGoalTasks.filter((item) => item.id !== task.id);
+
     await runAction(async () => {
-      await deleteTask(authorizedFetch, task.id);
-      if (session?.user.id) {
-        deleteLocalTaskReminders(session.user.id, task.id);
-      }
-      const nextGoalTasks = (tasksByGoal[goal.id] ?? []).filter((item) => item.id !== task.id);
       setTasksByGoal((current) => ({
         ...current,
         [goal.id]: nextGoalTasks,
@@ -1821,6 +2126,21 @@ export function TasksRoute() {
       setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: nextGoalTasks[0]?.id ?? null, ideaId: null, noteId: null });
       if (nextGoalTasks.length === 0) {
         setIsPanelOpen(false);
+      }
+
+      try {
+        await deleteTask(authorizedFetch, task.id);
+        if (session?.user.id) {
+          deleteLocalTaskReminders(session.user.id, task.id);
+        }
+      } catch (error) {
+        setTasksByGoal((current) => ({
+          ...current,
+          [goal.id]: previousGoalTasks,
+        }));
+        setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: task.id, ideaId: null, noteId: null });
+        setIsPanelOpen(true);
+        throw error;
       }
     });
   }
@@ -2011,6 +2331,11 @@ export function TasksRoute() {
         });
       } else if (selectedGoal && !selectedGoal.shared) {
         await createGoalInvitation(authorizedFetch, selectedGoal.id, {
+          email: shareEmail.trim(),
+          fullAccess: shareFullAccess,
+        });
+      } else if (selectedIdea && !selectedIdea.shared) {
+        await createIdeaInvitation(authorizedFetch, selectedIdea.id, {
           email: shareEmail.trim(),
           fullAccess: shareFullAccess,
         });
@@ -2403,14 +2728,16 @@ export function TasksRoute() {
   }
 
   function renderSharingPanel() {
-    const current = selectedTask ?? selectedGoal ?? selectedFolder;
+    const current = selectedTask ?? selectedGoal ?? selectedIdea ?? selectedFolder;
     const target = selectedTask
       ? { type: 'task' as const, id: selectedTask.id }
       : selectedGoal
         ? { type: 'goal' as const, id: selectedGoal.id }
-        : selectedFolder
-          ? { type: 'folder' as const, id: selectedFolder.id }
-          : null;
+        : selectedIdea
+          ? { type: 'idea' as const, id: selectedIdea.id }
+          : selectedFolder
+            ? { type: 'folder' as const, id: selectedFolder.id }
+            : null;
     const shareable = Boolean(current && !current.shared);
     const accessKey = target ? `sharing:${target.type}:${target.id}` : 'sharing';
     const accessOpen = openSections[accessKey] ?? false;
@@ -2870,7 +3197,11 @@ export function TasksRoute() {
                       <span className="plan-row__title">{task.title}</span>
                       <span className="plan-row__effort">{formatTaskEffort(task, locale)}</span>
                     </span>
-                    {isPlannedOverdue(task) ? <span className="plan-row__overdue" title={copy.planned}>!</span> : null}
+                    {isPlannedOverdue(task) ? (
+                      <span className="plan-row__overdue" title={copy.planned} aria-label={copy.planned}>
+                        <TriangleAlert aria-hidden="true" size={14} strokeWidth={2.2} />
+                      </span>
+                    ) : null}
                   </button>
                   {dueChip ? <span className={`due-chip due-chip--${dueTone(task.dueTime)}`} title={formatDateTime(task.dueTime, locale)}>{dueChip}</span> : null}
                   <span className="plan-row__actions">
@@ -3032,6 +3363,11 @@ export function TasksRoute() {
                 <div className="detail-label">{planningCopy.ideas.bodyLabel}</div>
                 <div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedIdea.body || planningCopy.common.noDescription}</p></div>
               </div>
+              {canDeleteSelectedIdea && !(editingEntity?.type === 'idea' && editingEntity.id === selectedIdea.id) ? (
+                <div className="detail-section detail-editor__actions">
+                  <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleArchiveIdea()}><Trash2 aria-hidden="true" size={16} strokeWidth={1.75} /><span>{planningCopy.common.delete}</span></button>
+                </div>
+              ) : null}
               {editingEntity?.type === 'idea' && editingEntity.id === selectedIdea.id ? (
                 <details className="detail-disclosure" open>
                   <summary>{copy.edit}</summary>
@@ -3042,7 +3378,9 @@ export function TasksRoute() {
                     <label className="switch-control detail-grid__wide"><input type="checkbox" checked={ideaDraft.allowAuthorNoteEdits} disabled={!canEditSelectedIdea} onChange={(event) => setIdeaDraft((current) => ({ ...current, allowAuthorNoteEdits: event.target.checked }))} /><span>{planningCopy.ideas.allowAuthorNoteEditsLabel}</span></label>
                     <div className="cluster detail-grid__wide detail-editor__actions">
                       <button className="button button--primary" type="button" disabled={saving || !canEditSelectedIdea || !ideaDraft.title.trim()} onClick={() => void handleSaveIdea()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
-                      <button className="button button--ghost" type="button" disabled={saving || !canEditSelectedIdea} onClick={() => void handleArchiveIdea()}><Archive aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.archive}</span></button>
+                      {canDeleteSelectedIdea ? (
+                        <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleArchiveIdea()}><Trash2 aria-hidden="true" size={16} strokeWidth={1.75} /><span>{planningCopy.common.delete}</span></button>
+                      ) : null}
                     </div>
                   </div>
                 </details>
@@ -3056,6 +3394,7 @@ export function TasksRoute() {
                 <dl>
                   {selectedIdeaNotes.map((note) => {
                     const noteCanEdit = canEditIdeaNote(note);
+                    const noteCanDelete = canDeleteIdeaNote();
                     const noteBody = ideaNoteEdits[note.id] ?? note.body;
                     return (
                       <div key={note.id}>
@@ -3069,6 +3408,9 @@ export function TasksRoute() {
                                 <button className="button button--ghost" type="button" disabled={saving || !noteBody.trim()} onClick={() => void handleSaveIdeaNote(note)}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{planningCopy.ideas.saveHistoryNote}</span></button>
                               </>
                             ) : <p>{note.body}</p>}
+                            {noteCanDelete ? (
+                              <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleDeleteIdeaNote(note)}><Trash2 aria-hidden="true" size={16} strokeWidth={1.75} /><span>{planningCopy.common.delete}</span></button>
+                            ) : null}
                           </div>
                         </dd>
                       </div>
@@ -3079,6 +3421,7 @@ export function TasksRoute() {
               ))}
               {renderLinkedNotesPanel()}
               {renderLinksPanel()}
+              {renderSharingPanel()}
               {renderOperationPanel()}
             </div>
           </>
@@ -3181,7 +3524,7 @@ export function TasksRoute() {
                 <span className="meta-chip"><Target aria-hidden="true" size={14} strokeWidth={1.75} />{copy.goal}</span>
                 <span className="meta-chip">{copy.status}: {planningCopy.enums.goalStatus[selectedGoal.status]}</span>
                 <span className="meta-chip">{copy.task}: {selectedGoalTasks.length}</span>
-                <span className="meta-chip">{copy.effort}: {formatGoalEffort(selectedGoalTasks, locale)}</span>
+                <span className="meta-chip">{copy.effortHours}: {formatGoalEffort(selectedGoalTasks, locale)}</span>
                 <span className="meta-chip">{copy.progress}: {selectedGoalProgress.progressLabel}</span>
               </div>
               <div className="goal-progress detail-section">
@@ -3192,14 +3535,20 @@ export function TasksRoute() {
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(selectedFolder.id)} / {selectedGoal.name}</span></div></div>
               <div className="detail-section"><div className="detail-label">{planningCopy.goals.description}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedGoal.description || planningCopy.common.noDescription}</p></div></div>
               {selectedGoalTasks.length > 0 ? (
-                <section className="detail-section">
-                  <div className="detail-label">{planningCopy.tasks.title}</div>
+                <section className="detail-section goal-plan">
+                  <div className="detail-disclosure__header">
+                    <div>
+                      <div className="detail-label">{copy.plan}</div>
+                      <div className="field__hint">{copy.progress}: {selectedGoalProgress.progressLabel} · {copy.effortHours}: {selectedGoalProgress.estimateLabel}</div>
+                    </div>
+                  </div>
                   <div className="goal-task-list">
                     {selectedGoalTasks.map((task) => (
                       <button className="goal-task-list__item" type="button" key={task.id} onClick={() => selectTask(task)}>
                         <span className={`marker-dot marker-dot--${markerToneForTask(task)}`} aria-hidden="true" />
                         <span className="goal-task-list__title">{task.title}</span>
                         <span className="meta-chip">{planningCopy.enums.taskStatus[task.status]}</span>
+                        <span className="meta-chip">{copy.priority}: {task.priority}</span>
                         <span className="meta-chip">{formatTaskEffort(task, locale)}</span>
                       </button>
                     ))}
@@ -3266,7 +3615,7 @@ export function TasksRoute() {
                 <div className="detail-panel__badges" aria-label={copy.details}>
                   <span className="meta-chip" title={copy.status}><span className={`marker-dot marker-dot--${markerToneForTask(selectedTask)}`} aria-hidden="true" />{planningCopy.enums.taskStatus[selectedTask.status]}</span>
                   <span className="meta-chip" title={copy.priority}>{selectedTask.priority}</span>
-                  <span className="meta-chip" title={copy.effort}>{formatTaskEffort(selectedTask, locale)}</span>
+                  <span className="meta-chip" title={copy.effortHours}>{formatTaskEffort(selectedTask, locale)}</span>
                   {selectedTask.dueTime ? <span className={`meta-chip meta-chip--${dueTone(selectedTask.dueTime)}`} title={copy.due}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.dueTime, locale)}</span> : null}
                   {selectedTask.plannedTime ? <span className="meta-chip" title={copy.planned}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.plannedTime, locale)}</span> : null}
                   {selectedTask.recurrence?.active ? <span className="meta-chip" title={planningCopy.tasks.recurrenceLabel}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{describeRecurrence(selectedTask.recurrence, locale)}</span> : null}
@@ -3282,7 +3631,7 @@ export function TasksRoute() {
                   <label className="field"><span>{planningCopy.tasks.typeLabel}</span><select className="field__control" disabled={!canEditSelectedTaskFields} value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as TaskType }))}><option value="green">{planningCopy.enums.taskType.green}</option><option value="red">{planningCopy.enums.taskType.red}</option></select></label>
                   <label className="field"><span>{planningCopy.tasks.statusLabel}</span><select className="field__control" disabled={!canEditSelectedTaskFields} value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as TaskStatus }))}>{TASK_STATUSES.map((status) => <option key={status} value={status}>{planningCopy.enums.taskStatus[status]}</option>)}</select></label>
                   <label className="field"><span>{planningCopy.tasks.priorityLabel}</span><input className="field__control" inputMode="numeric" disabled={!canEditSelectedTaskFields} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} /></label>
-                  <label className="field"><span>{planningCopy.tasks.effortLabel}</span><input className="field__control" inputMode="numeric" disabled={!canEditSelectedTaskFields} value={draft.effort} onChange={(event) => setDraft((current) => ({ ...current, effort: event.target.value }))} />{currentEffortError ? <span className="field__error">{currentEffortError}</span> : null}</label>
+                  <label className="field"><span>{copy.effortHours}</span><input className="field__control" inputMode="numeric" disabled={!canEditSelectedTaskFields} value={draft.effort} onChange={(event) => setDraft((current) => ({ ...current, effort: event.target.value }))} /><span className="field__hint">{copy.hoursHint}</span>{currentEffortError ? <span className="field__error">{currentEffortError}</span> : null}</label>
                   <label className="field"><span>{planningCopy.tasks.plannedTimeLabel}</span><input className="field__control" type="datetime-local" disabled={!canEditSelectedTaskFields} value={draft.plannedTime} onChange={(event) => setDraft((current) => ({ ...current, plannedTime: event.target.value }))} /></label>
                   <label className="field"><span>{planningCopy.tasks.dueTimeLabel}</span><input className="field__control" type="datetime-local" disabled={!canEditSelectedTaskFields} value={draft.dueTime} onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))} /></label>
                   <div className="recurrence-editor detail-grid__wide">

@@ -53,6 +53,7 @@ class HierarchyLinksIntegrationTest {
                         notes,
                         idea_notes,
                         ideas,
+                        idea_shares,
                         folder_shares,
                         task_shares,
                         goal_shares,

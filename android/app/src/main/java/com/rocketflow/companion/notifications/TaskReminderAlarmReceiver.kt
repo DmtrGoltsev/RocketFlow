@@ -32,12 +32,10 @@ class TaskReminderAlarmReceiver : BroadcastReceiver() {
             return
         }
 
-        val nextTrigger = TaskReminderSchedule.nextTriggerAtOrAfter(
-            triggerAtMillis = setting.triggerAtMillis,
-            repeat = setting.repeat,
+        val nextSetting = TaskReminderSchedule.nextSettingAtOrAfter(
+            setting = setting,
             nowMillis = System.currentTimeMillis() + 1L
         ) ?: return
-        val nextSetting = setting.copy(triggerAtMillis = nextTrigger)
         store.save(nextSetting)
         TaskReminderAlarmScheduler(context, store).schedule(nextSetting)
     }

@@ -63,6 +63,7 @@ class CalendarReschedulePriorityIntegrationTest {
                         task_reschedule_events,
                         task_reminder_rules,
                         task_recurrence_rules,
+                        idea_shares,
                         task_shares,
                         goal_shares,
                         share_invitations,

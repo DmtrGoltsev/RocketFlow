@@ -1,0 +1,5 @@
+﻿<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="task_reminder::345a4072-f676-438a-936e-0c5dacb7c313::81c148f7-4789-4782-9439-fb2670587914">{"userId":"345a4072-f676-438a-936e-0c5dacb7c313","taskId":"81c148f7-4789-4782-9439-fb2670587914","reminderId":"smoke-final-20260525-023130","taskTitle":"Near Reminder Device QA 2","triggerAtMillis":1779665653000,"repeat":"none","enabled":true,"anchorAtMillis":1779665653000}</string>
+</map>
+

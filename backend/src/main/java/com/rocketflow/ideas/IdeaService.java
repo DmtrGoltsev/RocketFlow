@@ -15,6 +15,7 @@ import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.common.ApiException;
 import com.rocketflow.sharing.SharingAccessService;
 import com.rocketflow.sharing.SharingAccessService.FolderAccess;
+import com.rocketflow.sharing.SharingAccessService.IdeaAccess;
 
 @Service
 public class IdeaService {
@@ -41,12 +42,14 @@ public class IdeaService {
     @Transactional(readOnly = true)
     public IdeaListResponse listIdeas(UUID actorUserId, UUID folderId) {
         FolderAccess access = sharingAccessService.requireFolderContentAccess(folderId, actorUserId);
-        return new IdeaListResponse(ideaRepository.findByFolderIdAndOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(
+        var ideas = ideaRepository.findByFolderIdAndOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(
                         folderId,
                         access.folder().getOwnerUserId()
-                )
+                );
+        var sharedIdeaIds = sharingAccessService.findSharedIdeaIds(ideas.stream().map(Idea::getId).toList());
+        return new IdeaListResponse(ideas
                 .stream()
-                .map(idea -> toDto(idea, access.shared()))
+                .map(idea -> toDto(idea, access.shared() || sharedIdeaIds.contains(idea.getId()), access.fullAccess()))
                 .toList());
     }
 
@@ -67,13 +70,13 @@ public class IdeaService {
         idea.setAllowAuthorNoteEdits(Boolean.TRUE.equals(request.allowAuthorNoteEdits()));
         idea.setCreatedAt(now);
         idea.setUpdatedAt(now);
-        return toDto(ideaRepository.save(idea), access.shared());
+        return toDto(ideaRepository.save(idea), access.shared(), access.fullAccess());
     }
 
     @Transactional(readOnly = true)
     public IdeaDto getIdea(UUID actorUserId, UUID ideaId) {
         IdeaAccess access = requireIdeaAccess(ideaId, actorUserId);
-        return toDto(access.idea(), access.folderAccess().shared());
+        return toDto(access.idea(), access.shared(), access.fullAccess());
     }
 
     @Transactional
@@ -81,6 +84,7 @@ public class IdeaService {
         IdeaAccess access = requireIdeaFullAccess(ideaId, actorUserId);
         Idea idea = access.idea();
         ensureVersion(idea.getVersion(), request.version(), "Idea");
+        ensureIdeaArchiveChangeAllowed(idea, actorUserId, request.archived());
         idea.setTitle(request.title().trim());
         idea.setBody(request.body());
         idea.setStatus(request.status().trim());
@@ -90,12 +94,15 @@ public class IdeaService {
             idea.setAllowAuthorNoteEdits(request.allowAuthorNoteEdits());
         }
         idea.setUpdatedAt(Instant.now());
-        return toDto(ideaRepository.saveAndFlush(idea), access.folderAccess().shared());
+        return toDto(ideaRepository.saveAndFlush(idea), access.shared(), access.fullAccess());
     }
 
     @Transactional
     public void softDeleteIdea(UUID actorUserId, UUID ideaId) {
-        Idea idea = requireIdeaFullAccess(ideaId, actorUserId).idea();
+        Idea idea = requireIdeaAccess(ideaId, actorUserId).idea();
+        if (!idea.getCreatorUserId().equals(actorUserId)) {
+            throw notFound("Idea");
+        }
         idea.setArchived(true);
         idea.setUpdatedAt(Instant.now());
         ideaRepository.save(idea);
@@ -112,7 +119,7 @@ public class IdeaService {
         }
         idea.setFolderId(targetAccess.folder().getId());
         idea.setUpdatedAt(Instant.now());
-        return toDto(ideaRepository.save(idea), targetAccess.shared());
+        return toDto(ideaRepository.save(idea), targetAccess.shared(), targetAccess.fullAccess());
     }
 
     @Transactional
@@ -137,7 +144,7 @@ public class IdeaService {
         clone.setAllowAuthorNoteEdits(source.isAllowAuthorNoteEdits());
         clone.setCreatedAt(now);
         clone.setUpdatedAt(now);
-        return toDto(ideaRepository.save(clone), targetAccess.shared());
+        return toDto(ideaRepository.save(clone), targetAccess.shared(), targetAccess.fullAccess());
     }
 
     @Transactional(readOnly = true)
@@ -168,10 +175,9 @@ public class IdeaService {
 
     @Transactional
     public IdeaNoteDto updateIdeaNote(UUID actorUserId, UUID noteId, UpdateIdeaNoteRequest request) {
-        IdeaNote note = ideaNoteRepository.findById(noteId)
-                .orElseThrow(() -> notFound("Idea note"));
-        IdeaAccess access = requireIdeaAccess(note.getIdeaId(), actorUserId);
-        if (!canEditIdeaNote(access, note, actorUserId)) {
+        IdeaNoteAccess access = requireIdeaNoteAccess(noteId, actorUserId);
+        IdeaNote note = access.note();
+        if (!canEditIdeaNote(note, actorUserId)) {
             throw notFound("Idea note");
         }
         ensureVersion(note.getVersion(), request.version(), "Idea note");
@@ -182,26 +188,37 @@ public class IdeaService {
         return toDto(ideaNoteRepository.saveAndFlush(note));
     }
 
+    @Transactional
+    public void deleteIdeaNote(UUID actorUserId, UUID noteId) {
+        IdeaNoteAccess access = requireIdeaNoteAccess(noteId, actorUserId);
+        if (!canDeleteIdeaNote(access.ideaAccess().idea(), actorUserId)) {
+            throw notFound("Idea note");
+        }
+        ideaNoteRepository.delete(access.note());
+    }
+
     @Transactional(readOnly = true)
     public IdeaAccess requireIdeaAccess(UUID ideaId, UUID actorUserId) {
-        Idea idea = ideaRepository.findById(ideaId).orElseThrow(() -> notFound("Idea"));
-        FolderAccess folderAccess = sharingAccessService.requireFolderContentAccess(idea.getFolderId(), actorUserId);
-        if (!idea.getOwnerUserId().equals(folderAccess.folder().getOwnerUserId())) {
-            throw notFound("Idea");
-        }
-        return new IdeaAccess(idea, folderAccess);
+        return sharingAccessService.requireIdeaAccess(ideaId, actorUserId);
     }
 
     @Transactional(readOnly = true)
     public IdeaAccess requireIdeaFullAccess(UUID ideaId, UUID actorUserId) {
-        IdeaAccess access = requireIdeaAccess(ideaId, actorUserId);
-        if (!access.folderAccess().fullAccess()) {
-            throw notFound("Idea");
-        }
-        return access;
+        return sharingAccessService.requireIdeaFullAccess(ideaId, actorUserId);
     }
 
-    public IdeaDto toDto(Idea idea, boolean shared) {
+    @Transactional(readOnly = true)
+    public IdeaNoteAccess requireIdeaNoteAccess(UUID noteId, UUID actorUserId) {
+        IdeaNote note = ideaNoteRepository.findById(noteId)
+                .orElseThrow(() -> notFound("Idea note"));
+        IdeaAccess access = requireIdeaAccess(note.getIdeaId(), actorUserId);
+        if (!note.getOwnerUserId().equals(access.idea().getOwnerUserId())) {
+            throw notFound("Idea note");
+        }
+        return new IdeaNoteAccess(note, access);
+    }
+
+    public IdeaDto toDto(Idea idea, boolean shared, boolean fullAccess) {
         AuthorDetails creator = authorDetails(idea.getCreatorUserId());
         return new IdeaDto(
                 idea.getId(),
@@ -213,6 +230,7 @@ public class IdeaService {
                 idea.isArchived(),
                 idea.isAllowAuthorNoteEdits(),
                 shared,
+                fullAccess,
                 idea.getCreatorUserId(),
                 creator.email(),
                 creator.name(),
@@ -265,16 +283,25 @@ public class IdeaService {
         }
     }
 
-    private boolean canEditIdeaNote(IdeaAccess access, IdeaNote note, UUID actorUserId) {
-        return access.folderAccess().fullAccess()
-                || (access.idea().isAllowAuthorNoteEdits() && note.getAuthorUserId().equals(actorUserId));
+    private boolean canEditIdeaNote(IdeaNote note, UUID actorUserId) {
+        return note.getAuthorUserId().equals(actorUserId);
+    }
+
+    private boolean canDeleteIdeaNote(Idea idea, UUID actorUserId) {
+        return idea.getCreatorUserId().equals(actorUserId);
+    }
+
+    private void ensureIdeaArchiveChangeAllowed(Idea idea, UUID actorUserId, boolean requestedArchived) {
+        if (idea.isArchived() != requestedArchived && !idea.getCreatorUserId().equals(actorUserId)) {
+            throw notFound("Idea");
+        }
     }
 
     private ApiException notFound(String entityName) {
         return new ApiException(HttpStatus.NOT_FOUND, "not_found", entityName + " was not found.");
     }
 
-    public record IdeaAccess(Idea idea, FolderAccess folderAccess) {
+    public record IdeaNoteAccess(IdeaNote note, IdeaAccess ideaAccess) {
     }
 
     private record AuthorDetails(String email, String name) {

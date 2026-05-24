@@ -1,6 +1,7 @@
 package com.rocketflow.sharing;
 
 import static com.rocketflow.goals.GoalsApi.*;
+import static com.rocketflow.ideas.IdeasApi.*;
 import static com.rocketflow.tasks.TasksApi.*;
 
 import java.time.Instant;
@@ -99,6 +100,7 @@ public final class SharingApi {
             List<SharedFolderResourceDto> folders,
             List<GoalDto> goals,
             List<TaskDto> tasks,
+            List<IdeaDto> ideas,
             List<UUID> createTaskGoalIds
     ) {
     }

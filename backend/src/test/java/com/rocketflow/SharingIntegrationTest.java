@@ -51,6 +51,7 @@ class SharingIntegrationTest {
              var statement = connection.createStatement()) {
             statement.executeUpdate("""
                     truncate table
+                        idea_shares,
                         folder_shares,
                         task_shares,
                         goal_shares,

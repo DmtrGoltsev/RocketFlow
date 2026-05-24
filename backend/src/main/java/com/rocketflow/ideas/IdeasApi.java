@@ -24,6 +24,7 @@ public final class IdeasApi {
             boolean archived,
             boolean allowAuthorNoteEdits,
             boolean shared,
+            boolean fullAccess,
             UUID creatorUserId,
             String creatorEmail,
             String creatorName,

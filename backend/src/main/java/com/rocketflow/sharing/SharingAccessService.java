@@ -21,6 +21,8 @@ import com.rocketflow.folders.Folder;
 import com.rocketflow.folders.FolderRepository;
 import com.rocketflow.goals.Goal;
 import com.rocketflow.goals.GoalRepository;
+import com.rocketflow.ideas.Idea;
+import com.rocketflow.ideas.IdeaRepository;
 import com.rocketflow.tasks.Task;
 import com.rocketflow.tasks.TaskRepository;
 
@@ -30,24 +32,30 @@ public class SharingAccessService {
     private final GoalRepository goalRepository;
     private final TaskRepository taskRepository;
     private final FolderRepository folderRepository;
+    private final IdeaRepository ideaRepository;
     private final FolderShareRepository folderShareRepository;
     private final GoalShareRepository goalShareRepository;
     private final TaskShareRepository taskShareRepository;
+    private final IdeaShareRepository ideaShareRepository;
 
     public SharingAccessService(
             GoalRepository goalRepository,
             TaskRepository taskRepository,
             FolderRepository folderRepository,
+            IdeaRepository ideaRepository,
             FolderShareRepository folderShareRepository,
             GoalShareRepository goalShareRepository,
-            TaskShareRepository taskShareRepository
+            TaskShareRepository taskShareRepository,
+            IdeaShareRepository ideaShareRepository
     ) {
         this.goalRepository = goalRepository;
         this.taskRepository = taskRepository;
         this.folderRepository = folderRepository;
+        this.ideaRepository = ideaRepository;
         this.folderShareRepository = folderShareRepository;
         this.goalShareRepository = goalShareRepository;
         this.taskShareRepository = taskShareRepository;
+        this.ideaShareRepository = ideaShareRepository;
     }
 
     @Transactional(readOnly = true)
@@ -206,6 +214,44 @@ public class SharingAccessService {
     }
 
     @Transactional(readOnly = true)
+    public IdeaAccess requireIdeaAccess(UUID ideaId, UUID actorUserId) {
+        Idea idea = ideaRepository.findById(ideaId)
+                .orElseThrow(() -> notFound("Idea"));
+        if (idea.getOwnerUserId().equals(actorUserId)) {
+            return new IdeaAccess(idea, true, hasActiveFolderShares(idea.getFolderId()) || hasActiveIdeaShares(ideaId), true);
+        }
+
+        Optional<FolderShare> folderShare = findInheritedFolderShare(idea.getFolderId(), actorUserId);
+        if (folderShare.isPresent()) {
+            return new IdeaAccess(idea, false, true, folderShare.get().isFullAccess());
+        }
+        Optional<IdeaShare> ideaShare = ideaShareRepository.findByIdeaIdAndCollaboratorUserIdAndStatus(ideaId, actorUserId, SHARE_ACTIVE);
+        if (ideaShare.isPresent()) {
+            return new IdeaAccess(idea, false, true, ideaShare.get().isFullAccess());
+        }
+        throw notFound("Idea");
+    }
+
+    @Transactional(readOnly = true)
+    public IdeaAccess requireIdeaOwner(UUID ideaId, UUID actorUserId) {
+        Idea idea = ideaRepository.findById(ideaId)
+                .orElseThrow(() -> notFound("Idea"));
+        if (!idea.getOwnerUserId().equals(actorUserId)) {
+            throw notFound("Idea");
+        }
+        return new IdeaAccess(idea, true, hasActiveFolderShares(idea.getFolderId()) || hasActiveIdeaShares(ideaId), true);
+    }
+
+    @Transactional(readOnly = true)
+    public IdeaAccess requireIdeaFullAccess(UUID ideaId, UUID actorUserId) {
+        IdeaAccess access = requireIdeaAccess(ideaId, actorUserId);
+        if (!access.fullAccess()) {
+            throw notFound("Idea");
+        }
+        return access;
+    }
+
+    @Transactional(readOnly = true)
     public List<FolderAccess> accessibleSharedFolders(UUID actorUserId) {
         Map<UUID, FolderAccess> result = new LinkedHashMap<>();
         for (FolderShare share : folderShareRepository.findByCollaboratorUserIdAndStatusOrderByCreatedAtAsc(actorUserId, SHARE_ACTIVE)) {
@@ -247,6 +293,14 @@ public class SharingAccessService {
     }
 
     @Transactional(readOnly = true)
+    public Set<UUID> findSharedIdeaIds(Collection<UUID> ideaIds) {
+        if (ideaIds == null || ideaIds.isEmpty()) {
+            return Set.of();
+        }
+        return new LinkedHashSet<>(ideaShareRepository.findIdeaIdsByIdeaIdInAndStatus(ideaIds, SHARE_ACTIVE));
+    }
+
+    @Transactional(readOnly = true)
     public boolean hasActiveGoalShares(UUID goalId) {
         return goalShareRepository.countByGoalIdAndStatus(goalId, SHARE_ACTIVE) > 0;
     }
@@ -259,6 +313,11 @@ public class SharingAccessService {
     @Transactional(readOnly = true)
     public boolean hasActiveTaskShares(UUID taskId) {
         return taskShareRepository.countByTaskIdAndStatus(taskId, SHARE_ACTIVE) > 0;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasActiveIdeaShares(UUID ideaId) {
+        return ideaShareRepository.countByIdeaIdAndStatus(ideaId, SHARE_ACTIVE) > 0;
     }
 
     private Optional<FolderShare> findInheritedFolderShare(UUID folderId, UUID actorUserId) {
@@ -308,6 +367,9 @@ public class SharingAccessService {
     }
 
     public record TaskAccess(Task task, boolean owner, boolean shared, boolean fullAccess) {
+    }
+
+    public record IdeaAccess(Idea idea, boolean owner, boolean shared, boolean fullAccess) {
     }
 
     public record FolderAccess(Folder folder, boolean owner, boolean shared, boolean fullAccess) {

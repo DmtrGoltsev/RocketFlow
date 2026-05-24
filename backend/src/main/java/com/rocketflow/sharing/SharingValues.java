@@ -7,6 +7,7 @@ public final class SharingValues {
     public static final String TARGET_GOAL = "goal";
     public static final String TARGET_TASK = "task";
     public static final String TARGET_FOLDER = "folder";
+    public static final String TARGET_IDEA = "idea";
 
     public static final String INVITATION_PENDING = "pending";
     public static final String INVITATION_ACCEPTED = "accepted";

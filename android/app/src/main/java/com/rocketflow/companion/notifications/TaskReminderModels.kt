@@ -2,8 +2,11 @@ package com.rocketflow.companion.notifications
 
 import org.json.JSONObject
 import java.time.Instant
+import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.YearMonth
 import java.time.temporal.ChronoUnit
+import kotlin.math.min
 
 enum class TaskReminderRepeat(val wireValue: String) {
     None("none"),
@@ -26,7 +29,8 @@ data class TaskReminderSetting(
     val taskTitle: String,
     val triggerAtMillis: Long,
     val repeat: TaskReminderRepeat,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val anchorAtMillis: Long = triggerAtMillis
 )
 
 object TaskReminderJson {
@@ -39,6 +43,7 @@ object TaskReminderJson {
             .put("triggerAtMillis", setting.triggerAtMillis)
             .put("repeat", setting.repeat.wireValue)
             .put("enabled", setting.enabled)
+            .put("anchorAtMillis", setting.anchorAtMillis)
             .toString()
     }
 
@@ -62,7 +67,8 @@ object TaskReminderJson {
                 taskTitle = json.optString("taskTitle").trim().ifBlank { "RocketFlow task" },
                 triggerAtMillis = json.optLong("triggerAtMillis", 0L),
                 repeat = TaskReminderRepeat.fromWireValue(json.optString("repeat")),
-                enabled = json.optBoolean("enabled", true)
+                enabled = json.optBoolean("enabled", true),
+                anchorAtMillis = json.optLong("anchorAtMillis", json.optLong("triggerAtMillis", 0L))
             )
         }.getOrNull()
     }
@@ -94,11 +100,31 @@ object TaskReminderJson {
 }
 
 object TaskReminderSchedule {
+    fun nextSettingAtOrAfter(
+        setting: TaskReminderSetting,
+        nowMillis: Long,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): TaskReminderSetting? {
+        val nextTrigger = nextTriggerAtOrAfter(
+            triggerAtMillis = setting.triggerAtMillis,
+            repeat = setting.repeat,
+            nowMillis = nowMillis,
+            zone = zone,
+            anchorAtMillis = setting.anchorAtMillis
+        ) ?: return null
+        return if (nextTrigger == setting.triggerAtMillis) {
+            setting
+        } else {
+            setting.copy(triggerAtMillis = nextTrigger)
+        }
+    }
+
     fun nextTriggerAtOrAfter(
         triggerAtMillis: Long,
         repeat: TaskReminderRepeat,
         nowMillis: Long,
-        zone: ZoneId = ZoneId.systemDefault()
+        zone: ZoneId = ZoneId.systemDefault(),
+        anchorAtMillis: Long = triggerAtMillis
     ): Long? {
         if (triggerAtMillis <= 0L) {
             return null
@@ -110,24 +136,41 @@ object TaskReminderSchedule {
             return null
         }
 
-        var next = Instant.ofEpochMilli(triggerAtMillis).atZone(zone).toLocalDateTime()
+        val anchorMillis = anchorAtMillis.takeIf { it > 0L } ?: triggerAtMillis
+        val anchor = Instant.ofEpochMilli(anchorMillis).atZone(zone).toLocalDateTime()
         val now = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDateTime()
-        if (repeat == TaskReminderRepeat.Hourly) {
-            val skippedHours = ChronoUnit.HOURS.between(next, now).coerceAtLeast(0) + 1
-            next = next.plusHours(skippedHours)
-        }
-        var guard = 0
-        while (!next.isAfter(now) && guard < 4096) {
-            next = when (repeat) {
-                TaskReminderRepeat.None -> next
-                TaskReminderRepeat.Hourly -> next.plusHours(1)
-                TaskReminderRepeat.Daily -> next.plusDays(1)
-                TaskReminderRepeat.Weekly -> next.plusWeeks(1)
-                TaskReminderRepeat.Monthly -> next.plusMonths(1)
+        val next = when (repeat) {
+            TaskReminderRepeat.None -> return null
+            TaskReminderRepeat.Hourly -> anchor.plusHours(ChronoUnit.HOURS.between(anchor, now).coerceAtLeast(0) + 1)
+            TaskReminderRepeat.Daily -> anchor.plusDays(ChronoUnit.DAYS.between(anchor, now).coerceAtLeast(0) + 1)
+            TaskReminderRepeat.Weekly -> anchor.plusWeeks(ChronoUnit.WEEKS.between(anchor, now).coerceAtLeast(0) + 1)
+            TaskReminderRepeat.Monthly -> {
+                val anchorMonth = YearMonth.from(anchor)
+                val nowMonth = YearMonth.from(now)
+                var months = ChronoUnit.MONTHS.between(anchorMonth, nowMonth).coerceAtLeast(0)
+                var candidate = anchor.plusAnchoredMonths(months)
+                if (!candidate.isAfter(now)) {
+                    months += 1
+                    candidate = anchor.plusAnchoredMonths(months)
+                }
+                candidate
             }
-            guard += 1
         }
 
         return if (next.isAfter(now)) next.atZone(zone).toInstant().toEpochMilli() else null
+    }
+
+    private fun LocalDateTime.plusAnchoredMonths(months: Long): LocalDateTime {
+        val targetMonth = YearMonth.from(this).plusMonths(months)
+        val targetDay = min(dayOfMonth, targetMonth.lengthOfMonth())
+        return LocalDateTime.of(
+            targetMonth.year,
+            targetMonth.monthValue,
+            targetDay,
+            hour,
+            minute,
+            second,
+            nano
+        )
     }
 }

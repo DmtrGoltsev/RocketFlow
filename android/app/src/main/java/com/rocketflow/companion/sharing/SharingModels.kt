@@ -6,7 +6,8 @@ enum class ShareTargetType(
 ) {
     Folder("folders", "folders"),
     Goal("goals", "goals"),
-    Task("tasks", "tasks")
+    Task("tasks", "tasks"),
+    Idea("ideas", "ideas")
 }
 
 data class ShareTarget(
