@@ -600,6 +600,9 @@ function usePlanCopy() {
     archiveGoalConfirm: locale === 'ru' ? 'Переместить цель в архив?' : 'Archive this goal?',
     archiveIdeaConfirm: locale === 'ru' ? 'Удалить идею?' : 'Delete this idea?',
     deleteNoteConfirm: locale === 'ru' ? 'Удалить заметку?' : 'Delete this note?',
+    deleteLinksWarning: locale === 'ru'
+      ? 'Есть связи: {count}. При удалении они тоже будут удалены.'
+      : 'Links: {count}. They will also be deleted.',
     save: locale === 'ru' ? 'Сохранить' : 'Save',
     cancel: locale === 'ru' ? 'Отмена' : 'Cancel',
     edit: locale === 'ru' ? 'Изменить' : 'Edit',
@@ -1031,6 +1034,77 @@ export function TasksRoute() {
       });
       return next;
     });
+  }
+
+  function linkTouchesAnyEntity(link: EntityLinkDto, keys: Set<string>) {
+    return Boolean(
+      (link.source.type && link.source.id && keys.has(entityKey(link.source.type, link.source.id))) ||
+      (link.target.type && link.target.id && keys.has(entityKey(link.target.type, link.target.id)))
+    );
+  }
+
+  function knownLinkCountForEntities(keys: string[]) {
+    const keySet = new Set(keys);
+    const linkIds = new Set<string>();
+    Object.values(linksByEntity).forEach((links) => {
+      links.forEach((link) => {
+        if (linkTouchesAnyEntity(link, keySet)) {
+          linkIds.add(link.id);
+        }
+      });
+    });
+    return linkIds.size;
+  }
+
+  function confirmWithKnownLinkWarning(message: string, keys: string[]) {
+    const count = knownLinkCountForEntities(keys);
+    const warning = count > 0 ? `\n\n${copy.deleteLinksWarning.replace('{count}', String(count))}` : '';
+    return window.confirm(`${message}${warning}`);
+  }
+
+  function pruneLinksForDeletedEntities(keys: string[]) {
+    const keySet = new Set(keys);
+    setLinksByEntity((current) => {
+      const next: LinksByEntity = {};
+      Object.entries(current).forEach(([key, links]) => {
+        if (keySet.has(key)) {
+          return;
+        }
+        next[key] = links.filter((link) => !linkTouchesAnyEntity(link, keySet));
+      });
+      return next;
+    });
+  }
+
+  function goalDeletionLinkKeys(goal: GoalDto) {
+    return [entityKey('goal', goal.id), ...(tasksByGoal[goal.id] ?? []).map((task) => entityKey('task', task.id))];
+  }
+
+  function folderDeletionLinkKeys(folder: FolderDto) {
+    const folderIds = new Set<string>();
+    const collectFolder = (folderId: string) => {
+      if (folderIds.has(folderId)) {
+        return;
+      }
+      folderIds.add(folderId);
+      folders.filter((item) => item.parentFolderId === folderId).forEach((child) => collectFolder(child.id));
+    };
+    collectFolder(folder.id);
+
+    const goalKeys = Object.values(goalsByFolder)
+      .flat()
+      .filter((goal) => folderIds.has(goal.folderId))
+      .flatMap((goal) => goalDeletionLinkKeys(goal));
+    const ideaKeys = Object.values(ideasByFolder)
+      .flat()
+      .filter((idea) => folderIds.has(idea.folderId))
+      .map((idea) => entityKey('idea', idea.id));
+    const noteKeys = Object.values(notesByFolder)
+      .flat()
+      .filter((note) => folderIds.has(note.folderId))
+      .map((note) => entityKey('note', note.id));
+
+    return [...goalKeys, ...ideaKeys, ...noteKeys];
   }
 
   function invalidDropMessage(entity: EntitySelection | null, targetType: 'folder' | 'goal') {
@@ -1511,14 +1585,23 @@ export function TasksRoute() {
   }
 
   async function handleArchiveFolder() {
-    if (!selectedFolder || !canEditSelectedFolder || !window.confirm(copy.archiveFolderConfirm)) {
+    if (!selectedFolder || !canEditSelectedFolder || !confirmWithKnownLinkWarning(copy.archiveFolderConfirm, folderDeletionLinkKeys(selectedFolder))) {
       return;
     }
+    const originalFolder = selectedFolder;
+    const deletedLinkKeys = folderDeletionLinkKeys(originalFolder);
+    const previousLinksByEntity = linksByEntity;
 
     await runAction(async () => {
-      await archiveFolder(authorizedFetch, selectedFolder.id);
-      await loadPlan({ folderId: null, goalId: null, taskId: null, ideaId: null, noteId: null });
-      setIsPanelOpen(false);
+      pruneLinksForDeletedEntities(deletedLinkKeys);
+      try {
+        await archiveFolder(authorizedFetch, originalFolder.id);
+        await loadPlan({ folderId: null, goalId: null, taskId: null, ideaId: null, noteId: null });
+        setIsPanelOpen(false);
+      } catch (error) {
+        setLinksByEntity(previousLinksByEntity);
+        throw error;
+      }
     });
   }
 
@@ -1566,19 +1649,22 @@ export function TasksRoute() {
   }
 
   async function handleArchiveGoal() {
-    if (!selectedGoal || !canEditSelectedGoal || !window.confirm(copy.archiveGoalConfirm)) {
+    if (!selectedGoal || !canEditSelectedGoal || !confirmWithKnownLinkWarning(copy.archiveGoalConfirm, goalDeletionLinkKeys(selectedGoal))) {
       return;
     }
 
     const originalGoal = selectedGoal;
     const previousGoals = goalsByFolder[selectedGoal.folderId] ?? [];
     const nextGoals = previousGoals.filter((goal) => goal.id !== selectedGoal.id);
+    const previousLinksByEntity = linksByEntity;
+    const deletedLinkKeys = goalDeletionLinkKeys(originalGoal);
 
     await runAction(async () => {
       setGoalsByFolder((current) => ({
         ...current,
         [originalGoal.folderId]: nextGoals,
       }));
+      pruneLinksForDeletedEntities(deletedLinkKeys);
       setSelection({ folderId: originalGoal.folderId, goalId: nextGoals[0]?.id ?? null, taskId: null, ideaId: null, noteId: null });
       if (nextGoals.length === 0) {
         setIsPanelOpen(false);
@@ -1591,6 +1677,7 @@ export function TasksRoute() {
           ...current,
           [originalGoal.folderId]: previousGoals,
         }));
+        setLinksByEntity(previousLinksByEntity);
         setSelection({ folderId: originalGoal.folderId, goalId: originalGoal.id, taskId: null, ideaId: null, noteId: null });
         setIsPanelOpen(true);
         throw error;
@@ -1668,19 +1755,21 @@ export function TasksRoute() {
   }
 
   async function handleArchiveIdea() {
-    if (!selectedIdea || !canDeleteSelectedIdea || !window.confirm(copy.archiveIdeaConfirm)) {
+    if (!selectedIdea || !canDeleteSelectedIdea || !confirmWithKnownLinkWarning(copy.archiveIdeaConfirm, [entityKey('idea', selectedIdea.id)])) {
       return;
     }
 
     const originalIdea = selectedIdea;
     const previousIdeas = ideasByFolder[selectedIdea.folderId] ?? [];
     const nextIdeas = previousIdeas.filter((idea) => idea.id !== selectedIdea.id);
+    const previousLinksByEntity = linksByEntity;
 
     await runAction(async () => {
       setIdeasByFolder((current) => ({
         ...current,
         [originalIdea.folderId]: nextIdeas,
       }));
+      pruneLinksForDeletedEntities([entityKey('idea', originalIdea.id)]);
       setSelection({ folderId: originalIdea.folderId, goalId: null, taskId: null, ideaId: nextIdeas[0]?.id ?? null, noteId: null });
       if (nextIdeas.length === 0) {
         setIsPanelOpen(false);
@@ -1693,6 +1782,7 @@ export function TasksRoute() {
           ...current,
           [originalIdea.folderId]: previousIdeas,
         }));
+        setLinksByEntity(previousLinksByEntity);
         setSelection({ folderId: originalIdea.folderId, goalId: null, taskId: null, ideaId: originalIdea.id, noteId: null });
         setIsPanelOpen(true);
         throw error;
@@ -1837,19 +1927,21 @@ export function TasksRoute() {
   }
 
   async function handleDeleteNote() {
-    if (!selectedNote || !canEditSelectedNote || !window.confirm(copy.deleteNoteConfirm)) {
+    if (!selectedNote || !canEditSelectedNote || !confirmWithKnownLinkWarning(copy.deleteNoteConfirm, [entityKey('note', selectedNote.id)])) {
       return;
     }
 
     const originalNote = selectedNote;
     const previousNotes = notesByFolder[selectedNote.folderId] ?? [];
     const nextNotes = previousNotes.filter((note) => note.id !== selectedNote.id);
+    const previousLinksByEntity = linksByEntity;
 
     await runAction(async () => {
       setNotesByFolder((current) => ({
         ...current,
         [originalNote.folderId]: nextNotes,
       }));
+      pruneLinksForDeletedEntities([entityKey('note', originalNote.id)]);
       setSelection({ folderId: originalNote.folderId, goalId: null, taskId: null, ideaId: null, noteId: nextNotes[0]?.id ?? null });
       if (nextNotes.length === 0) {
         setIsPanelOpen(false);
@@ -1862,6 +1954,7 @@ export function TasksRoute() {
           ...current,
           [originalNote.folderId]: previousNotes,
         }));
+        setLinksByEntity(previousLinksByEntity);
         setSelection({ folderId: originalNote.folderId, goalId: null, taskId: null, ideaId: null, noteId: originalNote.id });
         setIsPanelOpen(true);
         throw error;
@@ -2111,18 +2204,21 @@ export function TasksRoute() {
   }
 
   async function handleArchiveTask(task: TaskDto, goal: GoalDto) {
-    if (!window.confirm(copy.archiveConfirm)) {
+    const deletedLinkKeys = [entityKey('task', task.id)];
+    if (!confirmWithKnownLinkWarning(copy.archiveConfirm, deletedLinkKeys)) {
       return;
     }
 
     const previousGoalTasks = tasksByGoal[goal.id] ?? [];
     const nextGoalTasks = previousGoalTasks.filter((item) => item.id !== task.id);
+    const previousLinksByEntity = linksByEntity;
 
     await runAction(async () => {
       setTasksByGoal((current) => ({
         ...current,
         [goal.id]: nextGoalTasks,
       }));
+      pruneLinksForDeletedEntities(deletedLinkKeys);
       setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: nextGoalTasks[0]?.id ?? null, ideaId: null, noteId: null });
       if (nextGoalTasks.length === 0) {
         setIsPanelOpen(false);
@@ -2138,6 +2234,7 @@ export function TasksRoute() {
           ...current,
           [goal.id]: previousGoalTasks,
         }));
+        setLinksByEntity(previousLinksByEntity);
         setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: task.id, ideaId: null, noteId: null });
         setIsPanelOpen(true);
         throw error;

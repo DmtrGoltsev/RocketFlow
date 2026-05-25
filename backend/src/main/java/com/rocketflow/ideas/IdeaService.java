@@ -13,6 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.common.ApiException;
+import com.rocketflow.links.EntityLinkCleanupService;
+import com.rocketflow.links.EntityLinkService;
 import com.rocketflow.sharing.SharingAccessService;
 import com.rocketflow.sharing.SharingAccessService.FolderAccess;
 import com.rocketflow.sharing.SharingAccessService.IdeaAccess;
@@ -26,17 +28,20 @@ public class IdeaService {
     private final IdeaNoteRepository ideaNoteRepository;
     private final SharingAccessService sharingAccessService;
     private final UserRepository userRepository;
+    private final EntityLinkCleanupService entityLinkCleanupService;
 
     public IdeaService(
             IdeaRepository ideaRepository,
             IdeaNoteRepository ideaNoteRepository,
             SharingAccessService sharingAccessService,
-            UserRepository userRepository
+            UserRepository userRepository,
+            EntityLinkCleanupService entityLinkCleanupService
     ) {
         this.ideaRepository = ideaRepository;
         this.ideaNoteRepository = ideaNoteRepository;
         this.sharingAccessService = sharingAccessService;
         this.userRepository = userRepository;
+        this.entityLinkCleanupService = entityLinkCleanupService;
     }
 
     @Transactional(readOnly = true)
@@ -106,6 +111,7 @@ public class IdeaService {
         idea.setArchived(true);
         idea.setUpdatedAt(Instant.now());
         ideaRepository.save(idea);
+        entityLinkCleanupService.archiveLinksForEntity(EntityLinkService.TYPE_IDEA, idea.getId());
     }
 
     @Transactional

@@ -4,6 +4,7 @@ import static com.rocketflow.goals.GoalsApi.*;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -13,9 +14,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.common.ApiException;
 import com.rocketflow.folders.FolderService;
+import com.rocketflow.links.EntityLinkCleanupService;
+import com.rocketflow.links.EntityLinkService;
 import com.rocketflow.sharing.SharingAccessService;
 import com.rocketflow.sharing.SharingAccessService.FolderAccess;
 import com.rocketflow.sharing.SharingAccessService.GoalAccess;
+import com.rocketflow.tasks.Task;
+import com.rocketflow.tasks.TaskRepository;
 
 @Service
 public class GoalService {
@@ -25,11 +30,21 @@ public class GoalService {
     private final GoalRepository goalRepository;
     private final FolderService folderService;
     private final SharingAccessService sharingAccessService;
+    private final EntityLinkCleanupService entityLinkCleanupService;
+    private final TaskRepository taskRepository;
 
-    public GoalService(GoalRepository goalRepository, FolderService folderService, SharingAccessService sharingAccessService) {
+    public GoalService(
+            GoalRepository goalRepository,
+            FolderService folderService,
+            SharingAccessService sharingAccessService,
+            EntityLinkCleanupService entityLinkCleanupService,
+            TaskRepository taskRepository
+    ) {
         this.goalRepository = goalRepository;
         this.folderService = folderService;
         this.sharingAccessService = sharingAccessService;
+        this.entityLinkCleanupService = entityLinkCleanupService;
+        this.taskRepository = taskRepository;
     }
 
     @Transactional(readOnly = true)
@@ -124,6 +139,14 @@ public class GoalService {
         goal.setArchived(true);
         goal.setUpdatedAt(Instant.now());
         goalRepository.save(goal);
+        List<UUID> taskIds = taskRepository.findByGoalIdIn(List.of(goal.getId()))
+                .stream()
+                .map(Task::getId)
+                .toList();
+        entityLinkCleanupService.archiveLinksForEntities(Map.of(
+                EntityLinkService.TYPE_GOAL, List.of(goal.getId()),
+                EntityLinkService.TYPE_TASK, taskIds
+        ));
     }
 
     @Transactional(readOnly = true)

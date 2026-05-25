@@ -24,6 +24,11 @@ class RocketFlowMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
+        val messageType = message.data["type"]?.trim().orEmpty()
+        if (messageType.isNotBlank() && messageType != "task_reminder") {
+            return
+        }
+
         val taskId = message.data["taskId"]?.trim().orEmpty()
         if (taskId.isBlank()) {
             return

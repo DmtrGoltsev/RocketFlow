@@ -1,12 +1,19 @@
 package com.rocketflow;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,7 +21,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -35,6 +44,9 @@ class HierarchyLinksIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @DynamicPropertySource
     static void configureDatasource(DynamicPropertyRegistry registry) {
@@ -324,6 +336,145 @@ class HierarchyLinksIntegrationTest {
     }
 
     @Test
+    void v17MigrationArchivesDanglingEntityLinksOnly() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+        String folderId = createFolder(owner.accessToken(), "Root");
+        String goalId = read(createGoal(owner.accessToken(), folderId, "Alive goal"), "/id");
+        String taskId = read(createTask(owner.accessToken(), goalId, "Alive task", "todo"), "/id");
+        String noteId = read(createNote(owner.accessToken(), folderId, "Alive note"), "/id");
+        UUID ownerUserId = jdbcTemplate.queryForObject(
+                "select owner_user_id from goals where id = ?",
+                UUID.class,
+                UUID.fromString(goalId)
+        );
+
+        String aliveLinkId = createEntityLink(owner.accessToken(), "task", taskId, "note", noteId, "related");
+        List<UUID> danglingLinkIds = new ArrayList<>();
+
+        for (String entityType : List.of("task", "goal", "idea", "note")) {
+            LinkEntityRef counterpart = aliveCounterpart(entityType, taskId, noteId);
+            String archivedEntityId = createEntity(owner.accessToken(), folderId, entityType);
+            archiveEntity(entityType, archivedEntityId);
+
+            UUID archivedSourceLinkId = UUID.randomUUID();
+            insertRawEntityLink(
+                    archivedSourceLinkId,
+                    ownerUserId,
+                    entityType,
+                    UUID.fromString(archivedEntityId),
+                    counterpart.type(),
+                    counterpart.id(),
+                    ownerUserId
+            );
+            danglingLinkIds.add(archivedSourceLinkId);
+
+            UUID archivedTargetLinkId = UUID.randomUUID();
+            insertRawEntityLink(
+                    archivedTargetLinkId,
+                    ownerUserId,
+                    counterpart.type(),
+                    counterpart.id(),
+                    entityType,
+                    UUID.fromString(archivedEntityId),
+                    ownerUserId
+            );
+            danglingLinkIds.add(archivedTargetLinkId);
+
+            UUID missingEntityId = UUID.randomUUID();
+            UUID missingSourceLinkId = UUID.randomUUID();
+            insertRawEntityLink(
+                    missingSourceLinkId,
+                    ownerUserId,
+                    entityType,
+                    missingEntityId,
+                    counterpart.type(),
+                    counterpart.id(),
+                    ownerUserId
+            );
+            danglingLinkIds.add(missingSourceLinkId);
+
+            UUID missingTargetLinkId = UUID.randomUUID();
+            insertRawEntityLink(
+                    missingTargetLinkId,
+                    ownerUserId,
+                    counterpart.type(),
+                    counterpart.id(),
+                    entityType,
+                    missingEntityId,
+                    ownerUserId
+            );
+            danglingLinkIds.add(missingTargetLinkId);
+        }
+
+        jdbcTemplate.execute(readV17MigrationSql());
+
+        assertEquals(Boolean.FALSE, entityLinkArchived(UUID.fromString(aliveLinkId)));
+        for (UUID linkId : danglingLinkIds) {
+            assertEquals(Boolean.TRUE, entityLinkArchived(linkId), "Expected dangling link to be archived: " + linkId);
+        }
+    }
+
+    @Test
+    void deletingLinkedEntitiesArchivesInvolvingLinks() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+        String folderId = createFolder(owner.accessToken(), "Root");
+        String goalId = read(createGoal(owner.accessToken(), folderId, "Goal"), "/id");
+        String taskId = read(createTask(owner.accessToken(), goalId, "Survivor task", "todo"), "/id");
+        String noteId = read(createNote(owner.accessToken(), folderId, "Survivor note"), "/id");
+
+        assertLinksArchivedAfterDelete(owner, folderId, "goal", noteId);
+        assertLinksArchivedAfterDelete(owner, folderId, "task", noteId);
+        assertLinksArchivedAfterDelete(owner, folderId, "idea", noteId);
+        assertLinksArchivedAfterDelete(owner, folderId, "note", taskId);
+    }
+
+    @Test
+    void deletingGoalArchivesLinksForChildTasks() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+        String folderId = createFolder(owner.accessToken(), "Root");
+        String goalId = read(createGoal(owner.accessToken(), folderId, "Goal"), "/id");
+        String childTaskId = read(createTask(owner.accessToken(), goalId, "Child task", "todo"), "/id");
+        String survivorNoteId = read(createNote(owner.accessToken(), folderId, "Survivor note"), "/id");
+
+        createEntityLink(owner.accessToken(), "task", childTaskId, "note", survivorNoteId, "related");
+        assertLinkCount(owner.accessToken(), "note", survivorNoteId, 1);
+
+        mockMvc.perform(delete("/api/goals/" + goalId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNoContent());
+
+        assertLinkCount(owner.accessToken(), "note", survivorNoteId, 0);
+    }
+
+    @Test
+    void deletingFolderArchivesLinksForDescendantEntities() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+        String rootFolderId = createFolder(owner.accessToken(), "Root");
+        String childFolderId = read(createChildFolder(owner.accessToken(), rootFolderId, "Child"), "/id");
+        String outsideFolderId = createFolder(owner.accessToken(), "Outside");
+        String outsideGoalId = read(createGoal(owner.accessToken(), outsideFolderId, "Outside goal"), "/id");
+        String outsideTaskId = read(createTask(owner.accessToken(), outsideGoalId, "Outside task", "todo"), "/id");
+        String outsideNoteId = read(createNote(owner.accessToken(), outsideFolderId, "Outside note"), "/id");
+
+        String childGoalId = read(createGoal(owner.accessToken(), childFolderId, "Child goal"), "/id");
+        String childTaskId = read(createTask(owner.accessToken(), childGoalId, "Child task", "todo"), "/id");
+        String childIdeaId = read(createIdea(owner.accessToken(), childFolderId, "Child idea"), "/id");
+        String childNoteId = read(createNote(owner.accessToken(), childFolderId, "Child note"), "/id");
+
+        createEntityLink(owner.accessToken(), "goal", childGoalId, "note", outsideNoteId, "related");
+        createEntityLink(owner.accessToken(), "task", childTaskId, "note", outsideNoteId, "related");
+        createEntityLink(owner.accessToken(), "idea", childIdeaId, "note", outsideNoteId, "related");
+        createEntityLink(owner.accessToken(), "note", childNoteId, "task", outsideTaskId, "related");
+
+        mockMvc.perform(delete("/api/folders/" + rootFolderId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNoContent());
+
+        assertLinkCount(owner.accessToken(), "note", outsideNoteId, 0);
+        assertLinkCount(owner.accessToken(), "task", outsideTaskId, 0);
+    }
+
+    @Test
     void entityLinksReturnRedactedOppositeSideForAccessibleRequestedEntity() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
         Session collaborator = registerAndLogin("collaborator@example.com", "Collaborator");
@@ -383,6 +534,19 @@ class HierarchyLinksIntegrationTest {
         assertFalse(linksResponse.contains("Private blocker title"));
         assertFalse(linksResponse.contains("Private goal"));
         assertFalse(linksResponse.contains("Private Root"));
+
+        String unrelatedNoteId = read(createNote(owner.accessToken(), sharedFolderId, "Unrelated note"), "/id");
+        mockMvc.perform(delete("/api/notes/" + unrelatedNoteId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/entity-links")
+                        .header("Authorization", "Bearer " + collaborator.accessToken())
+                        .param("entityType", "task")
+                        .param("entityId", dependentTaskId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].target.redacted").value(true));
 
         mockMvc.perform(get("/api/entity-links")
                         .header("Authorization", "Bearer " + collaborator.accessToken())
@@ -760,6 +924,141 @@ class HierarchyLinksIntegrationTest {
         return value.isTextual() ? value.asText() : value.toString();
     }
 
+    private void assertLinksArchivedAfterDelete(Session owner, String folderId, String deletedType, String survivorId) throws Exception {
+        String deletedId = createEntity(owner.accessToken(), folderId, deletedType);
+        String survivorType = "task".equals(deletedType) ? "note" : ("note".equals(deletedType) ? "task" : "note");
+        createEntityLink(owner.accessToken(), deletedType, deletedId, survivorType, survivorId, "related");
+        assertLinkCount(owner.accessToken(), survivorType, survivorId, 1);
+        deleteEntity(owner.accessToken(), deletedType, deletedId);
+        assertLinkCount(owner.accessToken(), survivorType, survivorId, 0);
+
+        deletedId = createEntity(owner.accessToken(), folderId, deletedType);
+        createEntityLink(owner.accessToken(), survivorType, survivorId, deletedType, deletedId, "related");
+        assertLinkCount(owner.accessToken(), survivorType, survivorId, 1);
+        deleteEntity(owner.accessToken(), deletedType, deletedId);
+        assertLinkCount(owner.accessToken(), survivorType, survivorId, 0);
+    }
+
+    private String createEntity(String accessToken, String folderId, String entityType) throws Exception {
+        return switch (entityType) {
+            case "goal" -> read(createGoal(accessToken, folderId, "Linked goal"), "/id");
+            case "task" -> {
+                String goalId = read(createGoal(accessToken, folderId, "Task parent"), "/id");
+                yield read(createTask(accessToken, goalId, "Linked task", "todo"), "/id");
+            }
+            case "idea" -> read(createIdea(accessToken, folderId, "Linked idea"), "/id");
+            case "note" -> read(createNote(accessToken, folderId, "Linked note"), "/id");
+            default -> throw new IllegalArgumentException("Unsupported entity type " + entityType);
+        };
+    }
+
+    private void deleteEntity(String accessToken, String entityType, String entityId) throws Exception {
+        String path = switch (entityType) {
+            case "goal" -> "/api/goals/";
+            case "task" -> "/api/tasks/";
+            case "idea" -> "/api/ideas/";
+            case "note" -> "/api/notes/";
+            default -> throw new IllegalArgumentException("Unsupported entity type " + entityType);
+        };
+        mockMvc.perform(delete(path + entityId)
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNoContent());
+    }
+
+    private String createEntityLink(
+            String accessToken,
+            String sourceType,
+            String sourceId,
+            String targetType,
+            String targetId,
+            String relationType
+    ) throws Exception {
+        String response = mockMvc.perform(post("/api/entity-links")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sourceType": "%s",
+                                  "sourceId": "%s",
+                                  "targetType": "%s",
+                                  "targetId": "%s",
+                                  "relationType": "%s"
+                                }
+                                """.formatted(sourceType, sourceId, targetType, targetId, relationType)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return read(response, "/id");
+    }
+
+    private LinkEntityRef aliveCounterpart(String entityType, String taskId, String noteId) {
+        if ("note".equals(entityType)) {
+            return new LinkEntityRef("task", UUID.fromString(taskId));
+        }
+        return new LinkEntityRef("note", UUID.fromString(noteId));
+    }
+
+    private void archiveEntity(String entityType, String entityId) {
+        jdbcTemplate.update("update " + entityTable(entityType) + " set archived = true where id = ?", UUID.fromString(entityId));
+    }
+
+    private String entityTable(String entityType) {
+        return switch (entityType) {
+            case "goal" -> "goals";
+            case "task" -> "tasks";
+            case "idea" -> "ideas";
+            case "note" -> "notes";
+            default -> throw new IllegalArgumentException("Unsupported entity type " + entityType);
+        };
+    }
+
+    private void insertRawEntityLink(
+            UUID linkId,
+            UUID ownerUserId,
+            String sourceType,
+            UUID sourceId,
+            String targetType,
+            UUID targetId,
+            UUID createdByUserId
+    ) {
+        jdbcTemplate.update("""
+                insert into entity_links (
+                    id,
+                    owner_user_id,
+                    source_type,
+                    source_id,
+                    target_type,
+                    target_id,
+                    relation_type,
+                    created_by_user_id,
+                    archived,
+                    created_at,
+                    updated_at
+                )
+                values (?, ?, ?, ?, ?, ?, 'related', ?, false, now(), now())
+                """, linkId, ownerUserId, sourceType, sourceId, targetType, targetId, createdByUserId);
+    }
+
+    private String readV17MigrationSql() throws Exception {
+        try (var input = new ClassPathResource("db/migration/V17__archive_dangling_entity_links.sql").getInputStream()) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private Boolean entityLinkArchived(UUID linkId) {
+        return jdbcTemplate.queryForObject("select archived from entity_links where id = ?", Boolean.class, linkId);
+    }
+
+    private void assertLinkCount(String accessToken, String entityType, String entityId, int expectedCount) throws Exception {
+        mockMvc.perform(get("/api/entity-links")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .param("entityType", entityType)
+                        .param("entityId", entityId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(expectedCount));
+    }
+
     private void assertNullOrMissing(JsonNode node, String field) {
         assertTrue(!node.has(field) || node.get(field).isNull(), "Redacted ref leaked " + field);
     }
@@ -770,6 +1069,9 @@ class HierarchyLinksIntegrationTest {
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to start embedded PostgreSQL", exception);
         }
+    }
+
+    private record LinkEntityRef(String type, UUID id) {
     }
 
     private record Session(String accessToken) {

@@ -2,12 +2,16 @@ package com.rocketflow.companion.notifications
 
 import android.Manifest
 import android.app.Activity
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -32,6 +36,10 @@ class NotificationRuntime(private val context: Context) {
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Reminder notifications for RocketFlow companion tasks."
+            setSound(alarmSoundUri(), alarmAudioAttributes())
+            enableVibration(true)
+            vibrationPattern = ALARM_VIBRATION_PATTERN
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         manager.createNotificationChannel(channel)
     }
@@ -74,6 +82,7 @@ class NotificationRuntime(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val alarmSound = alarmSoundUri()
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
@@ -81,8 +90,10 @@ class NotificationRuntime(private val context: Context) {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(pendingIntent)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSound(alarmSound)
+            .setVibrate(ALARM_VIBRATION_PATTERN)
             .setAutoCancel(true)
             .build()
 
@@ -94,9 +105,22 @@ class NotificationRuntime(private val context: Context) {
         manager.notify(taskId.hashCode(), notification)
     }
 
+    private fun alarmSoundUri(): Uri {
+        return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+    }
+
+    private fun alarmAudioAttributes(): AudioAttributes {
+        return AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+    }
+
     companion object {
         private const val TAG = "NotificationRuntime"
         const val REQUEST_CODE = 4312
-        const val CHANNEL_ID = "rocketflow.task.alarms"
+        const val CHANNEL_ID = "rocketflow.task.alarms.v2"
+        val ALARM_VIBRATION_PATTERN = longArrayOf(0L, 700L, 250L, 700L, 250L, 1000L)
     }
 }

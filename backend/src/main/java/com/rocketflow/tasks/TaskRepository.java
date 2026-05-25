@@ -14,6 +14,8 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
 
     List<Task> findByGoalIdAndOwnerUserIdOrderByCreatedAtAsc(UUID goalId, UUID ownerUserId);
 
+    List<Task> findByGoalIdIn(Collection<UUID> goalIds);
+
     Optional<Task> findByIdAndOwnerUserId(UUID id, UUID ownerUserId);
 
     @Query("""

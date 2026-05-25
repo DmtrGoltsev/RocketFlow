@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.common.ApiException;
+import com.rocketflow.links.EntityLinkCleanupService;
 import com.rocketflow.links.EntityLinkService;
 import com.rocketflow.recurrence.RecurrenceService;
 import com.rocketflow.reminders.ReminderService;
@@ -37,6 +38,7 @@ public class TaskService {
     private final RecurrenceService recurrenceService;
     private final ReminderService reminderService;
     private final EntityLinkService entityLinkService;
+    private final EntityLinkCleanupService entityLinkCleanupService;
 
     public TaskService(
             TaskRepository taskRepository,
@@ -46,7 +48,8 @@ public class TaskService {
             TaskTagLinkRepository taskTagLinkRepository,
             RecurrenceService recurrenceService,
             ReminderService reminderService,
-            EntityLinkService entityLinkService
+            EntityLinkService entityLinkService,
+            EntityLinkCleanupService entityLinkCleanupService
     ) {
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
@@ -56,6 +59,7 @@ public class TaskService {
         this.recurrenceService = recurrenceService;
         this.reminderService = reminderService;
         this.entityLinkService = entityLinkService;
+        this.entityLinkCleanupService = entityLinkCleanupService;
     }
 
     @Transactional(readOnly = true)
@@ -239,6 +243,7 @@ public class TaskService {
         task.setArchived(true);
         task.setUpdatedAt(Instant.now());
         taskRepository.save(task);
+        entityLinkCleanupService.archiveLinksForEntity(EntityLinkService.TYPE_TASK, task.getId());
     }
 
     @Transactional(readOnly = true)

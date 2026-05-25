@@ -1,10 +1,12 @@
 package com.rocketflow.links;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -31,4 +33,30 @@ public interface EntityLinkRepository extends JpaRepository<EntityLink, UUID> {
     );
 
     List<EntityLink> findByRelationTypeAndSourceTypeAndSourceIdAndArchivedFalse(String relationType, String sourceType, UUID sourceId);
+
+    @Modifying
+    @Query("""
+            update EntityLink link
+            set link.archived = true,
+                link.updatedAt = CURRENT_TIMESTAMP
+            where link.archived = false
+              and (
+                    (link.sourceType = :entityType and link.sourceId = :entityId)
+                 or (link.targetType = :entityType and link.targetId = :entityId)
+              )
+            """)
+    int archiveActiveForEntity(@Param("entityType") String entityType, @Param("entityId") UUID entityId);
+
+    @Modifying
+    @Query("""
+            update EntityLink link
+            set link.archived = true,
+                link.updatedAt = CURRENT_TIMESTAMP
+            where link.archived = false
+              and (
+                    (link.sourceType = :entityType and link.sourceId in :entityIds)
+                 or (link.targetType = :entityType and link.targetId in :entityIds)
+              )
+            """)
+    int archiveActiveForEntities(@Param("entityType") String entityType, @Param("entityIds") Collection<UUID> entityIds);
 }

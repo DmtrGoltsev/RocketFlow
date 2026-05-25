@@ -1,0 +1,43 @@
+﻿
+  test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:502:      AppSettings: com.android.c
+arrierconfig.auto_generated_rro_vendor__ (10095)
+  test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:503:      AppSettings: com.google.an
+droid.ondevicepersonalization.services (10208)
+> test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:504:      AppSettings: com.rocketflo
+w.companion (10282) importance=DEFAULT userSet=false
+> test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:505:        NotificationChannel{mId=
+'rocketflow.task.alarms.v2', mName=RocketFlow task reminders, mDescription=hasDescription , mImportance=4, mBypassDnd=f
+alse, mLockscreenVisibility=-1000, mSound=content://settings/system/alarm_alert, mLights=false, mLightColor=0, mVibrati
+onPattern=[0, 700, 250, 700, 250, 1000], mVibrationEffect=Composed{segments=[Step{amplitude=0.0, duration=0}, Step{ampl
+itude=-1.0, duration=700}, Step{amplitude=0.0, duration=250}, Step{amplitude=-1.0, duration=700}, Step{amplitude=0.0, d
+uration=250}, Step{amplitude=-1.0, duration=1000}], repeat=-1}, mUserLockedFields=0, mUserVisibleTaskShown=false, mVibr
+ationEnabled=true, mShowBadge=true, mDeleted=false, mDeletedTimeMs=-1, mGroup='null', mAudioAttributes=AudioAttributes:
+ usage=USAGE_ALARM content=CONTENT_TYPE_SONIFICATION flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null, mBlockableSystem
+=false, mAllowBubbles=-1, mImportanceLockedDefaultApp=false, mOriginalImp=4, mParent=null, mConversationId=null, mDemot
+ed=false, mImportantConvo=false, mLastNotificationUpdateTimeMs=1779695073599, isBundle=false, emoji=null}
+> test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:506:        NotificationChannel{mId=
+'rocketflow.task.alarms', mName=RocketFlow task reminders, mDescription=hasDescription , mImportance=4, mBypassDnd=fals
+e, mLockscreenVisibility=-1000, mSound=content://settings/system/notification_sound, mLights=false, mLightColor=0, mVib
+rationPattern=null, mVibrationEffect=null, mUserLockedFields=0, mUserVisibleTaskShown=false, mVibrationEnabled=false, m
+ShowBadge=true, mDeleted=false, mDeletedTimeMs=-1, mGroup='null', mAudioAttributes=AudioAttributes: usage=USAGE_NOTIFIC
+ATION content=CONTENT_TYPE_SONIFICATION flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null, mBlockableSystem=false, mAllo
+wBubbles=-1, mImportanceLockedDefaultApp=false, mOriginalImp=4, mParent=null, mConversationId=null, mDemoted=false, mIm
+portantConvo=false, mLastNotificationUpdateTimeMs=0, isBundle=false, emoji=null}
+  test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:507:      AppSettings: com.google.an
+droid.apps.wellbeing (10151) importance=DEFAULT userSet=false
+  test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:508:        NotificationChannel{mId=
+'app_limit_updates', mName=Updates, mDescription=, mImportance=2, mBypassDnd=false, mLockscreenVisibility=-1000, mSound
+=content://settings/system/notification_sound, mLights=false, mLightColor=0, mVibrationPattern=null, mVibrationEffect=n
+ull, mUserLockedFields=0, mUserVisibleTaskShown=true, mVibrationEnabled=false, mShowBadge=true, mDeleted=false, mDelete
+dTimeMs=-1, mGroup='null', mAudioAttributes=AudioAttributes: usage=USAGE_NOTIFICATION content=CONTENT_TYPE_SONIFICATION
+ flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null, mBlockableSystem=false, mAllowBubbles=-1, mImportanceLockedDefaultAp
+p=false, mOriginalImp=2, mParent=null, mConversationId=null, mDemoted=false, mImportantConvo=false, mLastNotificationUp
+dateTimeMs=0, isBundle=false, emoji=null}
+  test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:911:    }
+  test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:912:    AggregatedStats{
+> test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:913:      key='com.rocketflow.compan
+ion',
+  test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:914:      numEnqueuedByApp=1,
+  test-artifacts\link-cleanup-alarm-20260525-001\dumpsys-notification-noredact.txt:915:      numPostedByApp=1,
+
+

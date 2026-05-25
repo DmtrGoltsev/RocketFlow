@@ -284,6 +284,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         val db = writableDatabase
         db.beginTransaction()
         try {
+            deleteLocalLinksForEntities(db, userId, folderTreeEntityKeys(db, userId, folder.id))
             if (folder.syncState == SyncState.PendingCreate) {
                 db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folder.id))
                 db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
@@ -358,6 +359,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         val db = writableDatabase
         db.beginTransaction()
         try {
+            deleteLocalLinksForEntities(db, userId, goalTreeEntityKeys(db, userId, goal.id))
             if (goal.syncState == SyncState.PendingCreate) {
                 db.delete(TABLE_TASKS, "user_id = ? AND goal_id = ?", arrayOf(userId, goal.id))
                 db.delete(TABLE_GOALS, "user_id = ? AND id = ?", arrayOf(userId, goal.id))
@@ -458,21 +460,30 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         if (task.shared && !task.fullAccess) {
             return
         }
-        if (task.syncState == SyncState.PendingCreate) {
-            writableDatabase.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, task.id))
-            return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            deleteLocalLinksForEntity(db, userId, "task", task.id)
+            if (task.syncState == SyncState.PendingCreate) {
+                db.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, task.id))
+                db.setTransactionSuccessful()
+                return
+            }
+            db.update(
+                TABLE_TASKS,
+                ContentValues().apply {
+                    put("pending_action", ACTION_DELETE)
+                    put("locally_deleted", 1)
+                    put("updated_at", nowIso())
+                    putNull("last_error")
+                },
+                "user_id = ? AND id = ?",
+                arrayOf(userId, task.id)
+            )
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
-        writableDatabase.update(
-            TABLE_TASKS,
-            ContentValues().apply {
-                put("pending_action", ACTION_DELETE)
-                put("locally_deleted", 1)
-                put("updated_at", nowIso())
-                putNull("last_error")
-            },
-            "user_id = ? AND id = ?",
-            arrayOf(userId, task.id)
-        )
     }
 
     fun createNote(userId: String, folderId: String, draft: NoteDraft): String {
@@ -532,21 +543,30 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         if (note.shared && !note.fullAccess) {
             return
         }
-        if (note.syncState == SyncState.PendingCreate) {
-            writableDatabase.delete(TABLE_NOTES, "user_id = ? AND id = ?", arrayOf(userId, note.id))
-            return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            deleteLocalLinksForEntity(db, userId, "note", note.id)
+            if (note.syncState == SyncState.PendingCreate) {
+                db.delete(TABLE_NOTES, "user_id = ? AND id = ?", arrayOf(userId, note.id))
+                db.setTransactionSuccessful()
+                return
+            }
+            db.update(
+                TABLE_NOTES,
+                ContentValues().apply {
+                    put("pending_action", ACTION_DELETE)
+                    put("locally_deleted", 1)
+                    put("updated_at", nowIso())
+                    putNull("last_error")
+                },
+                "user_id = ? AND id = ?",
+                arrayOf(userId, note.id)
+            )
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
-        writableDatabase.update(
-            TABLE_NOTES,
-            ContentValues().apply {
-                put("pending_action", ACTION_DELETE)
-                put("locally_deleted", 1)
-                put("updated_at", nowIso())
-                putNull("last_error")
-            },
-            "user_id = ? AND id = ?",
-            arrayOf(userId, note.id)
-        )
     }
 
     fun createEntityLink(userId: String, draft: EntityLinkDraft): String {
@@ -654,8 +674,16 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun removeIdea(userId: String, ideaId: String) {
-        writableDatabase.delete(TABLE_IDEA_NOTES, "user_id = ? AND idea_id = ?", arrayOf(userId, ideaId))
-        writableDatabase.delete(TABLE_IDEAS, "user_id = ? AND id = ?", arrayOf(userId, ideaId))
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            deleteLocalLinksForEntity(db, userId, "idea", ideaId)
+            db.delete(TABLE_IDEA_NOTES, "user_id = ? AND idea_id = ?", arrayOf(userId, ideaId))
+            db.delete(TABLE_IDEAS, "user_id = ? AND id = ?", arrayOf(userId, ideaId))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun removeIdeaNote(userId: String, noteId: String) {
@@ -1045,6 +1073,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         val db = writableDatabase
         db.beginTransaction()
         try {
+            deleteLocalLinksForEntities(db, userId, folderTreeEntityKeys(db, userId, folderId))
             db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folderId))
             db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
             db.delete(TABLE_IDEAS, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
@@ -1060,6 +1089,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         val db = writableDatabase
         db.beginTransaction()
         try {
+            deleteLocalLinksForEntities(db, userId, goalTreeEntityKeys(db, userId, goalId))
             db.delete(TABLE_TASKS, "user_id = ? AND goal_id = ?", arrayOf(userId, goalId))
             db.delete(TABLE_GOALS, "user_id = ? AND id = ?", arrayOf(userId, goalId))
             db.setTransactionSuccessful()
@@ -1069,11 +1099,27 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     fun removeTask(userId: String, taskId: String) {
-        writableDatabase.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, taskId))
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            deleteLocalLinksForEntity(db, userId, "task", taskId)
+            db.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, taskId))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun removeNote(userId: String, noteId: String) {
-        writableDatabase.delete(TABLE_NOTES, "user_id = ? AND id = ?", arrayOf(userId, noteId))
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            deleteLocalLinksForEntity(db, userId, "note", noteId)
+            db.delete(TABLE_NOTES, "user_id = ? AND id = ?", arrayOf(userId, noteId))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun removeEntityLink(userId: String, linkId: String) {
@@ -1297,6 +1343,71 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             arrayOf(userId, goalId)
         )
     }
+
+    private fun folderTreeEntityKeys(db: SQLiteDatabase, userId: String, folderId: String): List<LinkEntityKey> {
+        val folderIds = descendantFolderIds(db, userId, folderId)
+        val goals = queryGoals(db, userId, includeDeleted = true).filter { it.folderId in folderIds && !it.shared }
+        val goalIds = goals.map { it.id }.toSet()
+        val tasks = queryTasks(db, userId, includeDeleted = true).filter { it.goalId in goalIds && !it.shared }
+        val ideas = queryIdeas(db, userId, includeDeleted = true).filter { it.folderId in folderIds && !it.shared }
+        val notes = queryNotes(db, userId, includeDeleted = true).filter { it.folderId in folderIds && !it.shared }
+        return buildList {
+            goals.forEach { add(LinkEntityKey("goal", it.id)) }
+            tasks.forEach { add(LinkEntityKey("task", it.id)) }
+            ideas.forEach { add(LinkEntityKey("idea", it.id)) }
+            notes.forEach { add(LinkEntityKey("note", it.id)) }
+        }
+    }
+
+    private fun goalTreeEntityKeys(db: SQLiteDatabase, userId: String, goalId: String): List<LinkEntityKey> {
+        val tasks = queryTasks(db, userId, includeDeleted = true).filter { it.goalId == goalId && !it.shared }
+        return buildList {
+            add(LinkEntityKey("goal", goalId))
+            tasks.forEach { add(LinkEntityKey("task", it.id)) }
+        }
+    }
+
+    private fun descendantFolderIds(db: SQLiteDatabase, userId: String, folderId: String): Set<String> {
+        val folders = queryFolders(db, userId, includeDeleted = true)
+        val childrenByParent = folders.filter { !it.shared && it.parentFolderId != null }.groupBy { it.parentFolderId!! }
+        val result = linkedSetOf<String>()
+        fun collect(currentId: String) {
+            if (!result.add(currentId)) {
+                return
+            }
+            childrenByParent[currentId].orEmpty().forEach { collect(it.id) }
+        }
+        collect(folderId)
+        return result
+    }
+
+    private fun deleteLocalLinksForEntities(db: SQLiteDatabase, userId: String, entities: List<LinkEntityKey>) {
+        entities.distinct().forEach { deleteLocalLinksForEntity(db, userId, it.type, it.id) }
+    }
+
+    private fun deleteLocalLinksForEntity(db: SQLiteDatabase, userId: String, entityType: String, entityId: String) {
+        val where = "user_id = ? AND ((source_type = ? AND source_id = ?) OR (target_type = ? AND target_id = ?))"
+        val args = arrayOf(userId, entityType, entityId, entityType, entityId)
+        db.delete(
+            TABLE_ENTITY_LINKS,
+            "$where AND pending_action = ?",
+            args + ACTION_CREATE
+        )
+        db.update(
+            TABLE_ENTITY_LINKS,
+            ContentValues().apply {
+                put("archived", 1)
+                put("locally_deleted", 1)
+                put("updated_at", nowIso())
+                putNull("pending_action")
+                putNull("last_error")
+            },
+            "$where AND locally_deleted = 0",
+            args
+        )
+    }
+
+    private data class LinkEntityKey(val type: String, val id: String)
 
     private fun pendingDeleteValues(): ContentValues {
         return ContentValues().apply {

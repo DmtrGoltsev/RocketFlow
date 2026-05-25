@@ -3,10 +3,13 @@ package com.rocketflow.folders;
 import static com.rocketflow.folders.FoldersApi.*;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -14,18 +17,46 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.common.ApiException;
+import com.rocketflow.goals.Goal;
+import com.rocketflow.goals.GoalRepository;
+import com.rocketflow.ideas.Idea;
+import com.rocketflow.ideas.IdeaRepository;
+import com.rocketflow.links.EntityLinkCleanupService;
+import com.rocketflow.links.EntityLinkService;
+import com.rocketflow.notes.Note;
+import com.rocketflow.notes.NoteRepository;
 import com.rocketflow.sharing.SharingAccessService;
 import com.rocketflow.sharing.SharingAccessService.FolderAccess;
+import com.rocketflow.tasks.Task;
+import com.rocketflow.tasks.TaskRepository;
 
 @Service
 public class FolderService {
 
     private final FolderRepository folderRepository;
     private final SharingAccessService sharingAccessService;
+    private final GoalRepository goalRepository;
+    private final TaskRepository taskRepository;
+    private final IdeaRepository ideaRepository;
+    private final NoteRepository noteRepository;
+    private final EntityLinkCleanupService entityLinkCleanupService;
 
-    public FolderService(FolderRepository folderRepository, SharingAccessService sharingAccessService) {
+    public FolderService(
+            FolderRepository folderRepository,
+            SharingAccessService sharingAccessService,
+            GoalRepository goalRepository,
+            TaskRepository taskRepository,
+            IdeaRepository ideaRepository,
+            NoteRepository noteRepository,
+            EntityLinkCleanupService entityLinkCleanupService
+    ) {
         this.folderRepository = folderRepository;
         this.sharingAccessService = sharingAccessService;
+        this.goalRepository = goalRepository;
+        this.taskRepository = taskRepository;
+        this.ideaRepository = ideaRepository;
+        this.noteRepository = noteRepository;
+        this.entityLinkCleanupService = entityLinkCleanupService;
     }
 
     @Transactional(readOnly = true)
@@ -140,6 +171,7 @@ public class FolderService {
         folder.setArchived(true);
         folder.setUpdatedAt(Instant.now());
         folderRepository.save(folder);
+        archiveDescendantEntityLinks(folder);
     }
 
     @Transactional(readOnly = true)
@@ -185,6 +217,54 @@ public class FolderService {
             currentId = folderRepository.findById(currentId)
                     .map(Folder::getParentFolderId)
                     .orElse(null);
+        }
+    }
+
+    private void archiveDescendantEntityLinks(Folder folder) {
+        List<UUID> folderIds = descendantFolderIds(folder);
+        List<Goal> goals = goalRepository.findByFolderIdIn(folderIds);
+        List<UUID> goalIds = goals.stream().map(Goal::getId).toList();
+        List<UUID> taskIds = goalIds.isEmpty()
+                ? List.of()
+                : taskRepository.findByGoalIdIn(goalIds).stream().map(Task::getId).toList();
+        List<UUID> ideaIds = ideaRepository.findByFolderIdIn(folderIds).stream().map(Idea::getId).toList();
+        List<UUID> noteIds = noteRepository.findByFolderIdIn(folderIds).stream().map(Note::getId).toList();
+
+        entityLinkCleanupService.archiveLinksForEntities(Map.of(
+                EntityLinkService.TYPE_GOAL, goalIds,
+                EntityLinkService.TYPE_TASK, taskIds,
+                EntityLinkService.TYPE_IDEA, ideaIds,
+                EntityLinkService.TYPE_NOTE, noteIds
+        ));
+    }
+
+    private List<UUID> descendantFolderIds(Folder root) {
+        List<Folder> folders = folderRepository.findByOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(root.getOwnerUserId());
+        Map<UUID, List<Folder>> childrenByParentId = new LinkedHashMap<>();
+        for (Folder folder : folders) {
+            if (folder.getParentFolderId() != null) {
+                childrenByParentId.computeIfAbsent(folder.getParentFolderId(), ignored -> new ArrayList<>()).add(folder);
+            }
+        }
+
+        List<UUID> result = new ArrayList<>();
+        Set<UUID> seen = new HashSet<>();
+        collectDescendantFolderIds(root.getId(), childrenByParentId, result, seen);
+        return result;
+    }
+
+    private void collectDescendantFolderIds(
+            UUID folderId,
+            Map<UUID, List<Folder>> childrenByParentId,
+            List<UUID> result,
+            Set<UUID> seen
+    ) {
+        if (!seen.add(folderId)) {
+            return;
+        }
+        result.add(folderId);
+        for (Folder child : childrenByParentId.getOrDefault(folderId, List.of())) {
+            collectDescendantFolderIds(child.getId(), childrenByParentId, result, seen);
         }
     }
 

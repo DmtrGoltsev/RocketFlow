@@ -11,6 +11,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.common.ApiException;
+import com.rocketflow.links.EntityLinkCleanupService;
+import com.rocketflow.links.EntityLinkService;
 import com.rocketflow.sharing.SharingAccessService;
 import com.rocketflow.sharing.SharingAccessService.FolderAccess;
 
@@ -20,11 +22,18 @@ public class NoteService {
     private final NoteRepository noteRepository;
     private final SharingAccessService sharingAccessService;
     private final UserRepository userRepository;
+    private final EntityLinkCleanupService entityLinkCleanupService;
 
-    public NoteService(NoteRepository noteRepository, SharingAccessService sharingAccessService, UserRepository userRepository) {
+    public NoteService(
+            NoteRepository noteRepository,
+            SharingAccessService sharingAccessService,
+            UserRepository userRepository,
+            EntityLinkCleanupService entityLinkCleanupService
+    ) {
         this.noteRepository = noteRepository;
         this.sharingAccessService = sharingAccessService;
         this.userRepository = userRepository;
+        this.entityLinkCleanupService = entityLinkCleanupService;
     }
 
     @Transactional(readOnly = true)
@@ -82,6 +91,7 @@ public class NoteService {
         access.note().setArchived(true);
         access.note().setUpdatedAt(Instant.now());
         noteRepository.save(access.note());
+        entityLinkCleanupService.archiveLinksForEntity(EntityLinkService.TYPE_NOTE, access.note().getId());
     }
 
     @Transactional

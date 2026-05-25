@@ -306,6 +306,7 @@ class MainActivity : Activity() {
         val taskNeedsGoal: String = "A task must belong to a goal. Select an existing goal or create one first.",
         val deleteFolderWarning: String = "This folder contains %1\$d goals and %2\$d tasks. They will be deleted with the folder.",
         val deleteGoalWarning: String = "This goal contains %1\$d tasks. They will be deleted with the goal.",
+        val deleteLinksWarning: String = "Links: %1\$d. They will also be deleted.",
         val priorityDecay: String = "Снижение приоритета",
         val priorityDecayHelp: String = "Приоритет меняется после переносов задачи.",
         val greenTasks: String = "Зеленые задачи",
@@ -1689,7 +1690,7 @@ class MainActivity : Activity() {
                             addView(iconButton(R.drawable.ic_share, c.share) { showShareDialog(task.toShareTarget()) })
                             addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("task", task.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showTaskDialog(task) })
-                            addView(deleteIconButton(c.delete) { confirmDelete(task.title) { deleteTask(task) } })
+                            addView(deleteIconButton(c.delete) { confirmDelete(task.title, deleteEntityMessage("task", task.id, task.title)) { deleteTask(task) } })
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                         }
                     }
@@ -1715,11 +1716,11 @@ class MainActivity : Activity() {
                             addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("idea", idea.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showIdeaDialog(idea.folderId, idea) })
                             if (canDeleteIdea(idea)) {
-                                addView(deleteIconButton(c.delete) { confirmDelete(idea.title) { deleteIdea(idea) } })
+                                addView(deleteIconButton(c.delete) { confirmDelete(idea.title, deleteEntityMessage("idea", idea.id, idea.title)) { deleteIdea(idea) } })
                             }
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showIdeaActions(idea) })
                         } else if (canDeleteIdea(idea)) {
-                            addView(deleteIconButton(c.delete) { confirmDelete(idea.title) { deleteIdea(idea) } })
+                            addView(deleteIconButton(c.delete) { confirmDelete(idea.title, deleteEntityMessage("idea", idea.id, idea.title)) { deleteIdea(idea) } })
                         }
                         addView(iconButton(R.drawable.ic_add, c.addNote) { showIdeaNoteDialog(idea) })
                     }
@@ -1729,7 +1730,7 @@ class MainActivity : Activity() {
                         if (canWrite(note)) {
                             addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("note", note.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showNoteDialog(note.folderId, note) })
-                            addView(deleteIconButton(c.delete) { confirmDelete(note.title) { deleteNote(note) } })
+                            addView(deleteIconButton(c.delete) { confirmDelete(note.title, deleteEntityMessage("note", note.id, note.title)) { deleteNote(note) } })
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showNoteActions(note) })
                         }
                     }
@@ -4924,6 +4925,7 @@ class MainActivity : Activity() {
     private fun confirmDelete(name: String, message: String = name, onConfirm: () -> Unit) {
         AlertDialog.Builder(this)
             .setTitle(copy().delete)
+            .setIcon(R.drawable.ic_warning)
             .setMessage(message)
             .setNegativeButton(copy().cancel, null)
             .setPositiveButton(copy().delete) { _, _ -> onConfirm() }
@@ -4931,21 +4933,74 @@ class MainActivity : Activity() {
     }
 
     private fun deleteFolderMessage(folder: PlanningFolder): String {
-        val folderGoals = goalsForFolder(folder.id)
+        val folderIds = descendantFolderIds(folder.id)
+        val folderGoals = goals.filter { it.folderId in folderIds }
         val taskCount = folderGoals.sumOf { tasksForGoal(it.id).size }
-        return if (folderGoals.isEmpty() && taskCount == 0) {
+        val base = if (folderGoals.isEmpty() && taskCount == 0) {
             folder.name
         } else {
             String.format(Locale.ROOT, copy().deleteFolderWarning, folderGoals.size, taskCount)
         }
+        return appendDeleteLinksWarning(base, linkCountForDeletingFolder(folder.id))
     }
 
     private fun deleteGoalMessage(goal: PlanningGoal): String {
         val taskCount = tasksForGoal(goal.id).size
-        return if (taskCount == 0) {
+        val base = if (taskCount == 0) {
             goal.name
         } else {
             String.format(Locale.ROOT, copy().deleteGoalWarning, taskCount)
+        }
+        return appendDeleteLinksWarning(base, linkCountForDeletingGoal(goal.id))
+    }
+
+    private fun deleteEntityMessage(type: String, id: String, fallback: String): String {
+        return appendDeleteLinksWarning(fallback, linkCountForDeletingEntities(setOf(type to id)))
+    }
+
+    private fun appendDeleteLinksWarning(base: String, linkCount: Int): String {
+        if (linkCount == 0) {
+            return base
+        }
+        return base + "\n\n" + String.format(Locale.ROOT, copy().deleteLinksWarning, linkCount)
+    }
+
+    private fun linkCountForDeletingGoal(goalId: String): Int {
+        val keys = mutableSetOf("goal" to goalId)
+        tasksForGoal(goalId).forEach { keys += "task" to it.id }
+        return linkCountForDeletingEntities(keys)
+    }
+
+    private fun linkCountForDeletingFolder(folderId: String): Int {
+        val folderIds = descendantFolderIds(folderId)
+        val keys = mutableSetOf<Pair<String, String>>()
+        goals.filter { it.folderId in folderIds }.forEach { goal ->
+            keys += "goal" to goal.id
+            tasksForGoal(goal.id).forEach { keys += "task" to it.id }
+        }
+        ideas.filter { it.folderId in folderIds }.forEach { keys += "idea" to it.id }
+        notes.filter { it.folderId in folderIds }.forEach { keys += "note" to it.id }
+        return linkCountForDeletingEntities(keys)
+    }
+
+    private fun descendantFolderIds(folderId: String): Set<String> {
+        val childrenByParent = folders.filter { it.parentFolderId != null }.groupBy { it.parentFolderId!! }
+        val result = linkedSetOf<String>()
+        fun collect(currentId: String) {
+            if (!result.add(currentId)) {
+                return
+            }
+            childrenByParent[currentId].orEmpty().forEach { collect(it.id) }
+        }
+        collect(folderId)
+        return result
+    }
+
+    private fun linkCountForDeletingEntities(keys: Set<Pair<String, String>>): Int {
+        return entityLinks.count { link ->
+            !link.archived && keys.any { (type, id) ->
+                (link.sourceType == type && link.sourceId == id) || (link.targetType == type && link.targetId == id)
+            }
         }
     }
 
@@ -7514,6 +7569,7 @@ class MainActivity : Activity() {
                 taskNeedsGoal = "A task must belong to a goal. Select an existing goal or create one first.",
                 deleteFolderWarning = "This folder contains %1\$d goals and %2\$d tasks. They will be deleted with the folder.",
                 deleteGoalWarning = "This goal contains %1\$d tasks. They will be deleted with the goal.",
+                deleteLinksWarning = "Links: %1\$d. They will also be deleted.",
                 threshold = "Threshold",
                 decayAmount = "Decay",
                 remindersOn = "On",
@@ -7704,6 +7760,7 @@ class MainActivity : Activity() {
                 taskNeedsGoal = "\u0417\u0430\u0434\u0430\u0447\u0430 \u0434\u043e\u043b\u0436\u043d\u0430 \u0431\u044b\u0442\u044c \u0432\u043d\u0443\u0442\u0440\u0438 \u0446\u0435\u043b\u0438. \u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044e\u0449\u0443\u044e \u0446\u0435\u043b\u044c \u0438\u043b\u0438 \u0441\u043e\u0437\u0434\u0430\u0439\u0442\u0435 \u043d\u043e\u0432\u0443\u044e.",
                 deleteFolderWarning = "\u0412 \u043f\u0430\u043f\u043a\u0435 \u0435\u0441\u0442\u044c \u0446\u0435\u043b\u0438: %1\$d, \u0437\u0430\u0434\u0430\u0447\u0438: %2\$d. \u041e\u043d\u0438 \u0443\u0434\u0430\u043b\u044f\u0442\u0441\u044f \u0432\u043c\u0435\u0441\u0442\u0435 \u0441 \u043f\u0430\u043f\u043a\u043e\u0439.",
                 deleteGoalWarning = "\u0412 \u0446\u0435\u043b\u0438 \u0435\u0441\u0442\u044c \u0437\u0430\u0434\u0430\u0447\u0438: %1\$d. \u041e\u043d\u0438 \u0443\u0434\u0430\u043b\u044f\u0442\u0441\u044f \u0432\u043c\u0435\u0441\u0442\u0435 \u0441 \u0446\u0435\u043b\u044c\u044e.",
+                deleteLinksWarning = "\u0415\u0441\u0442\u044c \u0441\u0432\u044f\u0437\u0438: %1\$d. \u041f\u0440\u0438 \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0438 \u043e\u043d\u0438 \u0442\u043e\u0436\u0435 \u0431\u0443\u0434\u0443\u0442 \u0443\u0434\u0430\u043b\u0435\u043d\u044b.",
                 threshold = "Порог",
                 decayAmount = "Снижение",
                 remindersOn = "Включено",
