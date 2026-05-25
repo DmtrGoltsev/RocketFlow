@@ -280,6 +280,7 @@ class MainActivity : Activity() {
         val details: String,
         val collapse: String = "Collapse",
         val collapseAll: String = "Collapse all",
+        val expandAll: String = "Expand all",
         val creator: String = "Creator",
         val created: String,
         val updated: String,
@@ -443,6 +444,9 @@ class MainActivity : Activity() {
     private var planningOffline = false
     private var planningPendingCount = 0
     private var planningLastSyncError: String? = null
+    private var planningManualSyncRunning = false
+    private var planningLastManualSyncMessage: String? = null
+    private var planningLastManualSyncAt: Instant? = null
 
     private var selectedFolderId: String? = null
     private var selectedGoalId: String? = null
@@ -717,6 +721,9 @@ class MainActivity : Activity() {
         planningOffline = false
         planningPendingCount = 0
         planningLastSyncError = null
+        planningManualSyncRunning = false
+        planningLastManualSyncMessage = null
+        planningLastManualSyncAt = null
         taskDetailScrollY = 0
         taskDetailScrollView = null
         settingsScrollY = 0
@@ -1091,6 +1098,20 @@ class MainActivity : Activity() {
         render()
     }
 
+    private fun expandAllPlannerItems() {
+        collapsedFolderIds.clear()
+        collapsedGoalIds.clear()
+        render()
+    }
+
+    private fun shouldShowExpandAllAction(): Boolean {
+        val folderIds = allFolders().map { it.id }
+        val goalIds = allGoals().map { it.id }
+        return (folderIds.isNotEmpty() || goalIds.isNotEmpty()) &&
+            folderIds.all { it in collapsedFolderIds } &&
+            goalIds.all { it in collapsedGoalIds }
+    }
+
     private fun renderDetail() {
         val c = copy()
         val task = selectedTaskDetail ?: selectedTaskId?.let(::findTask)
@@ -1128,7 +1149,7 @@ class MainActivity : Activity() {
             content.addView(propertyRow(c.access, accessLabel(task), clickable = true) {
                 showShareAccessSheet(task.toShareTarget())
             })
-            content.addView(sectionLabel(c.notes))
+            content.addView(sectionLabel(c.details))
             content.addView(
                 TextView(this).apply {
                     text = task.description.ifBlank { c.noDate }
@@ -1211,7 +1232,7 @@ class MainActivity : Activity() {
             )
             content.addView(pathLine(folder?.name ?: c.folder))
             content.addView(propertyRow(c.status, localizedStatus(goal.status), clickable = false))
-            content.addView(propertyRow(c.notes, goal.description.ifBlank { c.noDate }, clickable = false))
+            content.addView(propertyRow(c.details, goal.description.ifBlank { c.noDate }, clickable = false))
             content.addView(propertyRow(c.task, goalTasks.size.toString(), clickable = false))
             content.addView(propertyRow(c.effort, goalEffortSummary(goalTasks), clickable = false))
             if (goalTasks.isNotEmpty()) {
@@ -1285,7 +1306,7 @@ class MainActivity : Activity() {
             if (canEditIdea(idea)) {
                 content.addView(propertyRow(c.allowAuthorNoteEdits, if (idea.allowAuthorNoteEdits) c.remindersOn else c.remindersOff, clickable = false))
             }
-            content.addView(sectionLabel(c.notes))
+            content.addView(sectionLabel(c.details))
             content.addView(
                 TextView(this).apply {
                     text = idea.body.ifBlank { c.noDate }
@@ -1354,7 +1375,7 @@ class MainActivity : Activity() {
             )
             content.addView(pathLine(notePath(note)))
             content.addView(propertyRow(c.access, accessLabel(note), clickable = false))
-            content.addView(sectionLabel(c.notes))
+            content.addView(sectionLabel(c.details))
             content.addView(
                 TextView(this).apply {
                     text = note.body.ifBlank { c.noDate }
@@ -1410,6 +1431,7 @@ class MainActivity : Activity() {
         content.addView(sectionLabel(c.syncStatus))
         content.addView(settingsHelp(c.syncHelp))
         content.addView(settingsRow(c.syncStatus, planningStatusText()))
+        planningStatusDetailText()?.let { content.addView(settingsHelp(it)) }
 
         content.addView(sectionLabel(c.sharing))
         content.addView(settingsHelp(c.sharingHelp))
@@ -1439,7 +1461,7 @@ class MainActivity : Activity() {
                 notificationRuntime.requestNotificationPermission(this)
             })
         }
-        content.addView(textButton(c.syncNow, quiet = true) { reloadPlanner(showBusy = true) })
+        content.addView(textButton(c.syncNow, quiet = true) { manualSyncPlannerFromSettings() })
         content.addView(textButton(c.signOut, danger = true) { logout() })
 
         val scrollView = ScrollView(this).apply {
@@ -1678,7 +1700,11 @@ class MainActivity : Activity() {
             when (mode) {
                 Screen.Planner -> {
                     addView(iconButton(R.drawable.ic_search, c.search) { showSearchDialog() })
-                    addView(iconButton(R.drawable.ic_unfold_less, c.collapseAll) { collapseAllPlannerItems() })
+                    if (shouldShowExpandAllAction()) {
+                        addView(iconButton(R.drawable.ic_unfold_more, c.expandAll) { expandAllPlannerItems() })
+                    } else {
+                        addView(iconButton(R.drawable.ic_unfold_less, c.collapseAll) { collapseAllPlannerItems() })
+                    }
                     addView(iconButton(R.drawable.ic_settings, c.settings) {
                         currentScreen = Screen.Settings
                         render()
@@ -1859,6 +1885,9 @@ class MainActivity : Activity() {
                 if (canWrite(idea)) enableEntityDragSource(dragPayload)
             })
             addView(counterText(ideaNotesForIdea(idea.id).size.toString()))
+            if (canEditIdea(idea) || canDeleteIdea(idea)) {
+                addView(iconButton(R.drawable.ic_more_horiz, c.details) { showIdeaActions(idea) })
+            }
             if (canWrite(idea)) enableEntityDragSource(dragPayload)
         }
     }
@@ -2016,6 +2045,30 @@ class MainActivity : Activity() {
                     true
                 }
                 else -> true
+            }
+        }
+    }
+
+    private fun manualSyncPlannerFromSettings() {
+        if (currentSession == null || planningManualSyncRunning) return
+        planningSyncScheduler.enqueuePlanningSync(PlanningSyncReason.Manual)
+        planningManualSyncRunning = true
+        planningLastManualSyncMessage = manualSyncRunningText()
+        message = planningLastManualSyncMessage
+        render()
+        scope.launch {
+            try {
+                loadPlannerData()
+                planningLastManualSyncAt = Instant.now()
+                planningLastManualSyncMessage = manualSyncResultText()
+                message = planningLastManualSyncMessage
+            } catch (error: Exception) {
+                planningLastManualSyncAt = Instant.now()
+                planningLastManualSyncMessage = manualSyncErrorText(error)
+                message = planningLastManualSyncMessage
+            } finally {
+                planningManualSyncRunning = false
+                render()
             }
         }
     }
@@ -2680,7 +2733,8 @@ class MainActivity : Activity() {
         val actions = listOf<Pair<String, () -> Unit>>(
             c.share to { showShareDialog(folder.toShareTarget()) },
             c.move to { showMoveFolderDialog(folder) },
-            c.clone to { showCloneFolderDialog(folder) }
+            c.clone to { showCloneFolderDialog(folder) },
+            c.delete to { confirmDelete(folder.name, deleteFolderMessage(folder)) { deleteFolder(folder) } }
         )
         AlertDialog.Builder(this)
             .setTitle(folder.name)
@@ -2697,6 +2751,7 @@ class MainActivity : Activity() {
                 add(c.share to { showShareDialog(goal.toShareTarget()) })
                 add(c.move to { showMoveGoalDialog(goal) })
                 add(c.clone to { showCloneGoalDialog(goal) })
+                add(c.delete to { confirmDelete(goal.name, deleteGoalMessage(goal)) { deleteGoal(goal) } })
             }
         }
         AlertDialog.Builder(this)
@@ -2736,7 +2791,7 @@ class MainActivity : Activity() {
             .setTitle(folder.name)
             .setView(
                 dialogForm(
-                    detailDialogText(c.notes, folder.description.ifBlank { c.noDate }),
+                    detailDialogText(c.details, folder.description.ifBlank { c.noDate }),
                     detailDialogText(c.goal, folderGoals.size.toString()),
                     detailDialogText(c.task, taskCount.toString()),
                     actions
@@ -2780,7 +2835,7 @@ class MainActivity : Activity() {
             .setView(
                 dialogForm(
                     detailDialogText(c.folder, folder?.name ?: c.folder),
-                    detailDialogText(c.notes, goal.description.ifBlank { c.noDate }),
+                    detailDialogText(c.details, goal.description.ifBlank { c.noDate }),
                     detailDialogText(c.status, localizedStatus(goal.status)),
                     detailDialogText(c.task, taskCount.toString()),
                     detailDialogText(c.effort, effortProgressText(doneEffort, totalEffort)),
@@ -2844,11 +2899,16 @@ class MainActivity : Activity() {
 
     private fun showIdeaActions(idea: PlanningIdea) {
         val c = copy()
-        val actions = mutableListOf<Pair<String, () -> Unit>>(
-            c.share to { showShareDialog(idea.toShareTarget()) },
-            c.move to { showMoveIdeaDialog(idea) },
-            c.clone to { showCloneIdeaDialog(idea) }
-        )
+        val actions = buildList<Pair<String, () -> Unit>> {
+            if (canEditIdea(idea)) {
+                add(c.share to { showShareDialog(idea.toShareTarget()) })
+                add(c.move to { showMoveIdeaDialog(idea) })
+                add(c.clone to { showCloneIdeaDialog(idea) })
+            }
+            if (canDeleteIdea(idea)) {
+                add(c.delete to { confirmDelete(idea.title, deleteEntityMessage("idea", idea.id, idea.title)) { deleteIdea(idea) } })
+            }
+        }
         AlertDialog.Builder(this)
             .setTitle(idea.title)
             .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
@@ -3655,7 +3715,7 @@ class MainActivity : Activity() {
         val c = copy()
         val parentFolder = parentFolderId?.let(::findFolder)
         val nameInput = dialogInput(c.nameField, folder?.name.orEmpty())
-        val notesInput = dialogInput(c.notesField, folder?.description.orEmpty(), multiline = true)
+        val notesInput = dialogInput(c.details, folder?.description.orEmpty(), multiline = true)
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (folder == null) c.newFolder else c.edit)
             .setView(dialogForm(parentFolder?.let { dialogContextLine(c.folder, it.name) } ?: View(this), nameInput, notesInput))
@@ -3682,7 +3742,7 @@ class MainActivity : Activity() {
         val folder = folders.firstOrNull { it.id == folderId }
         val c = copy()
         val nameInput = dialogInput(c.nameField, goal?.name.orEmpty())
-        val notesInput = dialogInput(c.notesField, goal?.description.orEmpty(), multiline = true)
+        val notesInput = dialogInput(c.details, goal?.description.orEmpty(), multiline = true)
         val statusInput = dialogInput(c.status, goal?.status ?: "todo", inputPurpose = TextInputPurpose.Text)
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (goal == null) c.newGoal else c.edit)
@@ -3690,7 +3750,7 @@ class MainActivity : Activity() {
                 dialogForm(
                     dialogContextLine(c.folder, folder?.name ?: c.folder),
                     dialogField(c.nameField, nameInput),
-                    dialogField(c.notesField, notesInput),
+                    dialogField(c.details, notesInput),
                     dialogField(c.status, statusInput)
                 )
             )
@@ -3733,7 +3793,7 @@ class MainActivity : Activity() {
             return
         }
         val titleInput = dialogInput(c.titleField, task?.title.orEmpty())
-        val notesInput = dialogInput(c.notesField, task?.description.orEmpty(), multiline = true)
+        val notesInput = dialogInput(c.details, task?.description.orEmpty(), multiline = true)
         val typeGroup = taskTypeGroup(task?.type ?: "green")
         val priorityInput = dialogInput(
             c.priorityField,
@@ -3782,7 +3842,7 @@ class MainActivity : Activity() {
                 dialogForm(
                     dialogContextLine(c.goal, goal?.name ?: c.goal),
                     dialogField(c.titleField, titleInput),
-                    dialogField(c.notesField, notesInput),
+                    dialogField(c.details, notesInput),
                     dialogLabel(c.taskType),
                     typeGroup,
                     dialogField(c.priorityField, priorityInput),
@@ -3837,7 +3897,7 @@ class MainActivity : Activity() {
         val c = copy()
         val folder = folders.firstOrNull { it.id == folderId } ?: sharedFolders.firstOrNull { it.id == folderId }
         val titleInput = dialogInput(c.titleField, idea?.title.orEmpty(), inputPurpose = TextInputPurpose.Name)
-        val notesInput = dialogInput(c.notesField, idea?.body.orEmpty(), multiline = true, inputPurpose = TextInputPurpose.Notes)
+        val notesInput = dialogInput(c.details, idea?.body.orEmpty(), multiline = true, inputPurpose = TextInputPurpose.Notes)
         val statusInput = dialogInput(c.status, idea?.status ?: "active", inputPurpose = TextInputPurpose.Text)
         val authorEditInput = CheckBox(this).apply {
             text = c.allowAuthorNoteEdits
@@ -3858,7 +3918,7 @@ class MainActivity : Activity() {
                 dialogForm(
                     dialogContextLine(c.folder, folder?.name ?: c.folder),
                     dialogField(c.titleField, titleInput),
-                    dialogField(c.notesField, notesInput),
+                    dialogField(c.details, notesInput),
                     dialogField(c.status, statusInput),
                     authorEditInput,
                     authorEditHint
@@ -3917,7 +3977,7 @@ class MainActivity : Activity() {
         val c = copy()
         val folder = folders.firstOrNull { it.id == folderId } ?: sharedFolders.firstOrNull { it.id == folderId }
         val titleInput = dialogInput(c.titleField, note?.title.orEmpty(), inputPurpose = TextInputPurpose.Name)
-        val bodyInput = dialogInput(c.noteBodyHint, note?.body.orEmpty(), multiline = true, inputPurpose = TextInputPurpose.Notes).apply {
+        val bodyInput = dialogInput(c.details, note?.body.orEmpty(), multiline = true, inputPurpose = TextInputPurpose.Notes).apply {
             minLines = 12
             maxLines = Int.MAX_VALUE
             isVerticalScrollBarEnabled = true
@@ -4580,6 +4640,10 @@ class MainActivity : Activity() {
         val links = linksForEntity(entityType, entityId).filterNot { linkedNoteFor(entityType, entityId, it) != null }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            if (links.isEmpty()) {
+                visibility = View.GONE
+                return@apply
+            }
             addView(
                 expandableSectionHeader(
                     title = c.links,
@@ -4605,6 +4669,10 @@ class MainActivity : Activity() {
         val linked = linksForEntity(entityType, entityId).mapNotNull { linkedNoteFor(entityType, entityId, it) }.distinctBy { it.id }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            if (linked.isEmpty()) {
+                visibility = View.GONE
+                return@apply
+            }
             val canAddNote = canWriteEntity(entityType, entityId) && folderIdForEntity(entityType, entityId) != null
             addView(
                 expandableSectionHeader(
@@ -7063,11 +7131,66 @@ class MainActivity : Activity() {
     private fun planningStatusText(): String {
         val c = copy()
         return when {
+            planningManualSyncRunning -> manualSyncRunningText()
             planningLastSyncError != null -> c.couldNotSync
             planningOffline -> c.offline
             planningPendingCount > 0 -> "${planningPendingCount} ${c.pending}"
             else -> c.syncOk
         }
+    }
+
+    private fun planningStatusDetailText(): String? {
+        val lastMessage = planningLastManualSyncMessage
+        val error = planningLastSyncError
+        return when {
+            planningManualSyncRunning -> manualSyncRunningText()
+            !error.isNullOrBlank() -> {
+                val remaining = pendingRemainderText()
+                listOfNotNull(syncErrorText(error), remaining, planningLastManualSyncAt?.let(::manualSyncTimeText))
+                    .joinToString(" / ")
+            }
+            !lastMessage.isNullOrBlank() -> lastMessage
+            planningPendingCount > 0 -> pendingRemainderText()
+            else -> planningLastManualSyncAt?.let(::manualSyncTimeText)
+        }
+    }
+
+    private fun manualSyncRunningText(): String {
+        return if (currentLanguage == "en") "Syncing now..." else "\u0421\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0438\u0440\u0443\u0435\u043c..."
+    }
+
+    private fun manualSyncResultText(): String {
+        val time = planningLastManualSyncAt?.let(::manualSyncTimeText)
+        val remaining = pendingRemainderText()
+        val status = when {
+            !planningLastSyncError.isNullOrBlank() -> syncErrorText(planningLastSyncError.orEmpty())
+            planningOffline -> copy().offline
+            planningPendingCount > 0 -> remaining.orEmpty()
+            else -> copy().synced
+        }
+        val distinctParts = listOfNotNull(status.takeIf { it.isNotBlank() }, remaining, time).distinct()
+        return distinctParts.joinToString(" / ")
+    }
+
+    private fun manualSyncErrorText(error: Exception): String {
+        val status = humanError(error)
+        val remaining = pendingRemainderText()
+        val time = planningLastManualSyncAt?.let(::manualSyncTimeText)
+        return listOfNotNull(status, remaining, time).joinToString(" / ")
+    }
+
+    private fun pendingRemainderText(): String? {
+        if (planningPendingCount <= 0) return null
+        return if (currentLanguage == "en") {
+            "${planningPendingCount} pending remain"
+        } else {
+            "\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c: $planningPendingCount"
+        }
+    }
+
+    private fun manualSyncTimeText(instant: Instant): String {
+        val localTime = instant.atZone(zone).format(DateTimeFormatter.ofPattern("HH:mm"))
+        return if (currentLanguage == "en") "Checked at $localTime" else "\u041f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043e \u0432 $localTime"
     }
 
     private fun notificationPermissionLabel(): String {
@@ -7539,6 +7662,7 @@ class MainActivity : Activity() {
                 details = "Details",
                 collapse = "Collapse",
                 collapseAll = "Collapse all",
+                expandAll = "Expand all",
                 creator = "Creator",
                 created = "Created",
                 updated = "Updated",
@@ -7730,6 +7854,7 @@ class MainActivity : Activity() {
                 details = "Детали",
                 collapse = "Свернуть",
                 collapseAll = "Свернуть все",
+                expandAll = "\u0420\u0430\u0437\u0432\u0435\u0440\u043d\u0443\u0442\u044c \u0432\u0441\u0435",
                 creator = "\u0421\u043e\u0437\u0434\u0430\u043b",
                 created = "Создано",
                 updated = "Обновлено",
