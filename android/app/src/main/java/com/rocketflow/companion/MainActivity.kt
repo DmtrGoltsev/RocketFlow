@@ -279,6 +279,7 @@ class MainActivity : Activity() {
         val path: String,
         val details: String,
         val collapse: String = "Collapse",
+        val collapseAll: String = "Collapse all",
         val creator: String = "Creator",
         val created: String,
         val updated: String,
@@ -1081,6 +1082,14 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun collapseAllPlannerItems() {
+        collapsedFolderIds.clear()
+        collapsedFolderIds.addAll(allFolders().map { it.id })
+        collapsedGoalIds.clear()
+        collapsedGoalIds.addAll(allGoals().map { it.id })
+        render()
+    }
+
     private fun renderDetail() {
         val c = copy()
         val task = selectedTaskDetail ?: selectedTaskId?.let(::findTask)
@@ -1668,6 +1677,7 @@ class MainActivity : Activity() {
             when (mode) {
                 Screen.Planner -> {
                     addView(iconButton(R.drawable.ic_search, c.search) { showSearchDialog() })
+                    addView(iconButton(R.drawable.ic_unfold_less, c.collapseAll) { collapseAllPlannerItems() })
                     addView(iconButton(R.drawable.ic_settings, c.settings) {
                         currentScreen = Screen.Settings
                         render()
@@ -7455,6 +7465,7 @@ class MainActivity : Activity() {
                 path = "Path",
                 details = "Details",
                 collapse = "Collapse",
+                collapseAll = "Collapse all",
                 creator = "Creator",
                 created = "Created",
                 updated = "Updated",
@@ -7644,6 +7655,7 @@ class MainActivity : Activity() {
                 path = "Путь",
                 details = "Детали",
                 collapse = "Свернуть",
+                collapseAll = "Свернуть все",
                 creator = "\u0421\u043e\u0437\u0434\u0430\u043b",
                 created = "Создано",
                 updated = "Обновлено",
