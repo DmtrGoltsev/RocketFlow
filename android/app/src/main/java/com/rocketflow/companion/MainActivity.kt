@@ -980,9 +980,16 @@ class MainActivity : Activity() {
         }
 
         val scrollView = ScrollView(this).apply {
+            isFillViewport = true
             setBackgroundColor(color(Ui.CANVAS))
             clipToPadding = false
-            addView(list)
+            addView(
+                list,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 0,
@@ -990,7 +997,13 @@ class MainActivity : Activity() {
             )
         }
         shell.addView(scrollView)
-        frame.addView(shell)
+        frame.addView(
+            shell,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
         if (hasVisibleRows) {
             lateinit var addButtonParams: FrameLayout.LayoutParams
             frame.addView(
@@ -1856,6 +1869,7 @@ class MainActivity : Activity() {
         isLongClickable = false
         isClickable = true
         val longPressTimeout = ViewConfiguration.getLongPressTimeout().toLong()
+        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
         setOnTouchListener { source, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -1869,7 +1883,6 @@ class MainActivity : Activity() {
                         currentRawY = event.rawY
                     )
                     manualDragState = state
-                    requestParentDragInterception(source, disallow = true)
                     dragHandler.postDelayed({
                         if (manualDragState === state && !state.active) {
                             beginManualEntityDrag(state)
@@ -1882,6 +1895,15 @@ class MainActivity : Activity() {
                         ?: return@setOnTouchListener false
                     state.currentRawX = event.rawX
                     state.currentRawY = event.rawY
+                    val movedFarEnoughToScroll =
+                        kotlin.math.abs(event.rawX - state.downRawX) > touchSlop ||
+                            kotlin.math.abs(event.rawY - state.downRawY) > touchSlop
+                    if (!state.active && movedFarEnoughToScroll) {
+                        dragHandler.removeCallbacksAndMessages(null)
+                        requestParentDragInterception(source, disallow = false)
+                        manualDragState = null
+                        return@setOnTouchListener false
+                    }
                     if (!state.active && event.eventTime - state.downAt >= longPressTimeout) {
                         beginManualEntityDrag(state)
                     }
