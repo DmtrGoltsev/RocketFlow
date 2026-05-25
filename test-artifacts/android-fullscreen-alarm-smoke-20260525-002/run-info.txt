@@ -1,0 +1,6 @@
+﻿artifact=C:\Users\style\Documents\Codex\RocketFlow\test-artifacts\android-fullscreen-alarm-smoke-20260525-002
+Build: gradlew assembleDebug succeeded with explicit ANDROID_HOME before smoke.
+triggerAtMillis=1779731649186
+triggerUtc=2026-05-25T17:54:09Z
+waitSeconds=205
+live scenario complete 2026-05-25T20:54:51.6793401+03:00

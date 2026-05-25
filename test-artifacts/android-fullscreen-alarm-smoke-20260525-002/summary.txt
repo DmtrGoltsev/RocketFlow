@@ -1,0 +1,6 @@
+﻿LIVE PASS SUMMARY
+- Scheduled by app startup path: seeded local DB + rocketflow_local_task_reminders.xml, then cold-launched MainActivity so RocketFlowCompanionApp.onCreate() ran taskReminderAlarmScheduler.rescheduleActive().
+- Alarm evidence: dumpsys-alarm-rocketflow-after-live-schedule.txt shows RTC_WAKEUP, window=0, exactAllowReason=permission, Alarm clock triggerTime=2026-05-25 17:54:09.186, operation TaskReminderAlarmReceiver.
+- Process kill evidence: ps-after-am-kill-live.txt is empty after HOME + adb shell am kill com.rocketflow.companion.
+- Delivery evidence: live-dumpsys-activity-activities.txt and live-dumpsys-window.txt show TaskReminderAlarmActivity resumed/focused; live-screen-after-trigger.png shows the fullscreen alarm UI.
+- Notification evidence: live-dumpsys-notification-noredact.txt shows channel=rocketflow.task.alarms.v2, category=alarm, importance=HIGH, fullscreenIntent=PendingIntent, alarm sound, USAGE_ALARM audio attrs.

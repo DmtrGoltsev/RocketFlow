@@ -698,6 +698,9 @@ class MainActivity : Activity() {
 
         selectedTaskId = selectedTaskId?.takeIf { id -> allTasks().any { it.id == id } }
         selectedTaskDetail = selectedTaskId?.let(::findTask)
+        if (currentScreen == Screen.Detail && selectedTaskDetail == null) {
+            currentScreen = Screen.Planner
+        }
         selectedIdeaId = selectedIdeaId?.takeIf { id -> allIdeas().any { it.id == id } }
         selectedIdeaDetail = selectedIdeaId?.let(::findIdea)
         selectedNoteId = selectedNoteId?.takeIf { id -> allNotes().any { it.id == id } }
@@ -2884,15 +2887,17 @@ class MainActivity : Activity() {
 
     private fun showTaskActions(task: PlanningTask) {
         val c = copy()
+        val actions = buildList<Pair<String, () -> Unit>> {
+            add(c.share to { showShareDialog(task.toShareTarget()) })
+            add(c.reschedule to { showRescheduleDialog(task) })
+            add(c.move to { showMoveTaskDialog(task) })
+            add(c.clone to { showCloneTaskDialog(task) })
+            add(c.delete to { confirmDelete(task.title, deleteEntityMessage("task", task.id, task.title)) { deleteTask(task) } })
+        }
         AlertDialog.Builder(this)
             .setTitle(task.title)
-            .setItems(arrayOf(c.share, c.reschedule, c.move, c.clone)) { _, which ->
-                when (which) {
-                    0 -> showShareDialog(task.toShareTarget())
-                    1 -> showRescheduleDialog(task)
-                    2 -> showMoveTaskDialog(task)
-                    else -> showCloneTaskDialog(task)
-                }
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
+                actions[which].second()
             }
             .show()
     }
@@ -4449,11 +4454,15 @@ class MainActivity : Activity() {
 
     private fun clearLocalReminder(task: PlanningTask) {
         val session = currentSession ?: return
-        taskReminderStore.readAll(session.user.id, task.id)
+        cancelLocalReminders(session.user.id, task.id)
+        message = copy().remindersOff
+    }
+
+    private fun cancelLocalReminders(userId: String, taskId: String) {
+        taskReminderStore.readAll(userId, taskId)
             .filter { it.enabled }
             .forEach(taskReminderAlarmScheduler::cancel)
-        taskReminderStore.clear(session.user.id, task.id)
-        message = copy().remindersOff
+        taskReminderStore.clear(userId, taskId)
     }
 
     private fun pickReminderDateTime(
@@ -4588,7 +4597,9 @@ class MainActivity : Activity() {
                 selectedTaskId = savedTask?.id ?: selectedTaskId
                 selectedTaskDetail = savedTask ?: selectedTaskId?.let(::findTask)
                 val currentSavedTask = selectedTaskDetail
-                if (reminderDraft != null && currentSavedTask != null) {
+                if (currentSavedTask != null && isClosed(currentSavedTask)) {
+                    cancelLocalReminders(session.user.id, currentSavedTask.id)
+                } else if (reminderDraft != null && currentSavedTask != null) {
                     saveLocalReminder(currentSavedTask, reminderDraft)
                 } else if (clearReminder && currentSavedTask != null) {
                     clearLocalReminder(currentSavedTask)
@@ -4831,10 +4842,12 @@ class MainActivity : Activity() {
 
     private fun deleteFolder(folder: PlanningFolder) {
         val session = currentSession ?: return
+        val deletingTaskIds = tasksForDeletingFolder(folder.id).map { it.id }
         setBusy(true)
         scope.launch {
             try {
                 applyPlanningResult(planningRepository.deleteFolder(session, folder))
+                deletingTaskIds.forEach { taskId -> cancelLocalReminders(session.user.id, taskId) }
             } catch (error: Exception) {
                 message = humanError(error)
             } finally {
@@ -4845,10 +4858,12 @@ class MainActivity : Activity() {
 
     private fun deleteGoal(goal: PlanningGoal) {
         val session = currentSession ?: return
+        val deletingTaskIds = tasksForGoal(goal.id, includeShared = goal.shared).map { it.id }
         setBusy(true)
         scope.launch {
             try {
                 applyPlanningResult(planningRepository.deleteGoal(session, goal))
+                deletingTaskIds.forEach { taskId -> cancelLocalReminders(session.user.id, taskId) }
             } catch (error: Exception) {
                 message = humanError(error)
             } finally {
@@ -4863,6 +4878,7 @@ class MainActivity : Activity() {
         scope.launch {
             try {
                 applyPlanningResult(planningRepository.deleteTask(session, task))
+                cancelLocalReminders(session.user.id, task.id)
                 if (selectedTaskId == task.id) {
                     selectedTaskId = null
                     selectedTaskDetail = null
@@ -5020,6 +5036,12 @@ class MainActivity : Activity() {
             String.format(Locale.ROOT, copy().deleteGoalWarning, taskCount)
         }
         return appendDeleteLinksWarning(base, linkCountForDeletingGoal(goal.id))
+    }
+
+    private fun tasksForDeletingFolder(folderId: String): List<PlanningTask> {
+        val folderIds = descendantFolderIds(folderId)
+        val goalIds = allGoals().filter { it.folderId in folderIds }.map { it.id }.toSet()
+        return allTasks().filter { it.goalId in goalIds }
     }
 
     private fun deleteEntityMessage(type: String, id: String, fallback: String): String {

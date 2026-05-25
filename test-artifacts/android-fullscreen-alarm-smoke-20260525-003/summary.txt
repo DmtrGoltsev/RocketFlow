@@ -1,0 +1,5 @@
+﻿DONE SUPPRESSION SUMMARY
+- Scheduled by the same app startup path, but local task status was done.
+- Alarm evidence: dumpsys-alarm-rocketflow-after-done-schedule.txt shows RTC_WAKEUP, window=0, exactAllowReason=permission, Alarm clock triggerTime=2026-05-25 17:59:02.858, operation TaskReminderAlarmReceiver.
+- Process kill evidence: ps-after-am-kill-done.txt is empty after HOME + adb shell am kill com.rocketflow.companion.
+- Suppression evidence: done-dumpsys-window.txt focus remains NexusLauncher; no TaskReminderAlarmActivity is resumed/focused. done-dumpsys-notification-noredact.txt has no active com.rocketflow.companion NotificationRecord. device-prefs-after-done-trigger.txt shows rocketflow_local_task_reminders.xml reduced to <map />.

@@ -1,0 +1,5 @@
+Runtime smoke notes:
+- Installed app-debug.apk on emulator-5554 and granted POST_NOTIFICATIONS.
+- Direct shell start of TaskReminderAlarmActivity was denied because the activity is intentionally exported=false; alarm UI is launched by the app-owned full-screen PendingIntent from local TaskReminderAlarmReceiver.
+- Captured package evidence for full-screen/alarm permission and registered alarm activity/receiver.
+- Data-dependent delete/menu/completed-reminder flows were not exercised on emulator because no authenticated task dataset was available in this session.

@@ -62,7 +62,12 @@ class NotificationRuntime(private val context: Context) {
         activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CODE)
     }
 
-    fun showTaskReminderNotification(taskId: String, title: String, body: String) {
+    fun showTaskReminderNotification(
+        taskId: String,
+        title: String,
+        body: String,
+        fullScreenAlarm: Boolean = false
+    ) {
         ensureChannel()
 
         if (!hasNotificationPermission()) {
@@ -83,7 +88,26 @@ class NotificationRuntime(private val context: Context) {
         )
 
         val alarmSound = alarmSoundUri()
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val fullScreenPendingIntent = if (fullScreenAlarm) {
+            val alarmIntent = Intent(context, TaskReminderAlarmActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(EXTRA_TASK_ID, taskId)
+                putExtra(EXTRA_TITLE, title)
+                putExtra(EXTRA_BODY, body)
+                putExtra(EXTRA_NOTIFICATION_ID, taskId.hashCode())
+                data = NotificationIntents.taskDeepLink(taskId)
+            }
+            PendingIntent.getActivity(
+                context,
+                taskId.hashCode(),
+                alarmIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            null
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(body)
@@ -95,14 +119,15 @@ class NotificationRuntime(private val context: Context) {
             .setSound(alarmSound)
             .setVibrate(ALARM_VIBRATION_PATTERN)
             .setAutoCancel(true)
-            .build()
+
+        fullScreenPendingIntent?.let { builder.setFullScreenIntent(it, true) }
 
         val manager = ContextCompat.getSystemService(context, NotificationManager::class.java)
             ?: run {
                 Log.w(TAG, "Task reminder notification suppressed: NotificationManager unavailable.")
                 return
             }
-        manager.notify(taskId.hashCode(), notification)
+        manager.notify(taskId.hashCode(), builder.build())
     }
 
     private fun alarmSoundUri(): Uri {
@@ -121,6 +146,10 @@ class NotificationRuntime(private val context: Context) {
         private const val TAG = "NotificationRuntime"
         const val REQUEST_CODE = 4312
         const val CHANNEL_ID = "rocketflow.task.alarms.v2"
+        const val EXTRA_TASK_ID = "taskId"
+        const val EXTRA_TITLE = "title"
+        const val EXTRA_BODY = "body"
+        const val EXTRA_NOTIFICATION_ID = "notificationId"
         val ALARM_VIBRATION_PATTERN = longArrayOf(0L, 700L, 250L, 700L, 250L, 1000L)
     }
 }

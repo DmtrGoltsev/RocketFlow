@@ -1,0 +1,51 @@
+﻿
+05-25 17:56:32.234 W/ActivityTaskManager(  685): callingPackage for (uid=2000, pid=12093) has no WPC
+05-25 17:56:32.240 V/ActivityTaskManager(  685): TaskLaunchParamsModifier: phase=3 task=Task{874943d #156 type=standard
+ A=10282:com.rocketflow.companion} activity=ActivityRecord{211755412 u0 com.rocketflow.companion/.MainActivity t-1} dis
+play-from-task=0 display-id=0 task-display-area-windowing-mode=1 suggested-display-area=DefaultTaskDisplayArea@57460735
+ inherit-from-task=fullscreen non-freeform-task-display-area display-area=DefaultTaskDisplayArea@57460735 skip-bounds-f
+ullscreen
+05-25 17:56:32.240 I/ActivityTaskManager(  685): START u0 {flg=0x10000000 xflg=0x5 cmp=com.rocketflow.companion/.MainAc
+tivity} with LAUNCH_MULTIPLE from uid 2000 (com.android.shell) (BAL_ALLOW_PERMISSION) result code=0
+05-25 17:56:32.255 I/ActivityManager(  685): Start proc 12096:com.rocketflow.companion/u0a282 for next-top-activity {co
+m.rocketflow.companion/com.rocketflow.companion.MainActivity}
+05-25 17:56:32.472 D/ActivityManager(  685): sync unfroze 5647 com.google.android.apps.wellbeing for 3
+05-25 17:56:32.498 I/TaskReminderBootReceiver(12096): Rescheduling local task reminders after android.intent.action.BOO
+T_COMPLETED.
+05-25 17:56:33.070 I/ActivityTaskManager(  685): Displayed com.rocketflow.companion/.MainActivity for user 0: +834ms
+05-25 17:56:35.737 D/ActivityManager(  685): freezing 10508 com.android.chrome
+05-25 17:56:35.738 D/ActivityManager(  685): freezing 11291 com.google.android.documentsui
+05-25 17:56:36.093 D/ActivityManager(  685): freezing 6154 com.google.android.permissioncontroller
+05-25 17:56:38.313 W/ActivityTaskManager(  685): callingPackage for (uid=-1, pid=0) has no WPC
+05-25 17:56:38.326 V/ActivityTaskManager(  685): TaskLaunchParamsModifier: phase=3 task=Task{102e52e #2 type=home I=com
+.google.android.apps.nexuslauncher/.NexusLauncherActivity} activity=ActivityRecord{90160024 u0 com.google.android.apps.
+nexuslauncher/.NexusLauncherActivity t-1} display-area-token-from-option=DefaultTaskDisplayArea@57460735 display-id=0 t
+ask-display-area-windowing-mode=1 suggested-display-area=DefaultTaskDisplayArea@57460735 non-freeform-task-display-area
+ display-area=DefaultTaskDisplayArea@57460735 skip-bounds-fullscreen
+05-25 17:56:38.326 I/ActivityTaskManager(  685): START u0 {act=android.intent.action.MAIN cat=[android.intent.category.
+HOME] flg=0x10000100 cmp=com.google.android.apps.nexuslauncher/.NexusLauncherActivity (has extras)} with LAUNCH_SINGLE_
+TASK from uid 0 (BAL_ALLOW_ALLOWLISTED_UID) result code=2
+05-25 17:56:38.449 W/ActivityTaskManager(  685): setRunningRemoteTransition: no process for null
+05-25 17:56:39.391 I/ActivityManager(  685): Killing 12096:com.rocketflow.companion/u0a282 (adj 700): kill background
+05-25 17:56:39.404 V/ActivityManager(  685): Got obituary of 12096:com.rocketflow.companion
+05-25 17:56:39.413 W/ActivityManager(  685): setHasOverlayUi called on unknown pid: 12096
+05-25 17:56:42.196 D/ActivityTaskManager(  685): Top Process State changed to PROCESS_STATE_TOP_SLEEPING
+05-25 17:56:42.906 D/ActivityManager(  685): freezing 5647 com.google.android.apps.wellbeing
+05-25 17:56:51.143 D/ActivityManager(  685): freezing 5437 com.google.android.gms
+05-25 17:59:02.865 D/ActivityManager(  685): sync unfroze 5647 com.google.android.apps.wellbeing for 3
+05-25 17:59:02.883 I/ActivityManager(  685): Start proc 12161:com.rocketflow.companion/u0a282 for broadcast {com.rocket
+flow.companion/com.rocketflow.companion.notifications.TaskReminderAlarmReceiver}
+05-25 17:59:13.170 D/ActivityManager(  685): freezing 5647 com.google.android.apps.wellbeing
+05-25 17:59:23.270 D/ActivityManager(  685): freezing 12161 com.rocketflow.companion
+05-25 17:59:36.802 D/ActivityTaskManager(  685): Top Process State changed to PROCESS_STATE_TOP
+05-25 17:59:36.813 I/ActivityManager(  685): updateOomAdj start time is before than pendingPid added, don't delete it
+05-25 17:59:37.034 D/ActivityManager(  685): sync unfroze 5437 com.google.android.gms for 6
+05-25 17:59:37.175 W/ActivityManager(  685): Skipping manifest association check for null package. SourceUid: 10207, So
+urcePkg: null, TargetUid: 10207, TargetPkg: com.google.android.gms
+05-25 17:59:41.259 I/ActivityManager(  685): Broadcasting: Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_FILE d
+at=file:///... flg=0x400000 }
+05-25 17:59:41.261 I/ActivityManager(  685): Enqueued broadcast Intent { act=android.intent.action.MEDIA_SCANNER_SCAN_F
+ILE dat=file:///... flg=0x400000 }: 0
+05-25 17:59:41.262 I/ActivityManager(  685): Broadcast completed: result=0
+
+

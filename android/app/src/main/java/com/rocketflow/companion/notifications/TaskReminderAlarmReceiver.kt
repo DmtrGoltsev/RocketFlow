@@ -3,6 +3,7 @@ package com.rocketflow.companion.notifications
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.rocketflow.companion.planning.PlanningLocalStore
 
 class TaskReminderAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -21,10 +22,19 @@ class TaskReminderAlarmReceiver : BroadcastReceiver() {
         val setting = store.readAll(userId, taskId)
             .firstOrNull { it.enabled && (reminderId.isBlank() || it.reminderId == reminderId) }
             ?: return
+        val scheduler = TaskReminderAlarmScheduler(context, store)
+        val task = PlanningLocalStore(context).findTask(userId, taskId)
+        if (task == null || task.archived || task.status == "done" || task.status == "cancelled") {
+            store.readAll(userId, taskId).forEach(scheduler::cancel)
+            store.clear(userId, taskId)
+            return
+        }
+
         NotificationRuntime(context).showTaskReminderNotification(
             taskId = setting.taskId,
-            title = setting.taskTitle,
-            body = "Open the task in RocketFlow Companion."
+            title = task.title.ifBlank { setting.taskTitle },
+            body = "Open the task in RocketFlow Companion.",
+            fullScreenAlarm = true
         )
 
         if (setting.repeat == TaskReminderRepeat.None) {
@@ -37,6 +47,6 @@ class TaskReminderAlarmReceiver : BroadcastReceiver() {
             nowMillis = System.currentTimeMillis() + 1L
         ) ?: return
         store.save(nextSetting)
-        TaskReminderAlarmScheduler(context, store).schedule(nextSetting)
+        scheduler.schedule(nextSetting)
     }
 }

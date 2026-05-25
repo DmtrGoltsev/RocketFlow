@@ -1,0 +1,6 @@
+﻿artifact=C:\Users\style\Documents\Codex\RocketFlow\test-artifacts\android-fullscreen-alarm-smoke-20260525-003
+Scenario=done-task suppression with real AlarmManager trigger
+triggerAtMillis=1779731942858
+triggerUtc=2026-05-25T17:59:02Z
+waitSeconds=175
+done suppression scenario complete 2026-05-25T20:59:43.2852491+03:00
