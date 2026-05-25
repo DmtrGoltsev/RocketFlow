@@ -1689,6 +1689,7 @@ class MainActivity : Activity() {
                             addView(iconButton(R.drawable.ic_share, c.share) { showShareDialog(task.toShareTarget()) })
                             addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("task", task.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showTaskDialog(task) })
+                            addView(deleteIconButton(c.delete) { confirmDelete(task.title) { deleteTask(task) } })
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                         }
                     }
@@ -1701,6 +1702,7 @@ class MainActivity : Activity() {
                         if (canWrite(goal)) {
                             addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("goal", goal.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showGoalDialog(goal) })
+                            addView(deleteIconButton(c.delete) { confirmDelete(goal.name, deleteGoalMessage(goal)) { deleteGoal(goal) } })
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showGoalActions(goal) })
                         }
                     }
@@ -1713,11 +1715,11 @@ class MainActivity : Activity() {
                             addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("idea", idea.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showIdeaDialog(idea.folderId, idea) })
                             if (canDeleteIdea(idea)) {
-                                addView(iconButton(R.drawable.ic_delete, c.delete) { confirmDelete(idea.title) { deleteIdea(idea) } })
+                                addView(deleteIconButton(c.delete) { confirmDelete(idea.title) { deleteIdea(idea) } })
                             }
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showIdeaActions(idea) })
                         } else if (canDeleteIdea(idea)) {
-                            addView(iconButton(R.drawable.ic_delete, c.delete) { confirmDelete(idea.title) { deleteIdea(idea) } })
+                            addView(deleteIconButton(c.delete) { confirmDelete(idea.title) { deleteIdea(idea) } })
                         }
                         addView(iconButton(R.drawable.ic_add, c.addNote) { showIdeaNoteDialog(idea) })
                     }
@@ -1727,6 +1729,7 @@ class MainActivity : Activity() {
                         if (canWrite(note)) {
                             addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("note", note.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showNoteDialog(note.folderId, note) })
+                            addView(deleteIconButton(c.delete) { confirmDelete(note.title) { deleteNote(note) } })
                             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showNoteActions(note) })
                         }
                     }
@@ -1804,7 +1807,7 @@ class MainActivity : Activity() {
                 if (canWrite(goal)) enableEntityDragSource(dragPayload)
             })
             addView(counterText(if (goalTasks.isEmpty()) "0" else "$doneTasks/${goalTasks.size}"))
-            if (canCreateTasks(goal)) {
+            if (canWrite(goal)) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showGoalActions(goal) })
             }
             if (canWrite(goal)) {
@@ -1827,7 +1830,7 @@ class MainActivity : Activity() {
                 }
             )
             addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
-            addView(rowText(task.title, formatEffort(task.effort), weight = 1f, titleSize = 15.5f, titleStyle = Typeface.NORMAL).apply {
+            addView(rowText(task.title, taskListSubtitle(task), weight = 1f, titleSize = 14.5f, titleStyle = Typeface.NORMAL).apply {
                 setOnClickListener { openTaskDetail(task.id) }
                 if (canWrite(task)) enableEntityDragSource(dragPayload)
             })
@@ -1836,7 +1839,7 @@ class MainActivity : Activity() {
                     contentDescription = if (currentLanguage == "en") "Planned time has passed" else "\u0412\u0440\u0435\u043c\u044f \"\u043a\u043e\u0433\u0434\u0430 \u0434\u0435\u043b\u0430\u0442\u044c\" \u043f\u0440\u043e\u0448\u043b\u043e"
                 })
             }
-            dueChip(task)?.let { addView(it) } ?: addView(counterText(task.priority.toString()))
+            addView(counterText(task.priority.toString()))
             if (canWrite(task)) {
                 addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                 enableEntityDragSource(dragPayload)
@@ -2246,7 +2249,7 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16 + indentLevel * 18), 0, dp(4), 0)
+            setPadding(dp(10 + indentLevel * 12), 0, dp(2), 0)
             background = if (selected) roundedDrawable(Ui.ACCENT_SOFT, radiusDp = 6) else roundedDrawable("#00FFFFFF", radiusDp = 0)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -2324,7 +2327,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(1)
             ).apply {
-                marginStart = dp(16 + indentLevel * 18)
+                marginStart = dp(10 + indentLevel * 12)
             }
         }
     }
@@ -2367,7 +2370,7 @@ class MainActivity : Activity() {
             textSize = 13f
             setTextColor(color(Ui.MUTED))
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16 + indentLevel * 18), 0, dp(16), 0)
+            setPadding(dp(10 + indentLevel * 12), 0, dp(16), 0)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(44)
@@ -2396,7 +2399,7 @@ class MainActivity : Activity() {
                         addView(iconButton(R.drawable.ic_edit, copy().editNote) { showIdeaNoteDialog(idea, note) })
                     }
                     if (canDeleteIdeaNote(idea)) {
-                        addView(iconButton(R.drawable.ic_delete, copy().delete) { confirmDelete(note.body.ifBlank { copy().ideaHistory }) { deleteIdeaNote(idea, note) } })
+                        addView(deleteIconButton(copy().delete) { confirmDelete(note.body.ifBlank { copy().ideaHistory }) { deleteIdeaNote(idea, note) } })
                     }
                 }
             )
@@ -2673,18 +2676,15 @@ class MainActivity : Activity() {
 
     private fun showFolderActions(folder: PlanningFolder) {
         val c = copy()
+        val actions = listOf<Pair<String, () -> Unit>>(
+            c.share to { showShareDialog(folder.toShareTarget()) },
+            c.move to { showMoveFolderDialog(folder) },
+            c.clone to { showCloneFolderDialog(folder) }
+        )
         AlertDialog.Builder(this)
             .setTitle(folder.name)
-            .setItems(arrayOf(c.details, c.add, c.share, c.edit, c.move, c.clone, c.delete)) { _, which ->
-                when (which) {
-                    0 -> showFolderDetails(folder)
-                    1 -> showFolderAddMenu(folder)
-                    2 -> showShareDialog(folder.toShareTarget())
-                    3 -> showFolderDialog(folder)
-                    4 -> showMoveFolderDialog(folder)
-                    5 -> showCloneFolderDialog(folder)
-                    else -> confirmDelete(folder.name, deleteFolderMessage(folder)) { deleteFolder(folder) }
-                }
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
+                actions[which].second()
             }
             .show()
     }
@@ -2692,15 +2692,10 @@ class MainActivity : Activity() {
     private fun showGoalActions(goal: PlanningGoal) {
         val c = copy()
         val actions = buildList<Pair<String, () -> Unit>> {
-            add(c.details to { openGoalDetail(goal.id) })
-            if (canCreateTasks(goal)) add(c.add to { showTaskDialog(null, goal.id) })
             if (canWrite(goal)) {
                 add(c.share to { showShareDialog(goal.toShareTarget()) })
-                add(c.edit to { showGoalDialog(goal) })
                 add(c.move to { showMoveGoalDialog(goal) })
                 add(c.clone to { showCloneGoalDialog(goal) })
-                add(c.links to { showCreateLinkDialog("goal", goal.id) })
-                add(c.delete to { confirmDelete(goal.name, deleteGoalMessage(goal)) { deleteGoal(goal) } })
             }
         }
         AlertDialog.Builder(this)
@@ -2717,14 +2712,20 @@ class MainActivity : Activity() {
         val taskCount = folderGoals.sumOf { tasksForGoal(it.id).size }
         lateinit var dialog: AlertDialog
         val actions = if (canWrite(folder)) {
-            detailDialogActions(
-                c.add to {
+            detailDialogActionsWithDelete(
+                actions = listOf(
+                    c.add to {
+                        dialog.dismiss()
+                        showFolderAddMenu(folder)
+                    },
+                    c.edit to {
+                        dialog.dismiss()
+                        showFolderDialog(folder)
+                    }
+                ),
+                deleteAction = c.delete to {
                     dialog.dismiss()
-                    showFolderAddMenu(folder)
-                },
-                c.edit to {
-                    dialog.dismiss()
-                    showFolderDialog(folder)
+                    confirmDelete(folder.name, deleteFolderMessage(folder)) { deleteFolder(folder) }
                 }
             )
         } else {
@@ -2829,15 +2830,12 @@ class MainActivity : Activity() {
         val c = copy()
         AlertDialog.Builder(this)
             .setTitle(task.title)
-            .setItems(arrayOf(c.share, c.edit, c.reschedule, c.move, c.clone, c.links, c.delete)) { _, which ->
+            .setItems(arrayOf(c.share, c.reschedule, c.move, c.clone)) { _, which ->
                 when (which) {
                     0 -> showShareDialog(task.toShareTarget())
-                    1 -> showTaskDialog(task)
-                    2 -> showRescheduleDialog(task)
-                    3 -> showMoveTaskDialog(task)
-                    4 -> showCloneTaskDialog(task)
-                    5 -> showCreateLinkDialog("task", task.id)
-                    else -> confirmDelete(task.title) { deleteTask(task) }
+                    1 -> showRescheduleDialog(task)
+                    2 -> showMoveTaskDialog(task)
+                    else -> showCloneTaskDialog(task)
                 }
             }
             .show()
@@ -2847,14 +2845,9 @@ class MainActivity : Activity() {
         val c = copy()
         val actions = mutableListOf<Pair<String, () -> Unit>>(
             c.share to { showShareDialog(idea.toShareTarget()) },
-            c.edit to { showIdeaDialog(idea.folderId, idea) },
             c.move to { showMoveIdeaDialog(idea) },
-            c.clone to { showCloneIdeaDialog(idea) },
-            c.links to { showCreateLinkDialog("idea", idea.id) }
+            c.clone to { showCloneIdeaDialog(idea) }
         )
-        if (canDeleteIdea(idea)) {
-            actions += c.delete to { confirmDelete(idea.title) { deleteIdea(idea) } }
-        }
         AlertDialog.Builder(this)
             .setTitle(idea.title)
             .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
@@ -2867,13 +2860,10 @@ class MainActivity : Activity() {
         val c = copy()
         AlertDialog.Builder(this)
             .setTitle(note.title)
-            .setItems(arrayOf(c.edit, c.move, c.clone, c.links, c.delete)) { _, which ->
+            .setItems(arrayOf(c.move, c.clone)) { _, which ->
                 when (which) {
-                    0 -> showNoteDialog(note.folderId, note)
-                    1 -> showMoveNoteDialog(note)
-                    2 -> showCloneNoteDialog(note)
-                    3 -> showCreateLinkDialog("note", note.id)
-                    else -> confirmDelete(note.title) { deleteNote(note) }
+                    0 -> showMoveNoteDialog(note)
+                    else -> showCloneNoteDialog(note)
                 }
             }
             .show()
@@ -5338,16 +5328,20 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun iconButton(icon: Int, description: String, onClick: () -> Unit): ImageButton {
+    private fun iconButton(icon: Int, description: String, tint: String = Ui.TEXT, onClick: () -> Unit): ImageButton {
         return ImageButton(this).apply {
             setImageResource(icon)
-            setColorFilter(color(Ui.TEXT))
+            setColorFilter(color(tint))
             contentDescription = description
             background = roundedDrawable("#00FFFFFF", radiusDp = 8)
             setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
             scaleType = ImageView.ScaleType.CENTER
         }
+    }
+
+    private fun deleteIconButton(description: String, onClick: () -> Unit): ImageButton {
+        return iconButton(R.drawable.ic_delete, description, Ui.DANGER, onClick)
     }
 
     private fun smallIconButton(icon: Int, description: String, tint: String = Ui.TEXT, onClick: () -> Unit): ImageButton {
@@ -5870,6 +5864,13 @@ class MainActivity : Activity() {
     }
 
     private fun detailDialogActions(vararg actions: Pair<String, () -> Unit>): LinearLayout {
+        return detailDialogActionsWithDelete(actions.toList(), deleteAction = null)
+    }
+
+    private fun detailDialogActionsWithDelete(
+        actions: List<Pair<String, () -> Unit>>,
+        deleteAction: Pair<String, () -> Unit>?
+    ): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -5887,6 +5888,17 @@ class MainActivity : Activity() {
                         setOnClickListener { action.second() }
                         layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply {
                             if (index > 0) leftMargin = dp(8)
+                        }
+                    }
+                )
+            }
+            deleteAction?.let { action ->
+                addView(
+                    smallIconButton(R.drawable.ic_delete, action.first, Ui.DANGER) {
+                        action.second()
+                    }.apply {
+                        layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+                            if (actions.isNotEmpty()) leftMargin = dp(8)
                         }
                     }
                 )
@@ -6388,6 +6400,12 @@ class MainActivity : Activity() {
     private fun taskSubtitle(task: PlanningTask): String {
         val due = task.dueTime ?: task.plannedTime
         return due?.let(::formatDateTime) ?: localizedStatus(task.status)
+    }
+
+    private fun taskListSubtitle(task: PlanningTask): String {
+        return listOf(formatEffort(task.effort), (task.plannedTime ?: task.dueTime)?.let(::formatDateTime))
+            .mapNotNull { it?.takeIf(String::isNotBlank) }
+            .joinToString(" \u00b7 ")
     }
 
     private fun formatEffort(effort: Int): String {

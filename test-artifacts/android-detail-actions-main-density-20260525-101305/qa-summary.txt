@@ -1,0 +1,5 @@
+﻿QA summary 2026-05-25
+Build: PASS (:app:testDebugUnitTest :app:assembleDebug -Pkotlin.incremental=false --no-build-cache)
+Static review: MainActivity.kt detail delete buttons use deleteIconButton/smallIconButton with Ui.DANGER; detail appbar buttons gated by canWrite/canDeleteIdea; task/goal/folder/idea/note action menus remove generic details/add/edit/links/delete where applicable.
+Emulator: emulator-5554 available. Captured main list density, task detail delete icon, task overflow menu, goal detail delete icon, goal overflow menu.
+Idea evidence: no existing ideas in local DB; UI create flow accepted title but did not persist in offline seed; direct DB seed attempt not used for final evidence.
