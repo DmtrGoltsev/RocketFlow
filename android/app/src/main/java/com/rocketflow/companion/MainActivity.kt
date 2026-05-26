@@ -64,6 +64,7 @@ import com.rocketflow.companion.notifications.TaskReminderSetting
 import com.rocketflow.companion.planning.EntityLink
 import com.rocketflow.companion.planning.EntityLinkDraft
 import com.rocketflow.companion.planning.EntityRef
+import com.rocketflow.companion.planning.FolderActivityOrdering
 import com.rocketflow.companion.planning.FolderDraft
 import com.rocketflow.companion.planning.GoalDraft
 import com.rocketflow.companion.planning.IdeaDraft
@@ -399,6 +400,7 @@ class MainActivity : Activity() {
     private val authRepository by lazy { appContainer.authRepository }
     private val languageStore by lazy { appContainer.languageStore }
     private val planningRepository by lazy { appContainer.planningRepository }
+    private val folderActivityOrdering by lazy { FolderActivityOrdering(this) }
     private val userSettingsRepository by lazy { appContainer.userSettingsRepository }
     private val sharingRepository by lazy { appContainer.sharingRepository }
     private val planningSyncScheduler by lazy { appContainer.planningSyncScheduler }
@@ -978,8 +980,16 @@ class MainActivity : Activity() {
             setPadding(0, dp(6), 0, dp(160) + currentSystemBottomInset())
         }
 
-        val ownFolders = filteredFolders().filter { it.parentFolderId == null }
-        val sharedFolderList = filteredSharedFolders().filter { it.parentFolderId == null }
+        val ownFolders = orderedSiblingFolders(
+            parentFolderId = null,
+            includeShared = false,
+            siblingFolders = filteredFolders().filter { it.parentFolderId == null }
+        )
+        val sharedFolderList = orderedSiblingFolders(
+            parentFolderId = null,
+            includeShared = true,
+            siblingFolders = filteredSharedFolders().filter { it.parentFolderId == null }
+        )
         val looseSharedGoals = filteredSharedGoals()
             .filter { goal -> sharedFolderList.none { it.id == goal.folderId } }
         val looseSharedTasks = filteredSharedTasks()
@@ -6439,6 +6449,29 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun orderedSiblingFolders(
+        parentFolderId: String?,
+        includeShared: Boolean,
+        siblingFolders: List<PlanningFolder>
+    ): List<PlanningFolder> {
+        val userId = currentSession?.user?.id ?: return siblingFolders
+        return folderActivityOrdering.orderSiblings(
+            userId = userId,
+            parentFolderId = parentFolderId,
+            scope = if (includeShared) "shared" else "own",
+            siblingFolders = siblingFolders,
+            snapshot = FolderActivityOrdering.SnapshotData(
+                folders = folders + sharedFolders,
+                goals = goals + sharedGoals,
+                tasks = tasks + sharedTasks,
+                ideas = ideas + sharedIdeas,
+                ideaNotes = ideaNotes + sharedIdeaNotes,
+                notes = notes + sharedNotes
+            ),
+            persist = searchQuery.trim().isBlank()
+        )
+    }
+
     private fun filteredSharedFolders(): List<PlanningFolder> {
         val query = searchQuery.trim().lowercase(Locale.ROOT)
         if (query.isBlank()) return sharedFolders
@@ -6499,7 +6532,12 @@ class MainActivity : Activity() {
 
     private fun childFoldersForFolder(folderId: String, includeShared: Boolean = false): List<PlanningFolder> {
         val own = folders.filter { it.parentFolderId == folderId }
-        return if (includeShared) own + sharedFolders.filter { it.parentFolderId == folderId } else own
+        val siblings = if (includeShared) own + sharedFolders.filter { it.parentFolderId == folderId } else own
+        return orderedSiblingFolders(
+            parentFolderId = folderId,
+            includeShared = includeShared,
+            siblingFolders = siblings
+        )
     }
 
     private fun tasksForGoal(goalId: String, includeShared: Boolean = false): List<PlanningTask> {
