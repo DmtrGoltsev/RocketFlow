@@ -198,6 +198,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             sharedNotes = allNotes.filter { it.shared && !it.archived },
             taskTags = queryTaskTags(db, userId, includeDeleted = false),
             pendingCount = countPending(userId),
+            pendingIssues = pendingIssues(userId),
             offline = offline,
             lastSyncError = lastSyncError
         )
@@ -635,6 +636,21 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     fun pendingFolders(userId: String): List<PlanningFolder> {
         return queryFolders(readableDatabase, userId, includeDeleted = true).filter { it.syncState.isPending() && !it.shared }
+    }
+
+    fun findPendingFolderForSync(userId: String, folderId: String): PlanningFolder? {
+        return queryFolders(readableDatabase, userId, includeDeleted = true)
+            .firstOrNull { it.id == folderId && it.syncState.isPending() && !it.shared }
+    }
+
+    fun hasPendingCreateFolder(userId: String, folderId: String): Boolean {
+        return queryFolders(readableDatabase, userId, includeDeleted = true)
+            .any { it.id == folderId && it.syncState == SyncState.PendingCreate && !it.shared }
+    }
+
+    fun hasPendingCreateGoal(userId: String, goalId: String): Boolean {
+        return queryGoals(readableDatabase, userId, includeDeleted = true)
+            .any { it.id == goalId && it.syncState == SyncState.PendingCreate && !it.shared }
     }
 
     fun pendingGoals(userId: String): List<PlanningGoal> {
@@ -1289,6 +1305,28 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 arrayOf(userId)
             ).use { cursor ->
                 if (cursor.moveToFirst()) cursor.getInt(0) else 0
+            }
+        }
+    }
+
+    private fun pendingIssues(userId: String): List<PlanningPendingIssue> {
+        return listOf(TABLE_FOLDERS, TABLE_GOALS, TABLE_TASKS, TABLE_NOTES, TABLE_ENTITY_LINKS, TABLE_TASK_TAGS).flatMap { table ->
+            readableDatabase.rawQuery(
+                "SELECT id, pending_action, last_error FROM $table WHERE user_id = ? AND pending_action IS NOT NULL AND last_error IS NOT NULL",
+                arrayOf(userId)
+            ).use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) {
+                        add(
+                            PlanningPendingIssue(
+                                entity = table,
+                                action = cursor.getString(1).orEmpty(),
+                                entityId = cursor.getString(0).orEmpty(),
+                                error = cursor.getString(2).orEmpty()
+                            )
+                        )
+                    }
+                }
             }
         }
     }

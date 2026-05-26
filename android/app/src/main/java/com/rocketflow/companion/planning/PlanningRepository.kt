@@ -323,24 +323,90 @@ class PlanningRepository(
             activeSession = pushTaskTag(activeSession, tag)
         }
 
-        localStore.pendingFolders(userId).forEach { folder ->
-            activeSession = pushFolder(activeSession, folder)
-        }
+        activeSession = pushPendingFolders(activeSession)
 
         localStore.pendingGoals(userId).forEach { goal ->
+            if (goal.syncState == SyncState.PendingCreate && localStore.hasPendingCreateFolder(userId, goal.folderId)) {
+                localStore.markSyncError(
+                    userId,
+                    PlanningLocalStore.TABLE_GOALS,
+                    goal.id,
+                    "Goal is waiting for its folder to sync.",
+                    conflict = false
+                )
+                return@forEach
+            }
             activeSession = pushGoal(activeSession, goal)
         }
 
         localStore.pendingTasks(userId).forEach { task ->
+            if (task.syncState == SyncState.PendingCreate && localStore.hasPendingCreateGoal(userId, task.goalId)) {
+                localStore.markSyncError(
+                    userId,
+                    PlanningLocalStore.TABLE_TASKS,
+                    task.id,
+                    "Task is waiting for its goal to sync.",
+                    conflict = false
+                )
+                return@forEach
+            }
             activeSession = pushTask(activeSession, task)
         }
 
         localStore.pendingNotes(userId).forEach { note ->
+            if (note.syncState == SyncState.PendingCreate && localStore.hasPendingCreateFolder(userId, note.folderId)) {
+                localStore.markSyncError(
+                    userId,
+                    PlanningLocalStore.TABLE_NOTES,
+                    note.id,
+                    "Note is waiting for its folder to sync.",
+                    conflict = false
+                )
+                return@forEach
+            }
             activeSession = pushNote(activeSession, note)
         }
 
         localStore.pendingEntityLinks(userId).forEach { link ->
             activeSession = pushEntityLink(activeSession, link)
+        }
+
+        return activeSession
+    }
+
+    private suspend fun pushPendingFolders(session: AuthSession): AuthSession {
+        var activeSession = session
+        val userId = session.user.id
+        val queuedFolders = localStore.pendingFolders(userId)
+        val pendingCreateIds = queuedFolders
+            .filter { it.syncState == SyncState.PendingCreate }
+            .map { it.id }
+            .toSet()
+        val orderedFolders = queuedFolders.sortedWith(
+            compareBy<PlanningFolder> { folder ->
+                when (folder.syncState) {
+                    SyncState.PendingCreate -> 0
+                    SyncState.PendingUpdate -> 1
+                    SyncState.PendingDelete -> 2
+                    else -> 3
+                }
+            }.thenBy { folder -> folder.pendingCreateDepth(pendingCreateIds, queuedFolders) }
+        )
+
+        orderedFolders.forEach { queuedFolder ->
+            val folder = localStore.findPendingFolderForSync(userId, queuedFolder.id) ?: return@forEach
+            val parentId = folder.parentFolderId
+            if (folder.syncState == SyncState.PendingCreate && parentId != null && localStore.hasPendingCreateFolder(userId, parentId)) {
+                localStore.markSyncError(
+                    userId,
+                    PlanningLocalStore.TABLE_FOLDERS,
+                    folder.id,
+                    "Folder is waiting for its parent folder to sync.",
+                    conflict = false
+                )
+                return@forEach
+            }
+            activeSession = pushFolder(activeSession, folder)
         }
 
         return activeSession
@@ -376,7 +442,7 @@ class PlanningRepository(
                 PlanningLocalStore.TABLE_TASK_TAGS,
                 tag.id,
                 error.message,
-                conflict = error.status == 409 || error.code == "conflict"
+                conflict = error.isPermanentSyncError()
             )
             session
         }
@@ -433,7 +499,7 @@ class PlanningRepository(
                 PlanningLocalStore.TABLE_FOLDERS,
                 folder.id,
                 error.message,
-                conflict = error.status == 409 || error.code == "conflict"
+                conflict = error.isPermanentSyncError()
             )
             session
         }
@@ -489,7 +555,7 @@ class PlanningRepository(
                 PlanningLocalStore.TABLE_GOALS,
                 goal.id,
                 error.message,
-                conflict = error.status == 409 || error.code == "conflict"
+                conflict = error.isPermanentSyncError()
             )
             session
         }
@@ -557,7 +623,7 @@ class PlanningRepository(
                 PlanningLocalStore.TABLE_TASKS,
                 task.id,
                 error.message,
-                conflict = error.status == 409 || error.code == "conflict"
+                conflict = error.isPermanentSyncError()
             )
             session
         }
@@ -612,7 +678,7 @@ class PlanningRepository(
                 PlanningLocalStore.TABLE_NOTES,
                 note.id,
                 error.message,
-                conflict = error.status == 409 || error.code == "conflict"
+                conflict = error.isPermanentSyncError()
             )
             session
         }
@@ -651,7 +717,7 @@ class PlanningRepository(
                 PlanningLocalStore.TABLE_ENTITY_LINKS,
                 link.id,
                 error.message,
-                conflict = error.status == 409 || error.code == "conflict"
+                conflict = error.isPermanentSyncError()
             )
             session
         }
@@ -857,6 +923,25 @@ class PlanningRepository(
             fieldErrors = fieldErrors,
             traceId = traceId
         )
+    }
+
+    private fun ApiException.isPermanentSyncError(): Boolean {
+        return status in setOf(400, 403, 404, 409, 422) || code == "conflict"
+    }
+
+    private fun PlanningFolder.pendingCreateDepth(
+        pendingCreateIds: Set<String>,
+        queuedFolders: List<PlanningFolder>
+    ): Int {
+        val parentById = queuedFolders.associate { it.id to it.parentFolderId }
+        var depth = 0
+        var currentParent = parentFolderId
+        val visited = mutableSetOf<String>()
+        while (currentParent != null && currentParent in pendingCreateIds && visited.add(currentParent)) {
+            depth += 1
+            currentParent = parentById[currentParent]
+        }
+        return depth
     }
 
     private fun PlanningTask.toCreateBody(): JSONObject {

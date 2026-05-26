@@ -76,6 +76,7 @@ import com.rocketflow.companion.planning.PlanningIdea
 import com.rocketflow.companion.planning.PlanningLoadResult
 import com.rocketflow.companion.planning.PlanningLocalStore
 import com.rocketflow.companion.planning.PlanningNote
+import com.rocketflow.companion.planning.PlanningPendingIssue
 import com.rocketflow.companion.planning.PlanningSnapshot
 import com.rocketflow.companion.planning.PlanningSyncReason
 import com.rocketflow.companion.planning.PlanningTask
@@ -443,6 +444,7 @@ class MainActivity : Activity() {
     private var sharedNotes: List<PlanningNote> = emptyList()
     private var planningOffline = false
     private var planningPendingCount = 0
+    private var planningPendingIssues: List<PlanningPendingIssue> = emptyList()
     private var planningLastSyncError: String? = null
     private var planningManualSyncRunning = false
     private var planningLastManualSyncMessage: String? = null
@@ -473,6 +475,16 @@ class MainActivity : Activity() {
     private var searchQuery = ""
     private var busy = false
     private var message: String? = null
+        set(value) {
+            field = value
+            messageScreen = value?.let { currentScreen }
+            if (value == null) {
+                transientMessageJob?.cancel()
+            } else if (!busy) {
+                scheduleMessageDismiss(value, messageScreen)
+            }
+        }
+    private var messageScreen: Screen? = null
     private var transientMessageJob: Job? = null
     private var plannerRefreshJob: Job? = null
     private var taskDetailScrollY = 0
@@ -686,6 +698,7 @@ class MainActivity : Activity() {
         sharedNotes = snapshot.sharedNotes
         planningOffline = snapshot.offline
         planningPendingCount = snapshot.pendingCount
+        planningPendingIssues = snapshot.pendingIssues
         planningLastSyncError = snapshot.lastSyncError
 
         selectedFolderId = selectedFolderId
@@ -723,6 +736,7 @@ class MainActivity : Activity() {
         sharedNotes = emptyList()
         planningOffline = false
         planningPendingCount = 0
+        planningPendingIssues = emptyList()
         planningLastSyncError = null
         planningManualSyncRunning = false
         planningLastManualSyncMessage = null
@@ -791,6 +805,9 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
+        if (message != null && messageScreen != null && messageScreen != currentScreen) {
+            message = null
+        }
         if (currentScreen == Screen.Detail) {
             taskDetailScrollY = taskDetailScrollView?.scrollY ?: taskDetailScrollY
         }
@@ -2278,12 +2295,16 @@ class MainActivity : Activity() {
     }
 
     private fun showTransientMessage(text: String, timeoutMillis: Long = 2600L) {
-        transientMessageJob?.cancel()
         message = text
+        scheduleMessageDismiss(text, messageScreen, timeoutMillis)
         render()
+    }
+
+    private fun scheduleMessageDismiss(text: String, screen: Screen?, timeoutMillis: Long = 4000L) {
+        transientMessageJob?.cancel()
         transientMessageJob = scope.launch {
             delay(timeoutMillis)
-            if (message == text) {
+            if (message == text && messageScreen == screen) {
                 message = null
                 render()
             }
@@ -5390,6 +5411,9 @@ class MainActivity : Activity() {
 
     private fun setBusy(value: Boolean) {
         busy = value
+        if (!busy && !message.isNullOrBlank()) {
+            scheduleMessageDismiss(message.orEmpty(), messageScreen)
+        }
         render()
     }
 
@@ -7168,11 +7192,11 @@ class MainActivity : Activity() {
             planningManualSyncRunning -> manualSyncRunningText()
             !error.isNullOrBlank() -> {
                 val remaining = pendingRemainderText()
-                listOfNotNull(syncErrorText(error), remaining, planningLastManualSyncAt?.let(::manualSyncTimeText))
+                listOfNotNull(syncErrorText(error), pendingIssueText(), remaining, planningLastManualSyncAt?.let(::manualSyncTimeText))
                     .joinToString(" / ")
             }
             !lastMessage.isNullOrBlank() -> lastMessage
-            planningPendingCount > 0 -> pendingRemainderText()
+            planningPendingCount > 0 -> pendingIssueText() ?: pendingRemainderText()
             else -> planningLastManualSyncAt?.let(::manualSyncTimeText)
         }
     }
@@ -7187,7 +7211,7 @@ class MainActivity : Activity() {
         val status = when {
             !planningLastSyncError.isNullOrBlank() -> syncErrorText(planningLastSyncError.orEmpty())
             planningOffline -> copy().offline
-            planningPendingCount > 0 -> remaining.orEmpty()
+            planningPendingCount > 0 -> pendingIssueText() ?: remaining.orEmpty()
             else -> copy().synced
         }
         val distinctParts = listOfNotNull(status.takeIf { it.isNotBlank() }, remaining, time).distinct()
@@ -7198,7 +7222,7 @@ class MainActivity : Activity() {
         val status = humanError(error)
         val remaining = pendingRemainderText()
         val time = planningLastManualSyncAt?.let(::manualSyncTimeText)
-        return listOfNotNull(status, remaining, time).joinToString(" / ")
+        return listOfNotNull(status, pendingIssueText(), remaining, time).joinToString(" / ")
     }
 
     private fun pendingRemainderText(): String? {
@@ -7207,6 +7231,36 @@ class MainActivity : Activity() {
             "${planningPendingCount} pending remain"
         } else {
             "\u041e\u0441\u0442\u0430\u043b\u043e\u0441\u044c: $planningPendingCount"
+        }
+    }
+
+    private fun pendingIssueText(): String? {
+        val issue = planningPendingIssues.firstOrNull { it.error.isNotBlank() } ?: return null
+        val prefix = if (currentLanguage == "en") "Blocked" else "\u041d\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043e"
+        return "$prefix: ${localizedPendingEntity(issue.entity)} ${localizedPendingAction(issue.action)} - ${syncErrorText(issue.error)}"
+    }
+
+    private fun localizedPendingEntity(entity: String): String {
+        val ru = currentLanguage != "en"
+        return when (entity) {
+            PlanningLocalStore.TABLE_FOLDERS -> if (ru) "\u043f\u0430\u043f\u043a\u0430" else "folder"
+            PlanningLocalStore.TABLE_GOALS -> if (ru) "\u0446\u0435\u043b\u044c" else "goal"
+            PlanningLocalStore.TABLE_TASKS -> if (ru) "\u0437\u0430\u0434\u0430\u0447\u0430" else "task"
+            PlanningLocalStore.TABLE_NOTES -> if (ru) "\u0437\u0430\u043c\u0435\u0442\u043a\u0430" else "note"
+            PlanningLocalStore.TABLE_ENTITY_LINKS -> if (ru) "\u0441\u0432\u044f\u0437\u044c" else "link"
+            PlanningLocalStore.TABLE_TASK_TAGS -> if (ru) "\u0442\u0435\u0433" else "tag"
+            else -> entity
+        }
+    }
+
+    private fun localizedPendingAction(action: String): String {
+        val ru = currentLanguage != "en"
+        return when (action) {
+            "create" -> if (ru) "\u0441\u043e\u0437\u0434\u0430\u043d\u0438\u0435" else "create"
+            "update" -> if (ru) "\u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0435" else "update"
+            "delete" -> if (ru) "\u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435" else "delete"
+            "conflict" -> if (ru) "\u043a\u043e\u043d\u0444\u043b\u0438\u043a\u0442" else "conflict"
+            else -> action
         }
     }
 

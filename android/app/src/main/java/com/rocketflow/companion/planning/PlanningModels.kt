@@ -176,8 +176,16 @@ data class PlanningSnapshot(
     val sharedNotes: List<PlanningNote>,
     val taskTags: List<TaskTag>,
     val pendingCount: Int,
+    val pendingIssues: List<PlanningPendingIssue>,
     val offline: Boolean,
     val lastSyncError: String?
+)
+
+data class PlanningPendingIssue(
+    val entity: String,
+    val action: String,
+    val entityId: String,
+    val error: String
 )
 
 data class PlanningLoadResult(
