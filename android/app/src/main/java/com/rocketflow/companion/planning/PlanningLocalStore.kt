@@ -150,7 +150,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 12) {
                 addIdeaContractColumns(db)
             }
-            if (oldVersion < 13) {
+            if (oldVersion < 14) {
                 addPendingBlockedColumns(db)
             }
             db.setTransactionSuccessful()
@@ -1535,6 +1535,12 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 db.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, id))
             }
 
+            TABLE_IDEAS -> {
+                deleteLocalLinksForEntity(db, userId, "idea", id)
+                db.delete(TABLE_IDEA_NOTES, "user_id = ? AND idea_id = ?", arrayOf(userId, id))
+                db.delete(TABLE_IDEAS, "user_id = ? AND id = ?", arrayOf(userId, id))
+            }
+
             TABLE_NOTES -> {
                 deleteLocalLinksForEntity(db, userId, "note", id)
                 db.delete(TABLE_NOTES, "user_id = ? AND id = ?", arrayOf(userId, id))
@@ -2433,7 +2439,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 13
+        private const val DATABASE_VERSION = 14
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"
@@ -2448,6 +2454,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             TABLE_FOLDERS,
             TABLE_GOALS,
             TABLE_TASKS,
+            TABLE_IDEAS,
             TABLE_NOTES,
             TABLE_ENTITY_LINKS,
             TABLE_TASK_TAGS

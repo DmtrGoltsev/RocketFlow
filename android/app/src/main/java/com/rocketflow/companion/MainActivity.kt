@@ -1463,15 +1463,7 @@ class MainActivity : Activity() {
         content.addView(settingsHelp(c.syncHelp))
         content.addView(settingsRow(c.syncStatus, planningStatusText()))
         planningStatusDetailText()?.let { content.addView(settingsHelp(it)) }
-        pendingGoalFolderConflictIssue()?.let { issue ->
-            content.addView(settingsHelp(pendingGoalFolderConflictReason()))
-            content.addView(textButton(pendingGoalFolderConflictPrimaryAction(), primary = true) {
-                movePendingGoalConflictToRoot(issue)
-            })
-            content.addView(textButton(pendingGoalFolderConflictResetAction(), danger = true) {
-                confirmResetPendingIssue(issue)
-            })
-        }
+        renderPendingSyncActions(content)
 
         content.addView(sectionLabel(c.sharing))
         content.addView(settingsHelp(c.sharingHelp))
@@ -2156,6 +2148,48 @@ class MainActivity : Activity() {
                 val result = planningRepository.resetPendingIssue(session, issue)
                 currentSession = result.session
                 applyPlanningSnapshot(result.snapshot)
+                planningLastManualSyncAt = null
+                planningLastManualSyncMessage = null
+                message = null
+            } catch (error: Exception) {
+                planningLastManualSyncAt = Instant.now()
+                planningLastManualSyncMessage = manualSyncErrorText(error)
+                message = planningLastManualSyncMessage
+            } finally {
+                planningManualSyncRunning = false
+                render()
+            }
+        }
+    }
+
+    private fun confirmResetPendingIssues(issues: List<PlanningPendingIssue>) {
+        val resetIssues = issues.filter(::isActionablePendingIssue)
+        if (resetIssues.isEmpty()) return
+        AlertDialog.Builder(this)
+            .setTitle(pendingResetBlockedChangesAction())
+            .setMessage(pendingResetBlockedChangesConfirmationText(resetIssues.size))
+            .setNegativeButton(copy().cancel, null)
+            .setPositiveButton(pendingResetBlockedChangesAction()) { _, _ -> resetPendingIssues(resetIssues) }
+            .show()
+    }
+
+    private fun resetPendingIssues(issues: List<PlanningPendingIssue>) {
+        val session = currentSession ?: return
+        if (issues.isEmpty()) return
+        planningManualSyncRunning = true
+        message = pendingResetRunningText()
+        render()
+        scope.launch {
+            try {
+                var activeSession = session
+                var snapshot: PlanningSnapshot? = null
+                issues.forEach { issue ->
+                    val result = planningRepository.resetPendingIssue(activeSession, issue)
+                    activeSession = result.session
+                    snapshot = result.snapshot
+                }
+                currentSession = activeSession
+                snapshot?.let(::applyPlanningSnapshot)
                 planningLastManualSyncAt = null
                 planningLastManualSyncMessage = null
                 message = null
@@ -7306,6 +7340,54 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun renderPendingSyncActions(content: LinearLayout) {
+        if (pendingIssuesUnavailableDueToDatabaseError()) {
+            content.addView(settingsHelp(pendingIssuesDatabaseBlockedText()))
+            return
+        }
+
+        val issues = planningPendingIssues.filter(::isActionablePendingIssue)
+        if (issues.isEmpty()) return
+
+        content.addView(settingsHelp(pendingActionsIntroText(issues.size)))
+        issues.take(MAX_PENDING_ACTIONS_IN_SETTINGS).forEach { issue ->
+            content.addView(settingsHelp(pendingIssueActionText(issue)))
+            if (PlanningPendingIssueClassifier.isGoalMissingFolder(issue)) {
+                content.addView(textButton(pendingGoalFolderConflictPrimaryAction(), primary = true) {
+                    movePendingGoalConflictToRoot(issue)
+                })
+            }
+            content.addView(textButton(pendingGoalFolderConflictResetAction(), danger = true) {
+                confirmResetPendingIssue(issue)
+            })
+        }
+
+        if (issues.size > MAX_PENDING_ACTIONS_IN_SETTINGS) {
+            content.addView(settingsHelp(pendingActionsMoreText(issues.size - MAX_PENDING_ACTIONS_IN_SETTINGS)))
+        }
+
+        val blockedIssues = issues.filter(::isBlockedPendingIssue)
+        if (blockedIssues.isNotEmpty()) {
+            content.addView(textButton(pendingResetBlockedChangesAction(), danger = true) {
+                confirmResetPendingIssues(blockedIssues)
+            })
+        }
+    }
+
+    private fun isActionablePendingIssue(issue: PlanningPendingIssue): Boolean {
+        return issue.error.isNotBlank()
+    }
+
+    private fun isBlockedPendingIssue(issue: PlanningPendingIssue): Boolean {
+        return issue.blocked || issue.action == "conflict"
+    }
+
+    private fun pendingIssuesUnavailableDueToDatabaseError(): Boolean {
+        return planningPendingCount > 0 &&
+            planningPendingIssues.isEmpty() &&
+            isDatabaseSchemaError(planningLastSyncError.orEmpty())
+    }
+
     private fun manualSyncRunningText(): String {
         return if (currentLanguage == "en") "Syncing now..." else "\u0421\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0438\u0440\u0443\u0435\u043c..."
     }
@@ -7350,6 +7432,35 @@ class MainActivity : Activity() {
         return "$prefix: ${localizedPendingEntity(issue.entityType)} ${localizedPendingAction(issue.action)} - $error"
     }
 
+    private fun pendingIssueActionText(issue: PlanningPendingIssue): String {
+        val error = if (PlanningPendingIssueClassifier.isGoalMissingFolder(issue)) {
+            pendingGoalFolderConflictReason()
+        } else {
+            syncErrorText(issue.error)
+        }
+        return if (currentLanguage == "en") {
+            "${localizedPendingEntity(issue.entityType)} ${localizedPendingAction(issue.action)}: $error"
+        } else {
+            "${localizedPendingEntity(issue.entityType)}: ${localizedPendingAction(issue.action)}. $error"
+        }
+    }
+
+    private fun pendingActionsIntroText(count: Int): String {
+        return if (currentLanguage == "en") {
+            if (count == 1) "One local change needs attention." else "$count local changes need attention."
+        } else {
+            if (count == 1) "\u041e\u0434\u043d\u043e \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0435 \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f." else "\u041b\u043e\u043a\u0430\u043b\u044c\u043d\u044b\u0445 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439 \u0441 \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u043e\u0439: $count."
+        }
+    }
+
+    private fun pendingActionsMoreText(count: Int): String {
+        return if (currentLanguage == "en") {
+            "$count more pending changes are not shown here. Sync again after resolving the visible ones."
+        } else {
+            "\u0415\u0449\u0435 $count \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439 \u043d\u0435 \u043f\u043e\u043a\u0430\u0437\u0430\u043d\u044b. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u044e \u043f\u043e\u0441\u043b\u0435 \u0440\u0435\u0448\u0435\u043d\u0438\u044f \u0432\u0438\u0434\u0438\u043c\u044b\u0445."
+        }
+    }
+
     private fun pendingGoalFolderConflictIssue(): PlanningPendingIssue? {
         return planningPendingIssues.firstOrNull(PlanningPendingIssueClassifier::isGoalMissingFolder)
     }
@@ -7386,12 +7497,33 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun pendingResetBlockedChangesAction(): String {
+        return if (currentLanguage == "en") "Discard stuck changes" else "\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u0437\u0430\u0432\u0438\u0441\u0448\u0438\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f"
+    }
+
+    private fun pendingResetBlockedChangesConfirmationText(count: Int): String {
+        return if (currentLanguage == "en") {
+            "This will discard $count stuck local change(s). Created-only local items may be removed from this device."
+        } else {
+            "\u0411\u0443\u0434\u0435\u0442 \u0441\u0431\u0440\u043e\u0448\u0435\u043d\u043e \u0437\u0430\u0432\u0438\u0441\u0448\u0438\u0445 \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u044b\u0445 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439: $count. \u0415\u0441\u043b\u0438 \u044d\u0442\u043e \u0431\u044b\u043b\u043e \u0442\u043e\u043b\u044c\u043a\u043e \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0435 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u0435, \u044d\u043b\u0435\u043c\u0435\u043d\u0442 \u043c\u043e\u0436\u0435\u0442 \u0438\u0441\u0447\u0435\u0437\u043d\u0443\u0442\u044c \u0441 \u044d\u0442\u043e\u0433\u043e \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0430."
+        }
+    }
+
+    private fun pendingIssuesDatabaseBlockedText(): String {
+        return if (currentLanguage == "en") {
+            "Sync actions are unavailable until the local database is updated. Update the build, then sync again after the database migration finishes."
+        } else {
+            "\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044f \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u0438 \u043f\u043e\u043a\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b. \u041e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u0441\u0431\u043e\u0440\u043a\u0443 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u044e \u043f\u043e\u0441\u043b\u0435 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f \u0411\u0414."
+        }
+    }
+
     private fun localizedPendingEntity(entity: String): String {
         val ru = currentLanguage != "en"
         return when (entity) {
             PlanningLocalStore.TABLE_FOLDERS -> if (ru) "\u043f\u0430\u043f\u043a\u0430" else "folder"
             PlanningLocalStore.TABLE_GOALS -> if (ru) "\u0446\u0435\u043b\u044c" else "goal"
             PlanningLocalStore.TABLE_TASKS -> if (ru) "\u0437\u0430\u0434\u0430\u0447\u0430" else "task"
+            PlanningLocalStore.TABLE_IDEAS -> if (ru) "\u0438\u0434\u0435\u044f" else "idea"
             PlanningLocalStore.TABLE_NOTES -> if (ru) "\u0437\u0430\u043c\u0435\u0442\u043a\u0430" else "note"
             PlanningLocalStore.TABLE_ENTITY_LINKS -> if (ru) "\u0441\u0432\u044f\u0437\u044c" else "link"
             PlanningLocalStore.TABLE_TASK_TAGS -> if (ru) "\u0442\u0435\u0433" else "tag"
@@ -7693,8 +7825,21 @@ class MainActivity : Activity() {
         val lower = raw.lowercase(Locale.ROOT)
         return when {
             "network" in lower || "failed to connect" in lower || "timeout" in lower -> copy().couldNotSync
+            isDatabaseSchemaError(raw) -> if (currentLanguage == "en") {
+                "Local database needs an update. Update the build and sync again."
+            } else {
+                "\u041b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0439 \u0411\u0414 \u043d\u0443\u0436\u043d\u043e \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435. \u041e\u0431\u043d\u043e\u0432\u0438\u0442\u0435 \u0441\u0431\u043e\u0440\u043a\u0443 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u044e."
+            }
             else -> raw
         }
+    }
+
+    private fun isDatabaseSchemaError(raw: String): Boolean {
+        val lower = raw.lowercase(Locale.ROOT)
+        return "sqlite" in lower ||
+            "no such column" in lower ||
+            "no such table" in lower ||
+            "database" in lower && "migration" in lower
     }
 
     private fun isTerminalSessionFailure(error: Exception): Boolean {
@@ -8197,5 +8342,6 @@ class MainActivity : Activity() {
         private const val EXTRA_ACCEPTANCE_SEED = "rocketflow_acceptance_seed"
         private const val EXTRA_ACCEPTANCE_EMPTY = "rocketflow_acceptance_empty"
         private const val EXTRA_ACCEPTANCE_LANGUAGE = "rocketflow_acceptance_language"
+        private const val MAX_PENDING_ACTIONS_IN_SETTINGS = 5
     }
 }

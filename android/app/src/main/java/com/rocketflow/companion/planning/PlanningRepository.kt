@@ -369,6 +369,12 @@ class PlanningRepository(
                     result.session
                 }
 
+                PlanningLocalStore.TABLE_IDEAS -> {
+                    val result = authRepository.authorizedGet(session, "/ideas/${reset.id}")
+                    localStore.upsertRemoteIdeas(result.session.user.id, listOf(result.value.toIdea(shared = false)))
+                    result.session
+                }
+
                 else -> session
             }
         } catch (error: ApiException) {
@@ -389,6 +395,7 @@ class PlanningRepository(
             PlanningLocalStore.TABLE_GOALS -> localStore.removeGoal(userId, reset.id)
             PlanningLocalStore.TABLE_TASKS -> localStore.removeTask(userId, reset.id)
             PlanningLocalStore.TABLE_NOTES -> localStore.removeNote(userId, reset.id)
+            PlanningLocalStore.TABLE_IDEAS -> localStore.removeIdea(userId, reset.id)
         }
     }
 
