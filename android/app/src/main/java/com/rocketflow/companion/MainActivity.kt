@@ -78,6 +78,7 @@ import com.rocketflow.companion.planning.PlanningLoadResult
 import com.rocketflow.companion.planning.PlanningLocalStore
 import com.rocketflow.companion.planning.PlanningNote
 import com.rocketflow.companion.planning.PlanningPendingIssue
+import com.rocketflow.companion.planning.PlanningPendingIssueClassifier
 import com.rocketflow.companion.planning.PlanningSnapshot
 import com.rocketflow.companion.planning.PlanningSyncReason
 import com.rocketflow.companion.planning.PlanningTask
@@ -1462,6 +1463,15 @@ class MainActivity : Activity() {
         content.addView(settingsHelp(c.syncHelp))
         content.addView(settingsRow(c.syncStatus, planningStatusText()))
         planningStatusDetailText()?.let { content.addView(settingsHelp(it)) }
+        pendingGoalFolderConflictIssue()?.let { issue ->
+            content.addView(settingsHelp(pendingGoalFolderConflictReason()))
+            content.addView(textButton(pendingGoalFolderConflictPrimaryAction(), primary = true) {
+                movePendingGoalConflictToRoot(issue)
+            })
+            content.addView(textButton(pendingGoalFolderConflictResetAction(), danger = true) {
+                confirmResetPendingIssue(issue)
+            })
+        }
 
         content.addView(sectionLabel(c.sharing))
         content.addView(settingsHelp(c.sharingHelp))
@@ -2089,6 +2099,63 @@ class MainActivity : Activity() {
         scope.launch {
             try {
                 loadPlannerData()
+                planningLastManualSyncAt = Instant.now()
+                planningLastManualSyncMessage = manualSyncResultText()
+                message = planningLastManualSyncMessage
+            } catch (error: Exception) {
+                planningLastManualSyncAt = Instant.now()
+                planningLastManualSyncMessage = manualSyncErrorText(error)
+                message = planningLastManualSyncMessage
+            } finally {
+                planningManualSyncRunning = false
+                render()
+            }
+        }
+    }
+
+    private fun movePendingGoalConflictToRoot(issue: PlanningPendingIssue) {
+        val session = currentSession ?: return
+        planningManualSyncRunning = true
+        message = pendingGoalFolderConflictResolvingText()
+        render()
+        scope.launch {
+            try {
+                val result = planningRepository.moveBlockedGoalToRecoveryRoot(session, issue)
+                currentSession = result.session
+                applyPlanningSnapshot(result.snapshot)
+                planningLastManualSyncAt = Instant.now()
+                planningLastManualSyncMessage = manualSyncResultText()
+                message = planningLastManualSyncMessage
+            } catch (error: Exception) {
+                planningLastManualSyncAt = Instant.now()
+                planningLastManualSyncMessage = manualSyncErrorText(error)
+                message = planningLastManualSyncMessage
+            } finally {
+                planningManualSyncRunning = false
+                render()
+            }
+        }
+    }
+
+    private fun confirmResetPendingIssue(issue: PlanningPendingIssue) {
+        AlertDialog.Builder(this)
+            .setTitle(pendingGoalFolderConflictResetAction())
+            .setMessage(pendingResetConfirmationText(issue))
+            .setNegativeButton(copy().cancel, null)
+            .setPositiveButton(pendingGoalFolderConflictResetAction()) { _, _ -> resetPendingIssue(issue) }
+            .show()
+    }
+
+    private fun resetPendingIssue(issue: PlanningPendingIssue) {
+        val session = currentSession ?: return
+        planningManualSyncRunning = true
+        message = pendingResetRunningText()
+        render()
+        scope.launch {
+            try {
+                val result = planningRepository.resetPendingIssue(session, issue)
+                currentSession = result.session
+                applyPlanningSnapshot(result.snapshot)
                 planningLastManualSyncAt = Instant.now()
                 planningLastManualSyncMessage = manualSyncResultText()
                 message = planningLastManualSyncMessage
@@ -7275,7 +7342,48 @@ class MainActivity : Activity() {
     private fun pendingIssueText(): String? {
         val issue = planningPendingIssues.firstOrNull { it.error.isNotBlank() } ?: return null
         val prefix = if (currentLanguage == "en") "Blocked" else "\u041d\u0435 \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043e"
-        return "$prefix: ${localizedPendingEntity(issue.entity)} ${localizedPendingAction(issue.action)} - ${syncErrorText(issue.error)}"
+        val error = if (PlanningPendingIssueClassifier.isGoalMissingFolder(issue)) {
+            pendingGoalFolderConflictReason()
+        } else {
+            syncErrorText(issue.error)
+        }
+        return "$prefix: ${localizedPendingEntity(issue.entityType)} ${localizedPendingAction(issue.action)} - $error"
+    }
+
+    private fun pendingGoalFolderConflictIssue(): PlanningPendingIssue? {
+        return planningPendingIssues.firstOrNull(PlanningPendingIssueClassifier::isGoalMissingFolder)
+    }
+
+    private fun pendingGoalFolderConflictReason(): String {
+        return if (currentLanguage == "en") {
+            "The goal is in a folder that no longer exists on the server."
+        } else {
+            "\u0426\u0435\u043b\u044c \u043d\u0430\u0445\u043e\u0434\u0438\u0442\u0441\u044f \u0432 \u043f\u0430\u043f\u043a\u0435, \u043a\u043e\u0442\u043e\u0440\u043e\u0439 \u0443\u0436\u0435 \u043d\u0435\u0442 \u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0435"
+        }
+    }
+
+    private fun pendingGoalFolderConflictPrimaryAction(): String {
+        return if (currentLanguage == "en") "Move to an available folder and retry" else "\u041f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u0432 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0443\u044e \u043f\u0430\u043f\u043a\u0443 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c"
+    }
+
+    private fun pendingGoalFolderConflictResetAction(): String {
+        return if (currentLanguage == "en") "Discard local change" else "\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0435"
+    }
+
+    private fun pendingGoalFolderConflictResolvingText(): String {
+        return if (currentLanguage == "en") "Moving the goal to an available folder and retrying sync..." else "\u041f\u0435\u0440\u0435\u043d\u043e\u0441\u0438\u043c \u0446\u0435\u043b\u044c \u0432 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0443\u044e \u043f\u0430\u043f\u043a\u0443 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u044f\u0435\u043c \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0430\u0446\u0438\u044e..."
+    }
+
+    private fun pendingResetRunningText(): String {
+        return if (currentLanguage == "en") "Discarding the local pending change..." else "\u0421\u0431\u0440\u0430\u0441\u044b\u0432\u0430\u0435\u043c \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0435 pending-\u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0435..."
+    }
+
+    private fun pendingResetConfirmationText(issue: PlanningPendingIssue): String {
+        return if (currentLanguage == "en") {
+            "This will discard the local ${localizedPendingEntity(issue.entityType)} ${localizedPendingAction(issue.action)}. Created-only local items may be removed from this device."
+        } else {
+            "\u041b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0435 \"${localizedPendingEntity(issue.entityType)} ${localizedPendingAction(issue.action)}\" \u0431\u0443\u0434\u0435\u0442 \u0441\u0431\u0440\u043e\u0448\u0435\u043d\u043e. \u0415\u0441\u043b\u0438 \u044d\u0442\u043e \u0431\u044b\u043b\u043e \u0442\u043e\u043b\u044c\u043a\u043e \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u043e\u0435 \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u0435, \u044d\u043b\u0435\u043c\u0435\u043d\u0442 \u043c\u043e\u0436\u0435\u0442 \u0438\u0441\u0447\u0435\u0437\u043d\u0443\u0442\u044c \u0441 \u044d\u0442\u043e\u0433\u043e \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0430."
+        }
     }
 
     private fun localizedPendingEntity(entity: String): String {

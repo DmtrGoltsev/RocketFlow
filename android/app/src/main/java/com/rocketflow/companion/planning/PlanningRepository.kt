@@ -75,6 +75,26 @@ class PlanningRepository(
         return syncAfterLocalChange(session)
     }
 
+    suspend fun moveBlockedGoalToRecoveryRoot(session: AuthSession, issue: PlanningPendingIssue): PlanningLoadResult {
+        if (!PlanningPendingIssueClassifier.isGoalMissingFolder(issue)) {
+            return PlanningLoadResult(session, localStore.snapshot(session.user.id, offline = false, lastSyncError = null))
+        }
+        val changed = localStore.moveBlockedGoalToRecoveryRoot(session.user.id, issue.id)
+        if (changed) {
+            syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
+        }
+        return syncAndLoad(session)
+    }
+
+    suspend fun resetPendingIssue(session: AuthSession, issue: PlanningPendingIssue): PlanningLoadResult {
+        val reset = localStore.resetPendingIssue(session.user.id, issue)
+        var activeSession = session
+        if (reset != null && reset.action != "create") {
+            activeSession = refreshResetEntity(activeSession, reset)
+        }
+        return syncAndLoad(activeSession)
+    }
+
     suspend fun createTask(session: AuthSession, goalId: String, draft: TaskDraft): PlanningLoadResult {
         localStore.createTask(session.user.id, goalId, draft)
         return syncAfterLocalChange(session)
@@ -312,6 +332,59 @@ class PlanningRepository(
             session to localStore.findIdea(session.user.id, ideaId)
         } catch (_: Exception) {
             session to localStore.findIdea(session.user.id, ideaId)
+        }
+    }
+
+    private suspend fun refreshResetEntity(
+        session: AuthSession,
+        reset: PlanningLocalStore.PendingReset
+    ): AuthSession {
+        return try {
+            when (reset.entityType) {
+                PlanningLocalStore.TABLE_FOLDERS -> {
+                    val result = authRepository.authorizedGet(session, "/folders/${reset.id}")
+                    localStore.applySyncedFolder(result.session.user.id, reset.id, result.value.toFolder(shared = false))
+                    result.session
+                }
+
+                PlanningLocalStore.TABLE_GOALS -> {
+                    val result = authRepository.authorizedGet(session, "/goals/${reset.id}")
+                    localStore.applySyncedGoal(result.session.user.id, reset.id, result.value.toGoal(shared = false))
+                    result.session
+                }
+
+                PlanningLocalStore.TABLE_TASKS -> {
+                    val result = authRepository.authorizedGet(session, "/tasks/${reset.id}")
+                    localStore.applySyncedTask(result.session.user.id, reset.id, result.value.toTask(shared = false))
+                    result.session
+                }
+
+                PlanningLocalStore.TABLE_NOTES -> {
+                    val result = authRepository.authorizedGet(session, "/notes/${reset.id}")
+                    localStore.applySyncedNote(result.session.user.id, reset.id, result.value.toNote(shared = false))
+                    result.session
+                }
+
+                else -> session
+            }
+        } catch (error: ApiException) {
+            if (error.status == 401) {
+                throw error
+            }
+            removeResetEntityIfMissing(session.user.id, reset, error)
+            session
+        } catch (_: Exception) {
+            session
+        }
+    }
+
+    private fun removeResetEntityIfMissing(userId: String, reset: PlanningLocalStore.PendingReset, error: ApiException) {
+        if (error.status != 404) return
+        when (reset.entityType) {
+            PlanningLocalStore.TABLE_FOLDERS -> localStore.removeFolder(userId, reset.id)
+            PlanningLocalStore.TABLE_GOALS -> localStore.removeGoal(userId, reset.id)
+            PlanningLocalStore.TABLE_TASKS -> localStore.removeTask(userId, reset.id)
+            PlanningLocalStore.TABLE_NOTES -> localStore.removeNote(userId, reset.id)
         }
     }
 

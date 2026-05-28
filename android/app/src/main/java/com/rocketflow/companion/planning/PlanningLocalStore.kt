@@ -33,6 +33,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 pending_action TEXT,
+                pending_blocked INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT,
                 locally_deleted INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, id)
@@ -56,6 +57,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 pending_action TEXT,
+                pending_blocked INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT,
                 locally_deleted INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, id)
@@ -89,6 +91,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 pending_action TEXT,
+                pending_blocked INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT,
                 locally_deleted INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, id)
@@ -147,6 +150,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 12) {
                 addIdeaContractColumns(db)
             }
+            if (oldVersion < 13) {
+                addPendingBlockedColumns(db)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -170,6 +176,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             createEntityLinksTable(db)
             addEntityLinkPendingColumns(db)
             addEntityLinkRedactionColumns(db)
+            addPendingBlockedColumns(db)
         }
     }
 
@@ -271,6 +278,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 put("parent_folder_id", draft.parentFolderId ?: folder.parentFolderId)
                 put("updated_at", nowIso())
                 put("pending_action", action)
+                put("pending_blocked", 0)
                 putNull("last_error")
             },
             "user_id = ? AND id = ?",
@@ -346,6 +354,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 put("status", draft.status)
                 put("updated_at", nowIso())
                 put("pending_action", action)
+                put("pending_blocked", 0)
                 putNull("last_error")
             },
             "user_id = ? AND id = ?",
@@ -426,6 +435,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     put("status", draft.status)
                     put("updated_at", nowIso())
                     put("pending_action", ACTION_UPDATE)
+                    put("pending_blocked", 0)
                     putNull("last_error")
                 },
                 "user_id = ? AND id = ?",
@@ -450,6 +460,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 put("reminders_json", draft.remindersJson ?: task.remindersJson)
                 put("updated_at", nowIso())
                 put("pending_action", action)
+                put("pending_blocked", 0)
                 putNull("last_error")
             },
             "user_id = ? AND id = ?",
@@ -474,6 +485,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 TABLE_TASKS,
                 ContentValues().apply {
                     put("pending_action", ACTION_DELETE)
+                    put("pending_blocked", 0)
                     put("locally_deleted", 1)
                     put("updated_at", nowIso())
                     putNull("last_error")
@@ -533,6 +545,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 put("body", draft.body)
                 put("updated_at", nowIso())
                 put("pending_action", action)
+                put("pending_blocked", 0)
                 putNull("last_error")
             },
             "user_id = ? AND id = ?",
@@ -557,6 +570,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 TABLE_NOTES,
                 ContentValues().apply {
                     put("pending_action", ACTION_DELETE)
+                    put("pending_blocked", 0)
                     put("locally_deleted", 1)
                     put("updated_at", nowIso())
                     putNull("last_error")
@@ -611,6 +625,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             TABLE_ENTITY_LINKS,
             ContentValues().apply {
                 put("pending_action", ACTION_DELETE)
+                put("pending_blocked", 0)
                 put("locally_deleted", 1)
                 put("updated_at", nowIso())
                 putNull("last_error")
@@ -632,6 +647,73 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         ).use { cursor ->
             if (cursor.moveToFirst()) cursor.toTask() else null
         }
+    }
+
+    fun findGoal(userId: String, goalId: String): PlanningGoal? {
+        return readableDatabase.query(
+            TABLE_GOALS,
+            null,
+            "user_id = ? AND id = ? AND locally_deleted = 0",
+            arrayOf(userId, goalId),
+            null,
+            null,
+            null
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.toGoal() else null
+        }
+    }
+
+    fun moveBlockedGoalToRecoveryRoot(userId: String, goalId: String): Boolean {
+        val db = writableDatabase
+        val goal = queryGoals(db, userId, includeDeleted = true).firstOrNull { it.id == goalId && !it.shared } ?: return false
+        val targetFolder = queryFolders(db, userId, includeDeleted = false)
+            .firstOrNull { !it.shared && !it.archived && it.parentFolderId == null && it.id != goal.folderId }
+            ?: return false
+        val action = existingPendingAction(TABLE_GOALS, userId, goalId)
+            ?.takeUnless { it == ACTION_CONFLICT }
+            ?: if (goal.version == 0L) ACTION_CREATE else ACTION_UPDATE
+        db.update(
+            TABLE_GOALS,
+            ContentValues().apply {
+                put("folder_id", targetFolder.id)
+                put("pending_action", action)
+                put("pending_blocked", 0)
+                putNull("last_error")
+                put("updated_at", nowIso())
+            },
+            "user_id = ? AND id = ?",
+            arrayOf(userId, goalId)
+        )
+        return true
+    }
+
+    fun resetPendingIssue(userId: String, issue: PlanningPendingIssue): PendingReset? {
+        val table = issue.entityType
+        if (table !in pendingTables) return null
+        val action = existingPendingAction(table, userId, issue.id) ?: return null
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            if (action == ACTION_CREATE) {
+                deletePendingCreateRow(db, userId, table, issue.id)
+            } else {
+                db.update(
+                    table,
+                    ContentValues().apply {
+                        putNull("pending_action")
+                        put("pending_blocked", 0)
+                        putNull("last_error")
+                        put("locally_deleted", 0)
+                    },
+                    "user_id = ? AND id = ?",
+                    arrayOf(userId, issue.id)
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return PendingReset(table, issue.id, action)
     }
 
     fun pendingFolders(userId: String): List<PlanningFolder> {
@@ -688,6 +770,12 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (cursor.moveToFirst()) cursor.toIdea() else null
         }
     }
+
+    data class PendingReset(
+        val entityType: String,
+        val id: String,
+        val action: String
+    )
 
     fun removeIdea(userId: String, ideaId: String) {
         val db = writableDatabase
@@ -1146,7 +1234,8 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         writableDatabase.update(
             table,
             ContentValues().apply {
-                put("pending_action", if (conflict) ACTION_CONFLICT else existingPendingAction(table, userId, id))
+                put("pending_action", existingPendingAction(table, userId, id) ?: ACTION_CONFLICT)
+                put("pending_blocked", conflict.toInt())
                 put("last_error", error)
             },
             "user_id = ? AND id = ?",
@@ -1299,7 +1388,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     private fun countPending(userId: String): Int {
-        return listOf(TABLE_FOLDERS, TABLE_GOALS, TABLE_TASKS, TABLE_NOTES, TABLE_ENTITY_LINKS, TABLE_TASK_TAGS).sumOf { table ->
+        return pendingTables.sumOf { table ->
             readableDatabase.rawQuery(
                 "SELECT COUNT(*) FROM $table WHERE user_id = ? AND pending_action IS NOT NULL",
                 arrayOf(userId)
@@ -1310,19 +1399,20 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     }
 
     private fun pendingIssues(userId: String): List<PlanningPendingIssue> {
-        return listOf(TABLE_FOLDERS, TABLE_GOALS, TABLE_TASKS, TABLE_NOTES, TABLE_ENTITY_LINKS, TABLE_TASK_TAGS).flatMap { table ->
+        return pendingTables.flatMap { table ->
             readableDatabase.rawQuery(
-                "SELECT id, pending_action, last_error FROM $table WHERE user_id = ? AND pending_action IS NOT NULL AND last_error IS NOT NULL",
+                "SELECT id, pending_action, last_error, pending_blocked FROM $table WHERE user_id = ? AND pending_action IS NOT NULL AND last_error IS NOT NULL",
                 arrayOf(userId)
             ).use { cursor ->
                 buildList {
                     while (cursor.moveToNext()) {
                         add(
                             PlanningPendingIssue(
-                                entity = table,
+                                entityType = table,
+                                id = cursor.getString(0).orEmpty(),
                                 action = cursor.getString(1).orEmpty(),
-                                entityId = cursor.getString(0).orEmpty(),
-                                error = cursor.getString(2).orEmpty()
+                                error = cursor.getString(2).orEmpty(),
+                                blocked = cursor.getInt(3) == 1
                             )
                         )
                     }
@@ -1423,6 +1513,38 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         entities.distinct().forEach { deleteLocalLinksForEntity(db, userId, it.type, it.id) }
     }
 
+    private fun deletePendingCreateRow(db: SQLiteDatabase, userId: String, table: String, id: String) {
+        when (table) {
+            TABLE_FOLDERS -> {
+                deleteLocalLinksForEntities(db, userId, folderTreeEntityKeys(db, userId, id))
+                db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, id))
+                db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, id))
+                db.delete(TABLE_NOTES, "user_id = ? AND folder_id = ?", arrayOf(userId, id))
+                db.delete(TABLE_FOLDERS, "user_id = ? AND parent_folder_id = ?", arrayOf(userId, id))
+                db.delete(TABLE_FOLDERS, "user_id = ? AND id = ?", arrayOf(userId, id))
+            }
+
+            TABLE_GOALS -> {
+                deleteLocalLinksForEntities(db, userId, goalTreeEntityKeys(db, userId, id))
+                db.delete(TABLE_TASKS, "user_id = ? AND goal_id = ?", arrayOf(userId, id))
+                db.delete(TABLE_GOALS, "user_id = ? AND id = ?", arrayOf(userId, id))
+            }
+
+            TABLE_TASKS -> {
+                deleteLocalLinksForEntity(db, userId, "task", id)
+                db.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, id))
+            }
+
+            TABLE_NOTES -> {
+                deleteLocalLinksForEntity(db, userId, "note", id)
+                db.delete(TABLE_NOTES, "user_id = ? AND id = ?", arrayOf(userId, id))
+            }
+
+            TABLE_ENTITY_LINKS -> db.delete(TABLE_ENTITY_LINKS, "user_id = ? AND id = ?", arrayOf(userId, id))
+            TABLE_TASK_TAGS -> db.delete(TABLE_TASK_TAGS, "user_id = ? AND id = ?", arrayOf(userId, id))
+        }
+    }
+
     private fun deleteLocalLinksForEntity(db: SQLiteDatabase, userId: String, entityType: String, entityId: String) {
         val where = "user_id = ? AND ((source_type = ? AND source_id = ?) OR (target_type = ? AND target_id = ?))"
         val args = arrayOf(userId, entityType, entityId, entityType, entityId)
@@ -1438,6 +1560,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 put("locally_deleted", 1)
                 put("updated_at", nowIso())
                 putNull("pending_action")
+                put("pending_blocked", 0)
                 putNull("last_error")
             },
             "$where AND locally_deleted = 0",
@@ -1450,6 +1573,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
     private fun pendingDeleteValues(): ContentValues {
         return ContentValues().apply {
             put("pending_action", ACTION_DELETE)
+            put("pending_blocked", 0)
             put("locally_deleted", 1)
             put("updated_at", nowIso())
             putNull("last_error")
@@ -1596,6 +1720,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("created_at", folder.createdAt)
             put("updated_at", folder.updatedAt)
             put("pending_action", pendingAction)
+            put("pending_blocked", 0)
             put("last_error", folder.lastError)
             put("locally_deleted", locallyDeleted.toInt())
         }
@@ -1622,6 +1747,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("created_at", goal.createdAt)
             put("updated_at", goal.updatedAt)
             put("pending_action", pendingAction)
+            put("pending_blocked", 0)
             put("last_error", goal.lastError)
             put("locally_deleted", locallyDeleted.toInt())
         }
@@ -1643,6 +1769,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("created_at", createdAt)
             put("updated_at", updatedAt)
             put("pending_action", pendingAction)
+            put("pending_blocked", 0)
             put("last_error", tag.lastError)
             put("locally_deleted", locallyDeleted.toInt())
         }
@@ -1679,6 +1806,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("created_at", task.createdAt)
             put("updated_at", task.updatedAt)
             put("pending_action", pendingAction)
+            put("pending_blocked", 0)
             put("last_error", task.lastError)
             put("locally_deleted", locallyDeleted.toInt())
         }
@@ -1709,6 +1837,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("created_at", idea.createdAt)
             put("updated_at", idea.updatedAt)
             put("pending_action", pendingAction)
+            put("pending_blocked", 0)
             put("last_error", idea.lastError)
             put("locally_deleted", locallyDeleted.toInt())
         }
@@ -1754,6 +1883,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("created_at", note.createdAt)
             put("updated_at", note.updatedAt)
             put("pending_action", pendingAction)
+            put("pending_blocked", 0)
             put("last_error", note.lastError)
             put("locally_deleted", locallyDeleted.toInt())
         }
@@ -1793,6 +1923,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("created_at", link.createdAt)
             put("updated_at", link.updatedAt)
             put("pending_action", pendingAction)
+            put("pending_blocked", 0)
             put("last_error", link.lastError)
             put("locally_deleted", locallyDeleted.toInt())
         }
@@ -1811,7 +1942,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
-            syncState = syncState(stringOrNull("pending_action")),
+            syncState = syncState(stringOrNull("pending_action"), optionalBoolean("pending_blocked")),
             lastError = stringOrNull("last_error")
         )
     }
@@ -1830,7 +1961,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
-            syncState = syncState(stringOrNull("pending_action")),
+            syncState = syncState(stringOrNull("pending_action"), optionalBoolean("pending_blocked")),
             lastError = stringOrNull("last_error")
         )
     }
@@ -1840,7 +1971,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             id = string("id"),
             name = string("name"),
             color = string("color"),
-            syncState = syncState(stringOrNull("pending_action")),
+            syncState = syncState(stringOrNull("pending_action"), optionalBoolean("pending_blocked")),
             lastError = stringOrNull("last_error")
         )
     }
@@ -1869,7 +2000,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             remindersJson = optionalStringOrNull("reminders_json"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
-            syncState = syncState(stringOrNull("pending_action")),
+            syncState = syncState(stringOrNull("pending_action"), optionalBoolean("pending_blocked")),
             lastError = stringOrNull("last_error")
         )
     }
@@ -1892,7 +2023,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
-            syncState = syncState(stringOrNull("pending_action")),
+            syncState = syncState(stringOrNull("pending_action"), optionalBoolean("pending_blocked")),
             lastError = stringOrNull("last_error")
         )
     }
@@ -1929,7 +2060,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             version = long("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
-            syncState = syncState(stringOrNull("pending_action")),
+            syncState = syncState(stringOrNull("pending_action"), optionalBoolean("pending_blocked")),
             lastError = stringOrNull("last_error")
         )
     }
@@ -1969,7 +2100,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             version = optionalLong("version"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
-            syncState = syncState(stringOrNull("pending_action")),
+            syncState = syncState(stringOrNull("pending_action"), optionalBoolean("pending_blocked")),
             lastError = stringOrNull("last_error")
         )
     }
@@ -2066,7 +2197,8 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
-    private fun syncState(action: String?): SyncState {
+    private fun syncState(action: String?, blocked: Boolean): SyncState {
+        if (blocked && action != null) return SyncState.Conflict
         return when (action) {
             ACTION_CREATE -> SyncState.PendingCreate
             ACTION_UPDATE -> SyncState.PendingUpdate
@@ -2107,6 +2239,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 pending_action TEXT,
+                pending_blocked INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT,
                 locally_deleted INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, id)
@@ -2137,6 +2270,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 pending_action TEXT,
+                pending_blocked INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT,
                 locally_deleted INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, id)
@@ -2195,8 +2329,15 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     private fun addEntityLinkPendingColumns(db: SQLiteDatabase) {
         addColumnIfMissing(db, TABLE_ENTITY_LINKS, "pending_action", "TEXT")
+        addColumnIfMissing(db, TABLE_ENTITY_LINKS, "pending_blocked", "INTEGER NOT NULL DEFAULT 0")
         addColumnIfMissing(db, TABLE_ENTITY_LINKS, "last_error", "TEXT")
         addColumnIfMissing(db, TABLE_ENTITY_LINKS, "locally_deleted", "INTEGER NOT NULL DEFAULT 0")
+    }
+
+    private fun addPendingBlockedColumns(db: SQLiteDatabase) {
+        pendingTables.forEach { table ->
+            addColumnIfMissing(db, table, "pending_blocked", "INTEGER NOT NULL DEFAULT 0")
+        }
     }
 
     private fun addEntityLinkRedactionColumns(db: SQLiteDatabase) {
@@ -2232,6 +2373,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 pending_action TEXT,
+                pending_blocked INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT,
                 locally_deleted INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, id)
@@ -2271,6 +2413,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 pending_action TEXT,
+                pending_blocked INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT,
                 locally_deleted INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (user_id, id)
@@ -2290,7 +2433,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 12
+        private const val DATABASE_VERSION = 13
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"
@@ -2300,6 +2443,15 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         const val TABLE_IDEA_NOTES = "idea_notes"
         const val TABLE_NOTES = "notes"
         const val TABLE_ENTITY_LINKS = "entity_links"
+
+        private val pendingTables = listOf(
+            TABLE_FOLDERS,
+            TABLE_GOALS,
+            TABLE_TASKS,
+            TABLE_NOTES,
+            TABLE_ENTITY_LINKS,
+            TABLE_TASK_TAGS
+        )
 
         private const val ACTION_CREATE = "create"
         private const val ACTION_UPDATE = "update"

@@ -182,11 +182,25 @@ data class PlanningSnapshot(
 )
 
 data class PlanningPendingIssue(
-    val entity: String,
+    val entityType: String,
+    val id: String,
     val action: String,
-    val entityId: String,
-    val error: String
-)
+    val error: String,
+    val blocked: Boolean = false
+) {
+    val entity: String get() = entityType
+    val entityId: String get() = id
+}
+
+object PlanningPendingIssueClassifier {
+    private const val MISSING_FOLDER = "folder was not found"
+
+    fun isGoalMissingFolder(issue: PlanningPendingIssue): Boolean {
+        return issue.blocked &&
+            issue.entityType == PlanningLocalStore.TABLE_GOALS &&
+            MISSING_FOLDER in issue.error.lowercase()
+    }
+}
 
 data class PlanningLoadResult(
     val session: com.rocketflow.companion.auth.AuthSession,
