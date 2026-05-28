@@ -92,7 +92,11 @@ class PlanningRepository(
         if (reset != null && reset.action != "create") {
             activeSession = refreshResetEntity(activeSession, reset)
         }
-        return syncAndLoad(activeSession)
+        val snapshot = localStore.snapshot(activeSession.user.id, offline = false, lastSyncError = null)
+        if (snapshot.pendingCount > 0) {
+            syncEnqueuer?.enqueuePlanningSync(PlanningSyncReason.PendingChange)
+        }
+        return PlanningLoadResult(session = activeSession, snapshot = snapshot)
     }
 
     suspend fun createTask(session: AuthSession, goalId: String, draft: TaskDraft): PlanningLoadResult {

@@ -2156,9 +2156,9 @@ class MainActivity : Activity() {
                 val result = planningRepository.resetPendingIssue(session, issue)
                 currentSession = result.session
                 applyPlanningSnapshot(result.snapshot)
-                planningLastManualSyncAt = Instant.now()
-                planningLastManualSyncMessage = manualSyncResultText()
-                message = planningLastManualSyncMessage
+                planningLastManualSyncAt = null
+                planningLastManualSyncMessage = null
+                message = null
             } catch (error: Exception) {
                 planningLastManualSyncAt = Instant.now()
                 planningLastManualSyncMessage = manualSyncErrorText(error)
