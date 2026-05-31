@@ -1038,6 +1038,7 @@ class PlanningRepository(
             .put("status", status)
             .putNullable("plannedTime", plannedTime)
             .putNullable("dueTime", dueTime)
+            .put("checklistItems", checklistItems.toRequestArray())
             .put("tagIds", JSONArray(tagIds))
     }
 
@@ -1053,6 +1054,7 @@ class PlanningRepository(
             .putNullable("dueTime", dueTime)
             .put("archived", archived)
             .put("tagIds", JSONArray(tagIds))
+            .put("checklistItems", checklistItems.toRequestArray())
             .put("version", version)
     }
 
@@ -1160,6 +1162,7 @@ class PlanningRepository(
             creatorName = nullableText("creatorName"),
             version = optLong("version", 0),
             tagIds = tagIds(),
+            checklistItems = optJSONArray("checklistItems").toChecklistItems(text("id")),
             recurrenceJson = optJsonObjectString("recurrence"),
             remindersJson = optJsonArrayString("reminders"),
             createdAt = text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
@@ -1280,6 +1283,42 @@ class PlanningRepository(
             syncState = SyncState.Synced,
             lastError = null
         )
+    }
+
+    private fun JSONArray?.toChecklistItems(taskIdFallback: String): List<TaskChecklistItem> {
+        if (this == null) {
+            return emptyList()
+        }
+        return List(length()) { index ->
+            val item = optJSONObject(index) ?: JSONObject()
+            val taskId = item.nullableText("taskId") ?: taskIdFallback
+            TaskChecklistItem(
+                id = item.nullableText("id") ?: PlanningLocalStore.localId(),
+                taskId = taskId,
+                text = item.text("text"),
+                checked = item.optBoolean("checked", false),
+                displayOrder = item.optInt("displayOrder", index),
+                version = item.optLong("version", 0),
+                createdAt = item.text("createdAt").ifBlank { PlanningLocalStore.nowIso() },
+                updatedAt = item.text("updatedAt").ifBlank { PlanningLocalStore.nowIso() }
+            )
+        }.filter { it.text.isNotBlank() }
+    }
+
+    private fun List<TaskChecklistItem>.toRequestArray(): JSONArray {
+        val array = JSONArray()
+        sortedWith(compareBy<TaskChecklistItem> { it.displayOrder }.thenBy { it.createdAt }.thenBy { it.id })
+            .filter { it.text.isNotBlank() }
+            .forEachIndexed { index, item ->
+                array.put(
+                    JSONObject()
+                        .put("id", item.id)
+                        .put("text", item.text)
+                        .put("checked", item.checked)
+                        .put("displayOrder", index)
+                )
+            }
+        return array
     }
 
     private fun JSONObject.text(key: String): String {

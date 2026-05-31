@@ -54,6 +54,19 @@ export interface TaskRecurrenceDto {
   active: boolean;
 }
 
+export interface TaskChecklistItemDto {
+  id: string;
+  taskId?: string;
+  text: string;
+  checked: boolean;
+  title?: string;
+  completed?: boolean;
+  displayOrder?: number;
+  version?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface TaskDto {
   id: string;
   goalId: string;
@@ -75,6 +88,7 @@ export interface TaskDto {
   version: number;
   tags: TaskTagDto[];
   recurrence: TaskRecurrenceDto | null;
+  checklistItems?: TaskChecklistItemDto[];
   createdAt: string;
   updatedAt: string;
 }
@@ -289,6 +303,17 @@ export interface TaskRecurrenceUpsertPayload {
   startAt: string;
   endAt: string | null;
   active: boolean;
+}
+
+export interface TaskChecklistItemUpsertPayload {
+  id?: string | null;
+  text: string;
+  checked: boolean;
+  displayOrder?: number;
+}
+
+export interface TaskChecklistReplacePayload {
+  items: TaskChecklistItemUpsertPayload[];
 }
 
 export interface TaskRecurrenceDraft {

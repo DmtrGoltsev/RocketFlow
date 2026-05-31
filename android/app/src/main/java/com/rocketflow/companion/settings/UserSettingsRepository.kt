@@ -56,10 +56,19 @@ class UserSettingsRepository(
     private fun JSONObject.toSettings(): UserSettings {
         return UserSettings(
             language = optString("language", "ru"),
-            greenPriorityDecayPolicy = getJSONObject("greenPriorityDecayPolicy").toPolicy("green"),
-            redPriorityDecayPolicy = getJSONObject("redPriorityDecayPolicy").toPolicy("red"),
+            greenPriorityDecayPolicy = optJSONObject("greenPriorityDecayPolicy")?.toPolicy("green") ?: defaultPolicy("green"),
+            redPriorityDecayPolicy = optJSONObject("redPriorityDecayPolicy")?.toPolicy("red") ?: defaultPolicy("red"),
             notificationsEnabled = optBoolean("notificationsEnabled", true),
             version = optLong("version", 0)
+        )
+    }
+
+    private fun defaultPolicy(taskType: String): PriorityDecayPolicy {
+        return PriorityDecayPolicy(
+            taskType = taskType,
+            enabled = false,
+            thresholdPreset = "day",
+            decayAmount = 1
         )
     }
 

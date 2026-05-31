@@ -105,7 +105,7 @@ export const routeInventory: RouteInventoryItem[] = [
     area: 'settings',
     nav: true,
     label: { ru: 'Настройки', en: 'Settings' },
-    summary: { ru: 'Язык, уведомления и правила приоритета.', en: 'Language, notifications, and priority rules.' },
+    summary: { ru: 'Язык и уведомления.', en: 'Language and notifications.' },
     owner: 'Advanced',
     readyState: 'ready'
   }

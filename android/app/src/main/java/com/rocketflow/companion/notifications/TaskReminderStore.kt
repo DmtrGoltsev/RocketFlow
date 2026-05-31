@@ -46,12 +46,36 @@ class TaskReminderStore(context: Context) {
             .filter { it.enabled }
     }
 
+    fun readDefault(userId: String): DefaultTaskReminderSetting? {
+        return DefaultTaskReminderJson.decode(prefs.getString(defaultKey(userId), null))
+            ?.takeIf { it.enabled }
+    }
+
+    fun saveDefault(setting: DefaultTaskReminderSetting) {
+        if (!setting.enabled) {
+            clearDefault(setting.userId)
+            return
+        }
+        prefs.edit()
+            .putString(defaultKey(setting.userId), DefaultTaskReminderJson.encode(setting))
+            .apply()
+    }
+
+    fun clearDefault(userId: String) {
+        prefs.edit().remove(defaultKey(userId)).apply()
+    }
+
     private fun key(userId: String, taskId: String): String {
         return "$KEY_PREFIX$userId::$taskId"
+    }
+
+    private fun defaultKey(userId: String): String {
+        return "$DEFAULT_KEY_PREFIX$userId"
     }
 
     private companion object {
         const val PREFS_NAME = "rocketflow_local_task_reminders"
         const val KEY_PREFIX = "task_reminder::"
+        const val DEFAULT_KEY_PREFIX = "default_task_reminder::"
     }
 }

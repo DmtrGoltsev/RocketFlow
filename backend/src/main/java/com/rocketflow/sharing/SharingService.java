@@ -39,6 +39,8 @@ import com.rocketflow.sharing.SharingAccessService.GoalAccess;
 import com.rocketflow.sharing.SharingAccessService.IdeaAccess;
 import com.rocketflow.sharing.SharingAccessService.TaskAccess;
 import com.rocketflow.tasks.Task;
+import com.rocketflow.tasks.TaskChecklistItem;
+import com.rocketflow.tasks.TaskChecklistItemRepository;
 import com.rocketflow.tasks.TaskRepository;
 import com.rocketflow.tasks.TaskTag;
 import com.rocketflow.tasks.TaskTagLink;
@@ -62,6 +64,7 @@ public class SharingService {
     private final FolderRepository folderRepository;
     private final GoalRepository goalRepository;
     private final TaskRepository taskRepository;
+    private final TaskChecklistItemRepository taskChecklistItemRepository;
     private final IdeaRepository ideaRepository;
     private final TaskTagRepository taskTagRepository;
     private final TaskTagLinkRepository taskTagLinkRepository;
@@ -81,6 +84,7 @@ public class SharingService {
             FolderRepository folderRepository,
             GoalRepository goalRepository,
             TaskRepository taskRepository,
+            TaskChecklistItemRepository taskChecklistItemRepository,
             IdeaRepository ideaRepository,
             TaskTagRepository taskTagRepository,
             TaskTagLinkRepository taskTagLinkRepository,
@@ -99,6 +103,7 @@ public class SharingService {
         this.folderRepository = folderRepository;
         this.goalRepository = goalRepository;
         this.taskRepository = taskRepository;
+        this.taskChecklistItemRepository = taskChecklistItemRepository;
         this.ideaRepository = ideaRepository;
         this.taskTagRepository = taskTagRepository;
         this.taskTagLinkRepository = taskTagLinkRepository;
@@ -266,7 +271,7 @@ public class SharingService {
         Map<UUID, Task> tasksById = new LinkedHashMap<>();
         for (Goal goal : folderGoalsById.values()) {
             boolean inheritedFullAccess = goalFullAccessById.getOrDefault(goal.getId(), false);
-            taskRepository.findByGoalIdAndOwnerUserIdOrderByCreatedAtAsc(goal.getId(), goal.getOwnerUserId())
+            taskRepository.findByGoalIdAndOwnerUserIdOrderByPriorityDescCreatedAtAscIdAsc(goal.getId(), goal.getOwnerUserId())
                     .forEach(task -> {
                         tasksById.put(task.getId(), task);
                         taskFullAccessById.putIfAbsent(task.getId(), inheritedFullAccess);
@@ -274,7 +279,7 @@ public class SharingService {
         }
         for (GoalShare goalShare : goalShares) {
             sharingAccessService.requireGoalAccess(goalShare.getGoalId(), actorUserId);
-            taskRepository.findByGoalIdAndOwnerUserIdOrderByCreatedAtAsc(goalShare.getGoalId(), goalShare.getOwnerUserId())
+            taskRepository.findByGoalIdAndOwnerUserIdOrderByPriorityDescCreatedAtAscIdAsc(goalShare.getGoalId(), goalShare.getOwnerUserId())
                     .forEach(task -> {
                         tasksById.put(task.getId(), task);
                         taskFullAccessById.put(task.getId(), goalShare.isFullAccess());
@@ -299,7 +304,11 @@ public class SharingService {
             ideaFullAccessById.put(idea.getId(), ideaShare.isFullAccess());
         }
 
-        List<Task> sharedTasks = tasksById.values().stream().sorted(Comparator.comparing(Task::getCreatedAt)).toList();
+        List<Task> sharedTasks = tasksById.values().stream()
+                .sorted(Comparator.comparingInt(Task::getPriority).reversed()
+                        .thenComparing(Task::getCreatedAt)
+                        .thenComparing(Task::getId))
+                .toList();
         List<UUID> sharedTaskIds = sharedTasks.stream().map(Task::getId).toList();
         Map<UUID, RecurrenceDto> recurrenceByTaskId = recurrenceService.findDtos(sharedTaskIds);
         Map<UUID, List<ReminderDto>> remindersByTaskId = reminderService.findDtos(sharedTaskIds);
@@ -883,6 +892,7 @@ public class SharingService {
                 creator.name(),
                 task.getVersion(),
                 resolveTags(task.getId()),
+                resolveChecklistItems(task.getId()),
                 recurrence,
                 reminders,
                 task.getCreatedAt(),
@@ -913,6 +923,26 @@ public class SharingService {
                 .filter(tag -> tag != null)
                 .map(tag -> new TagDto(tag.getId(), tag.getName(), tag.getColor()))
                 .toList();
+    }
+
+    private List<ChecklistItemDto> resolveChecklistItems(UUID taskId) {
+        return taskChecklistItemRepository.findByTaskIdOrderByDisplayOrderAscCreatedAtAscIdAsc(taskId)
+                .stream()
+                .map(this::toChecklistDto)
+                .toList();
+    }
+
+    private ChecklistItemDto toChecklistDto(TaskChecklistItem item) {
+        return new ChecklistItemDto(
+                item.getId(),
+                item.getTaskId(),
+                item.getText(),
+                item.isChecked(),
+                item.getDisplayOrder(),
+                item.getVersion(),
+                item.getCreatedAt(),
+                item.getUpdatedAt()
+        );
     }
 
     private String normalizeEmail(String email) {

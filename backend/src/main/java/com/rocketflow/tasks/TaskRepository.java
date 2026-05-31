@@ -12,7 +12,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface TaskRepository extends JpaRepository<Task, UUID> {
 
-    List<Task> findByGoalIdAndOwnerUserIdOrderByCreatedAtAsc(UUID goalId, UUID ownerUserId);
+    List<Task> findByGoalIdAndOwnerUserIdOrderByPriorityDescCreatedAtAscIdAsc(UUID goalId, UUID ownerUserId);
 
     List<Task> findByGoalIdIn(Collection<UUID> goalIds);
 

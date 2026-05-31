@@ -29,10 +29,10 @@ public class UserSettingsService {
         settings.setUserId(userId);
         settings.setLanguage(language);
         settings.setNotificationsEnabled(true);
-        settings.setGreenPriorityDecayEnabled(true);
+        settings.setGreenPriorityDecayEnabled(false);
         settings.setGreenPriorityDecayThreshold("day");
         settings.setGreenPriorityDecayAmount(1);
-        settings.setRedPriorityDecayEnabled(true);
+        settings.setRedPriorityDecayEnabled(false);
         settings.setRedPriorityDecayThreshold("week");
         settings.setRedPriorityDecayAmount(1);
         settings.setCreatedAt(now);
@@ -58,15 +58,12 @@ public class UserSettingsService {
             throw new ApiException(HttpStatus.CONFLICT, "conflict", "Settings were updated by another request.");
         }
 
-        validateDecayAmount(request.greenPriorityDecayPolicy().decayAmount(), GREEN);
-        validateDecayAmount(request.redPriorityDecayPolicy().decayAmount(), RED);
-
         settings.setLanguage(request.language());
         settings.setNotificationsEnabled(request.notificationsEnabled());
-        settings.setGreenPriorityDecayEnabled(request.greenPriorityDecayPolicy().enabled());
+        settings.setGreenPriorityDecayEnabled(false);
         settings.setGreenPriorityDecayThreshold(request.greenPriorityDecayPolicy().thresholdPreset());
         settings.setGreenPriorityDecayAmount(request.greenPriorityDecayPolicy().decayAmount());
-        settings.setRedPriorityDecayEnabled(request.redPriorityDecayPolicy().enabled());
+        settings.setRedPriorityDecayEnabled(false);
         settings.setRedPriorityDecayThreshold(request.redPriorityDecayPolicy().thresholdPreset());
         settings.setRedPriorityDecayAmount(request.redPriorityDecayPolicy().decayAmount());
         settings.setUpdatedAt(Instant.now());
@@ -74,24 +71,17 @@ public class UserSettingsService {
         return toResponse(userSettingsRepository.save(settings));
     }
 
-    private void validateDecayAmount(int decayAmount, String taskType) {
-        if (decayAmount <= 0) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "validation_error",
-                    "Priority decay amount must be positive for " + taskType + " tasks.");
-        }
-    }
-
     public UserSettingsResponse toResponse(UserSettings settings) {
         return new UserSettingsResponse(
                 settings.getLanguage(),
-                toPolicyDto(GREEN, settings.isGreenPriorityDecayEnabled(), settings.getGreenPriorityDecayThreshold(), settings.getGreenPriorityDecayAmount()),
-                toPolicyDto(RED, settings.isRedPriorityDecayEnabled(), settings.getRedPriorityDecayThreshold(), settings.getRedPriorityDecayAmount()),
+                toPolicyDto(GREEN, settings.getGreenPriorityDecayThreshold(), settings.getGreenPriorityDecayAmount()),
+                toPolicyDto(RED, settings.getRedPriorityDecayThreshold(), settings.getRedPriorityDecayAmount()),
                 settings.isNotificationsEnabled(),
                 settings.getVersion()
         );
     }
 
-    private PriorityDecayPolicyDto toPolicyDto(String taskType, boolean enabled, String threshold, int amount) {
-        return new PriorityDecayPolicyDto(taskType, enabled, threshold, amount);
+    private PriorityDecayPolicyDto toPolicyDto(String taskType, String threshold, int amount) {
+        return new PriorityDecayPolicyDto(taskType, false, threshold, amount);
     }
 }

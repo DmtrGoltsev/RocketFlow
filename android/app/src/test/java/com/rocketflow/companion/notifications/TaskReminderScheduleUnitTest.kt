@@ -189,6 +189,20 @@ class TaskReminderScheduleUnitTest {
         assertEquals(trigger, decoded?.anchorAtMillis)
     }
 
+    @Test
+    fun defaultReminderJsonRoundTripKeepsRepeatAndAnchor() {
+        val trigger = millis(2026, 5, 14, 9, 30)
+        val setting = DefaultTaskReminderSetting(
+            userId = "user-1",
+            triggerAtMillis = trigger,
+            repeat = TaskReminderRepeat.Daily,
+            enabled = true,
+            anchorAtMillis = trigger
+        )
+
+        assertEquals(setting, DefaultTaskReminderJson.decode(DefaultTaskReminderJson.encode(setting)))
+    }
+
     private fun millis(year: Int, month: Int, day: Int, hour: Int, minute: Int): Long {
         return LocalDateTime.of(year, month, day, hour, minute)
             .atZone(zone)

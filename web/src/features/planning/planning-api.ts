@@ -24,6 +24,8 @@ import type {
   NoteUpsertPayload,
   PlanningApiErrorPayload,
   TaskClonePayload,
+  TaskChecklistItemDto,
+  TaskChecklistReplacePayload,
   TaskDto,
   TaskMoveToGoalPayload,
   TaskRecurrenceUpsertPayload,
@@ -275,6 +277,17 @@ export async function updateTask(
 export async function deleteTask(authorizedFetch: AuthorizedFetch, taskId: string) {
   return requestJson<void>(authorizedFetch, `/tasks/${taskId}`, {
     method: 'DELETE',
+  });
+}
+
+export async function replaceTaskChecklist(
+  authorizedFetch: AuthorizedFetch,
+  taskId: string,
+  payload: TaskChecklistReplacePayload,
+) {
+  return requestJson<{ taskId: string; items: TaskChecklistItemDto[] }>(authorizedFetch, `/tasks/${taskId}/checklist`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
   });
 }
 

@@ -1482,6 +1482,44 @@
   justify-self: start;
 }
 
+.task-checklist {
+  gap: var(--rf-space-2);
+}
+
+.task-checklist__items {
+  display: grid;
+  gap: var(--rf-space-2);
+}
+
+.task-checklist__item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: var(--rf-space-2);
+  min-height: 40px;
+  padding: var(--rf-space-2);
+  border: 1px solid var(--rf-hairline);
+  border-radius: var(--rf-radius);
+  background: var(--rf-surface);
+}
+
+.task-checklist__item.is-complete .task-checklist__title {
+  color: var(--rf-muted);
+  text-decoration: line-through;
+}
+
+.task-checklist__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.task-checklist__add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--rf-space-2);
+}
+
 .goal-progress {
   gap: var(--rf-space-2);
 }
@@ -1967,6 +2005,10 @@
 
   .local-reminder,
   .goal-task-list__item {
+    grid-template-columns: 1fr;
+  }
+
+  .task-checklist__add {
     grid-template-columns: 1fr;
   }
 

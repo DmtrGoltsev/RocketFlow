@@ -65,6 +65,96 @@ class PlanningLocalStoreMigrationUnitTest {
     }
 
     @Test
+    fun upgradeFromV14AddsTaskChecklistItemsTableAndMatchesFreshSchema() {
+        createV14DatabaseWithoutTaskChecklistItems()
+
+        store = PlanningLocalStore(context)
+        val upgradedColumns = tableColumns(store!!.writableDatabase, PlanningLocalStore.TABLE_TASK_CHECKLIST_ITEMS)
+
+        assertTrue(upgradedColumns.containsKey("task_id"))
+        assertTrue(upgradedColumns.containsKey("text"))
+        assertTrue(upgradedColumns.containsKey("checked"))
+        assertTrue(upgradedColumns.containsKey("display_order"))
+
+        store!!.close()
+        store = null
+        context.deleteDatabase(DATABASE_NAME)
+
+        store = PlanningLocalStore(context)
+        val freshColumns = tableColumns(store!!.writableDatabase, PlanningLocalStore.TABLE_TASK_CHECKLIST_ITEMS)
+
+        assertEquals(freshColumns, upgradedColumns)
+    }
+
+    @Test
+    fun taskChecklistPersistsUpdatesAndDeletesWithPendingTask() {
+        store = PlanningLocalStore(context)
+        val folderId = store!!.createFolder("user-1", FolderDraft("Folder", ""))
+        val goalId = store!!.createGoal("user-1", folderId, GoalDraft("Goal", ""))
+        val now = PlanningLocalStore.nowIso()
+        val first = TaskChecklistItem(
+            id = PlanningLocalStore.localId(),
+            taskId = "",
+            text = "Draft scope",
+            checked = false,
+            displayOrder = 0,
+            version = 0,
+            createdAt = now,
+            updatedAt = now
+        )
+
+        val taskId = store!!.createTask(
+            "user-1",
+            goalId,
+            TaskDraft(
+                title = "Task",
+                description = "",
+                type = "green",
+                priority = 4,
+                status = "todo",
+                plannedTime = null,
+                dueTime = null,
+                checklistItems = listOf(first)
+            )
+        )
+
+        val createdTask = store!!.findTask("user-1", taskId)!!
+        assertEquals(listOf("Draft scope"), createdTask.checklistItems.map { it.text })
+        assertEquals(false, createdTask.checklistItems.single().checked)
+
+        store!!.updateTask(
+            "user-1",
+            createdTask,
+            createdTask.toDraftForTest(
+                checklistItems = createdTask.checklistItems.map {
+                    it.copy(checked = true, updatedAt = PlanningLocalStore.nowIso())
+                }
+            )
+        )
+
+        val updatedTask = store!!.findTask("user-1", taskId)!!
+        assertEquals(true, updatedTask.checklistItems.single().checked)
+
+        store!!.deleteTask("user-1", updatedTask)
+        assertEquals(0, checklistCount(store!!.readableDatabase, "user-1", taskId))
+    }
+
+    @Test
+    fun snapshotTasksAreSortedByPriorityDescending() {
+        store = PlanningLocalStore(context)
+        val folderId = store!!.createFolder("user-1", FolderDraft("Folder", ""))
+        val goalId = store!!.createGoal("user-1", folderId, GoalDraft("Goal", ""))
+
+        store!!.createTask("user-1", goalId, taskDraft("Low", 1))
+        store!!.createTask("user-1", goalId, taskDraft("High", 9))
+        store!!.createTask("user-1", goalId, taskDraft("Middle", 5))
+
+        val titles = store!!.snapshot("user-1", offline = false, lastSyncError = null).tasks.map { it.title }
+
+        assertEquals(listOf("High", "Middle", "Low"), titles)
+    }
+
+    @Test
     fun resetPendingCreateIdeaClearsBlockedIssue() {
         store = PlanningLocalStore(context)
         insertPendingCreateIdea(store!!.writableDatabase, "user-1", "idea-pending")
@@ -144,6 +234,46 @@ class PlanningLocalStoreMigrationUnitTest {
         }
     }
 
+    private fun createV14DatabaseWithoutTaskChecklistItems() {
+        context.openOrCreateDatabase(DATABASE_NAME, Context.MODE_PRIVATE, null).use { db ->
+            db.execSQL(
+                """
+                CREATE TABLE tasks (
+                    user_id TEXT NOT NULL,
+                    id TEXT NOT NULL,
+                    goal_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    priority INTEGER NOT NULL,
+                    effort INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL,
+                    planned_time TEXT,
+                    due_time TEXT,
+                    archived INTEGER NOT NULL,
+                    shared INTEGER NOT NULL,
+                    full_access INTEGER NOT NULL DEFAULT 0,
+                    creator_user_id TEXT,
+                    creator_email TEXT,
+                    creator_name TEXT,
+                    version INTEGER NOT NULL,
+                    tag_ids_json TEXT NOT NULL DEFAULT '[]',
+                    recurrence_json TEXT,
+                    reminders_json TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    pending_action TEXT,
+                    pending_blocked INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    locally_deleted INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (user_id, id)
+                )
+                """.trimIndent()
+            )
+            db.version = 14
+        }
+    }
+
     private fun insertPendingCreateIdea(db: SQLiteDatabase, userId: String, ideaId: String) {
         db.execSQL(
             """
@@ -210,7 +340,11 @@ class PlanningLocalStoreMigrationUnitTest {
     }
 
     private fun ideaColumns(db: SQLiteDatabase): Map<String, ColumnInfo> {
-        return db.rawQuery("PRAGMA table_info(${PlanningLocalStore.TABLE_IDEAS})", emptyArray()).use { cursor ->
+        return tableColumns(db, PlanningLocalStore.TABLE_IDEAS)
+    }
+
+    private fun tableColumns(db: SQLiteDatabase, table: String): Map<String, ColumnInfo> {
+        return db.rawQuery("PRAGMA table_info($table)", emptyArray()).use { cursor ->
             buildMap {
                 while (cursor.moveToNext()) {
                     val name = cursor.getString(cursor.getColumnIndexOrThrow("name"))
@@ -226,6 +360,47 @@ class PlanningLocalStoreMigrationUnitTest {
                 }
             }
         }
+    }
+
+    private fun checklistCount(db: SQLiteDatabase, userId: String, taskId: String): Int {
+        return db.rawQuery(
+            "SELECT COUNT(*) FROM ${PlanningLocalStore.TABLE_TASK_CHECKLIST_ITEMS} WHERE user_id = ? AND task_id = ?",
+            arrayOf(userId, taskId)
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getInt(0)
+        }
+    }
+
+    private fun taskDraft(title: String, priority: Int): TaskDraft {
+        return TaskDraft(
+            title = title,
+            description = "",
+            type = "green",
+            priority = priority,
+            status = "todo",
+            plannedTime = null,
+            dueTime = null
+        )
+    }
+
+    private fun PlanningTask.toDraftForTest(
+        checklistItems: List<TaskChecklistItem> = this.checklistItems
+    ): TaskDraft {
+        return TaskDraft(
+            title = title,
+            description = description,
+            type = type,
+            priority = priority,
+            effort = effort,
+            status = status,
+            plannedTime = plannedTime,
+            dueTime = dueTime,
+            tagIds = tagIds,
+            checklistItems = checklistItems,
+            recurrenceJson = recurrenceJson,
+            remindersJson = remindersJson
+        )
     }
 
     private data class ColumnInfo(

@@ -91,6 +91,18 @@ public class TaskController {
         );
     }
 
+    @PutMapping("/tasks/{taskId}/checklist")
+    public TaskChecklistResponse replaceChecklist(
+            @PathVariable String taskId,
+            @Valid @RequestBody ReplaceChecklistRequest request
+    ) {
+        return taskService.replaceChecklist(
+                currentUserService.requireAuthenticatedUser().userId(),
+                UUID.fromString(taskId),
+                request
+        );
+    }
+
     @PostMapping("/tasks/{taskId}/move")
     public MoveTaskResponse moveTask(@PathVariable String taskId, @Valid @RequestBody MoveTaskRequest request) {
         return taskScheduleService.moveTask(currentUserService.requireAuthenticatedUser().userId(), UUID.fromString(taskId), request);

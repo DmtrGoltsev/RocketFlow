@@ -65,7 +65,19 @@ data class PlanningTask(
     val createdAt: String,
     val updatedAt: String,
     val syncState: SyncState,
-    val lastError: String?
+    val lastError: String?,
+    val checklistItems: List<TaskChecklistItem> = emptyList()
+)
+
+data class TaskChecklistItem(
+    val id: String,
+    val taskId: String,
+    val text: String,
+    val checked: Boolean,
+    val displayOrder: Int,
+    val version: Long,
+    val createdAt: String,
+    val updatedAt: String
 )
 
 data class PlanningIdea(
@@ -235,6 +247,7 @@ data class TaskDraft(
     val plannedTime: String?,
     val dueTime: String?,
     val tagIds: List<String>? = null,
+    val checklistItems: List<TaskChecklistItem> = emptyList(),
     val recurrenceJson: String? = null,
     val remindersJson: String? = null
 )

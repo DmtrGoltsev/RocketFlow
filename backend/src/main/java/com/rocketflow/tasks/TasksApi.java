@@ -42,6 +42,18 @@ public final class TasksApi {
     ) {
     }
 
+    public record ChecklistItemDto(
+            UUID id,
+            UUID taskId,
+            String text,
+            boolean checked,
+            int displayOrder,
+            long version,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
     public record TaskDto(
             UUID id,
             UUID goalId,
@@ -61,6 +73,7 @@ public final class TasksApi {
             String creatorName,
             long version,
             List<TagDto> tags,
+            List<ChecklistItemDto> checklistItems,
             RecurrenceDto recurrence,
             @JsonIgnore
             List<ReminderDto> reminders,
@@ -81,6 +94,7 @@ public final class TasksApi {
             @NotBlank @Pattern(regexp = "todo|in_progress|done|cancelled") String status,
             Instant plannedTime,
             Instant dueTime,
+            List<@Valid ChecklistItemRequest> checklistItems,
             List<UUID> tagIds
     ) {
     }
@@ -96,8 +110,23 @@ public final class TasksApi {
             Instant dueTime,
             @NotNull Boolean archived,
             List<UUID> tagIds,
+            List<@Valid ChecklistItemRequest> checklistItems,
             @NotNull Long version
     ) {
+    }
+
+    public record ChecklistItemRequest(
+            UUID id,
+            @NotBlank @Size(max = 500) String text,
+            @NotNull Boolean checked,
+            @NotNull @Min(0) Integer displayOrder
+    ) {
+    }
+
+    public record ReplaceChecklistRequest(@NotNull List<@Valid ChecklistItemRequest> items) {
+    }
+
+    public record TaskChecklistResponse(UUID taskId, List<ChecklistItemDto> items) {
     }
 
     public record MoveTaskRequest(@NotNull Instant plannedTime) {

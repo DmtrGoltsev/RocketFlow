@@ -3,7 +3,6 @@ package com.rocketflow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -61,6 +60,7 @@ class CalendarReschedulePriorityIntegrationTest {
             statement.executeUpdate("""
                     truncate table
                         task_reschedule_events,
+                        task_checklist_items,
                         task_reminder_rules,
                         task_recurrence_rules,
                         idea_shares,
@@ -161,7 +161,7 @@ class CalendarReschedulePriorityIntegrationTest {
     }
 
     @Test
-    void moveLaterCreatesAuditTrailAndAppliesDecayAfterThreshold() throws Exception {
+    void moveLaterCreatesAuditTrailWithoutPriorityDecay() throws Exception {
         Session owner = registerAndLogin("scheduler@example.com", "Scheduler");
         String taskId = createOwnedTask(owner.accessToken(), """
                 {
@@ -196,7 +196,7 @@ class CalendarReschedulePriorityIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plannedTime").value("2026-05-02T10:00:00Z"))
-                .andExpect(jsonPath("$.priority").value(4));
+                .andExpect(jsonPath("$.priority").value(5));
 
         List<TaskRescheduleEvent> events = taskRescheduleEventRepository.findByTaskIdOrderByCreatedAtAsc(UUID.fromString(taskId));
         assertEquals(2, events.size());
@@ -214,8 +214,8 @@ class CalendarReschedulePriorityIntegrationTest {
         assertEquals(Instant.parse("2026-05-01T21:00:00Z"), secondEvent.getPreviousPlannedTime());
         assertEquals(Instant.parse("2026-05-02T10:00:00Z"), secondEvent.getNewPlannedTime());
         assertEquals(5, secondEvent.getPriorityBefore());
-        assertEquals(4, secondEvent.getPriorityAfter());
-        assertTrue(secondEvent.isPriorityDecayApplied());
+        assertEquals(5, secondEvent.getPriorityAfter());
+        assertFalse(secondEvent.isPriorityDecayApplied());
     }
 
     @Test

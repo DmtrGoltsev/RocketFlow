@@ -35,6 +35,7 @@ public class TaskService {
     private final SharingAccessService sharingAccessService;
     private final TaskTagRepository taskTagRepository;
     private final TaskTagLinkRepository taskTagLinkRepository;
+    private final TaskChecklistItemRepository taskChecklistItemRepository;
     private final RecurrenceService recurrenceService;
     private final ReminderService reminderService;
     private final EntityLinkService entityLinkService;
@@ -46,6 +47,7 @@ public class TaskService {
             SharingAccessService sharingAccessService,
             TaskTagRepository taskTagRepository,
             TaskTagLinkRepository taskTagLinkRepository,
+            TaskChecklistItemRepository taskChecklistItemRepository,
             RecurrenceService recurrenceService,
             ReminderService reminderService,
             EntityLinkService entityLinkService,
@@ -56,6 +58,7 @@ public class TaskService {
         this.sharingAccessService = sharingAccessService;
         this.taskTagRepository = taskTagRepository;
         this.taskTagLinkRepository = taskTagLinkRepository;
+        this.taskChecklistItemRepository = taskChecklistItemRepository;
         this.recurrenceService = recurrenceService;
         this.reminderService = reminderService;
         this.entityLinkService = entityLinkService;
@@ -65,16 +68,18 @@ public class TaskService {
     @Transactional(readOnly = true)
     public TaskListResponse list(UUID actorUserId, UUID goalId) {
         GoalAccess goalAccess = sharingAccessService.requireGoalAccess(goalId, actorUserId);
-        List<Task> tasks = taskRepository.findByGoalIdAndOwnerUserIdOrderByCreatedAtAsc(goalId, goalAccess.goal().getOwnerUserId());
+        List<Task> tasks = taskRepository.findByGoalIdAndOwnerUserIdOrderByPriorityDescCreatedAtAscIdAsc(goalId, goalAccess.goal().getOwnerUserId());
         List<UUID> taskIds = tasks.stream().map(Task::getId).toList();
         Set<UUID> directlySharedTaskIds = sharingAccessService.findSharedTaskIds(taskIds);
         Map<UUID, List<TagDto>> tagsByTaskId = resolveTags(taskIds);
+        Map<UUID, List<ChecklistItemDto>> checklistByTaskId = resolveChecklistItems(taskIds);
         Map<UUID, RecurrenceDto> recurrenceByTaskId = recurrenceService.findDtos(taskIds);
 
         return new TaskListResponse(tasks.stream()
                 .map(task -> toDto(
                         task,
                         tagsByTaskId.getOrDefault(task.getId(), List.of()),
+                        checklistByTaskId.getOrDefault(task.getId(), List.of()),
                         goalAccess.shared() || directlySharedTaskIds.contains(task.getId()),
                         goalAccess.fullAccess(),
                         recurrenceByTaskId.get(task.getId())))
@@ -104,9 +109,13 @@ public class TaskService {
         task.setUpdatedAt(now);
         Task saved = taskRepository.save(task);
         replaceTags(saved.getId(), saved.getOwnerUserId(), request.tagIds());
+        if (request.checklistItems() != null) {
+            replaceChecklistItems(saved, request.checklistItems(), false);
+        }
         return toDto(
                 saved,
                 resolveTags(saved.getId()),
+                resolveChecklistItems(saved.getId()),
                 goalAccess.shared(),
                 goalAccess.fullAccess(),
                 recurrenceService.findDto(saved.getId()));
@@ -118,6 +127,7 @@ public class TaskService {
         return toDto(
                 access.task(),
                 resolveTags(access.task().getId()),
+                resolveChecklistItems(access.task().getId()),
                 access.shared(),
                 access.fullAccess(),
                 recurrenceService.findDto(access.task().getId()));
@@ -138,6 +148,7 @@ public class TaskService {
             return toDto(
                     task,
                     resolveTags(task.getId()),
+                    resolveChecklistItems(task.getId()),
                     access.shared(),
                     access.fullAccess(),
                     recurrenceService.findDto(task.getId()));
@@ -160,9 +171,13 @@ public class TaskService {
         if (request.tagIds() != null) {
             replaceTags(saved.getId(), saved.getOwnerUserId(), request.tagIds());
         }
+        if (request.checklistItems() != null) {
+            replaceChecklistItems(saved, request.checklistItems(), false);
+        }
         return toDto(
                 saved,
                 resolveTags(saved.getId()),
+                resolveChecklistItems(saved.getId()),
                 access.shared(),
                 access.fullAccess(),
                 recurrenceService.findDto(saved.getId()));
@@ -183,7 +198,7 @@ public class TaskService {
         task.setGoalId(targetAccess.goal().getId());
         task.setUpdatedAt(Instant.now());
         Task saved = taskRepository.save(task);
-        return toDto(saved, resolveTags(saved.getId()), targetAccess.shared(), targetAccess.fullAccess(), recurrenceService.findDto(saved.getId()));
+        return toDto(saved, resolveTags(saved.getId()), resolveChecklistItems(saved.getId()), targetAccess.shared(), targetAccess.fullAccess(), recurrenceService.findDto(saved.getId()));
     }
 
     @Transactional
@@ -222,7 +237,20 @@ public class TaskService {
                     .map(TaskTagLink::getTagId)
                     .toList());
         }
-        return toDto(saved, resolveTags(saved.getId()), targetAccess.shared(), targetAccess.fullAccess(), recurrenceService.findDto(saved.getId()));
+        List<ChecklistItemRequest> sourceChecklistItems = taskChecklistItemRepository.findByTaskIdOrderByDisplayOrderAscCreatedAtAscIdAsc(source.getId())
+                .stream()
+                .map(item -> new ChecklistItemRequest(null, item.getText(), item.isChecked(), item.getDisplayOrder()))
+                .toList();
+        if (!sourceChecklistItems.isEmpty()) {
+            replaceChecklistItems(saved, sourceChecklistItems, false);
+        }
+        return toDto(saved, resolveTags(saved.getId()), resolveChecklistItems(saved.getId()), targetAccess.shared(), targetAccess.fullAccess(), recurrenceService.findDto(saved.getId()));
+    }
+
+    @Transactional
+    public TaskChecklistResponse replaceChecklist(UUID actorUserId, UUID taskId, ReplaceChecklistRequest request) {
+        Task task = sharingAccessService.requireTaskFullAccess(taskId, actorUserId).task();
+        return new TaskChecklistResponse(task.getId(), replaceChecklistItems(task, request.items(), true));
     }
 
     @Transactional
@@ -254,6 +282,7 @@ public class TaskService {
     TaskDto toDto(
             Task task,
             List<TagDto> tags,
+            List<ChecklistItemDto> checklistItems,
             boolean shared,
             boolean fullAccess,
             RecurrenceDto recurrence
@@ -278,6 +307,7 @@ public class TaskService {
                 creator.name(),
                 task.getVersion(),
                 tags,
+                checklistItems,
                 recurrence,
                 List.of(),
                 task.getCreatedAt(),
@@ -339,6 +369,92 @@ public class TaskService {
                     .add(new TagDto(tag.getId(), tag.getName(), tag.getColor()));
         }
         return result;
+    }
+
+    private List<ChecklistItemDto> resolveChecklistItems(UUID taskId) {
+        return resolveChecklistItems(List.of(taskId)).getOrDefault(taskId, List.of());
+    }
+
+    Map<UUID, List<ChecklistItemDto>> resolveChecklistItems(List<UUID> taskIds) {
+        if (taskIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, List<ChecklistItemDto>> result = new HashMap<>();
+        for (TaskChecklistItem item : taskChecklistItemRepository.findByTaskIdInOrderByDisplayOrderAscCreatedAtAscIdAsc(taskIds)) {
+            result.computeIfAbsent(item.getTaskId(), ignored -> new ArrayList<>())
+                    .add(toChecklistDto(item));
+        }
+        return result;
+    }
+
+    private List<ChecklistItemDto> replaceChecklistItems(Task task, List<ChecklistItemRequest> requestedItems, boolean touchTask) {
+        List<TaskChecklistItem> existingItems = taskChecklistItemRepository.findByTaskIdOrderByDisplayOrderAscCreatedAtAscIdAsc(task.getId());
+        Map<UUID, TaskChecklistItem> existingById = existingItems.stream()
+                .collect(Collectors.toMap(TaskChecklistItem::getId, Function.identity()));
+        if (requestedItems == null || requestedItems.isEmpty()) {
+            taskChecklistItemRepository.deleteAll(existingItems);
+            if (touchTask) {
+                task.setUpdatedAt(Instant.now());
+                taskRepository.save(task);
+            }
+            return List.of();
+        }
+
+        Instant now = Instant.now();
+        List<TaskChecklistItem> savedItems = new ArrayList<>();
+        List<UUID> retainedIds = new ArrayList<>();
+        for (ChecklistItemRequest requestedItem : requestedItems) {
+            TaskChecklistItem existing = requestedItem.id() == null ? null : existingById.get(requestedItem.id());
+            TaskChecklistItem item = existing == null ? new TaskChecklistItem() : existing;
+            if (existing == null) {
+                item.setId(UUID.randomUUID());
+                item.setCreatedAt(now);
+            }
+            item.setTaskId(task.getId());
+            item.setText(requestedItem.text().trim());
+            item.setChecked(Boolean.TRUE.equals(requestedItem.checked()));
+            item.setDisplayOrder(requestedItem.displayOrder());
+            item.setUpdatedAt(now);
+            TaskChecklistItem saved = taskChecklistItemRepository.save(item);
+            savedItems.add(saved);
+            retainedIds.add(saved.getId());
+        }
+        for (TaskChecklistItem existingItem : existingItems) {
+            if (!retainedIds.contains(existingItem.getId())) {
+                taskChecklistItemRepository.delete(existingItem);
+            }
+        }
+        if (touchTask) {
+            task.setUpdatedAt(now);
+            taskRepository.save(task);
+        }
+        return savedItems.stream()
+                .map(this::toChecklistDto)
+                .sorted((left, right) -> {
+                    int order = Integer.compare(left.displayOrder(), right.displayOrder());
+                    if (order != 0) {
+                        return order;
+                    }
+                    int created = left.createdAt().compareTo(right.createdAt());
+                    if (created != 0) {
+                        return created;
+                    }
+                    return left.id().compareTo(right.id());
+                })
+                .toList();
+    }
+
+    private ChecklistItemDto toChecklistDto(TaskChecklistItem item) {
+        return new ChecklistItemDto(
+                item.getId(),
+                item.getTaskId(),
+                item.getText(),
+                item.isChecked(),
+                item.getDisplayOrder(),
+                item.getVersion(),
+                item.getCreatedAt(),
+                item.getUpdatedAt()
+        );
     }
 
     private Instant resolveCompletedAt(String status, Instant currentCompletedAt) {

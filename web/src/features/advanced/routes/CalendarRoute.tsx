@@ -81,10 +81,8 @@ export function CalendarRoute() {
     setNotice(null);
 
     try {
-      const response = await quickRescheduleTask(authorizedFetch, taskId, { preset: quickPreset });
-      setNotice(response.priorityDecayApplied
-        ? `${copy.calendar.rescheduledNotice} ${copy.calendar.priorityDecayApplied}`
-        : copy.calendar.rescheduledNotice);
+      await quickRescheduleTask(authorizedFetch, taskId, { preset: quickPreset });
+      setNotice(copy.calendar.rescheduledNotice);
       await loadCalendar(preset);
     } catch (rescheduleError) {
       setError(mapAdvancedError(rescheduleError, copy).formError);

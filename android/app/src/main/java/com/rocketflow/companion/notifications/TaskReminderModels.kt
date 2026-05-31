@@ -33,6 +33,14 @@ data class TaskReminderSetting(
     val anchorAtMillis: Long = triggerAtMillis
 )
 
+data class DefaultTaskReminderSetting(
+    val userId: String,
+    val triggerAtMillis: Long,
+    val repeat: TaskReminderRepeat,
+    val enabled: Boolean = true,
+    val anchorAtMillis: Long = triggerAtMillis
+)
+
 object TaskReminderJson {
     fun encode(setting: TaskReminderSetting): String {
         return JSONObject()
@@ -96,6 +104,38 @@ object TaskReminderJson {
 
     fun legacyReminderId(taskId: String): String {
         return "legacy-$taskId"
+    }
+}
+
+object DefaultTaskReminderJson {
+    fun encode(setting: DefaultTaskReminderSetting): String {
+        return JSONObject()
+            .put("userId", setting.userId)
+            .put("triggerAtMillis", setting.triggerAtMillis)
+            .put("repeat", setting.repeat.wireValue)
+            .put("enabled", setting.enabled)
+            .put("anchorAtMillis", setting.anchorAtMillis)
+            .toString()
+    }
+
+    fun decode(raw: String?): DefaultTaskReminderSetting? {
+        if (raw.isNullOrBlank()) {
+            return null
+        }
+        return runCatching {
+            val json = JSONObject(raw)
+            val userId = json.optString("userId").trim()
+            if (userId.isBlank()) {
+                return@runCatching null
+            }
+            DefaultTaskReminderSetting(
+                userId = userId,
+                triggerAtMillis = json.optLong("triggerAtMillis", 0L),
+                repeat = TaskReminderRepeat.fromWireValue(json.optString("repeat")),
+                enabled = json.optBoolean("enabled", true),
+                anchorAtMillis = json.optLong("anchorAtMillis", json.optLong("triggerAtMillis", 0L))
+            )
+        }.getOrNull()
     }
 }
 

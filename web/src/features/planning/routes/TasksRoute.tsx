@@ -69,6 +69,7 @@ import {
   updateIdeaNote,
   updateNote,
   updateTask,
+  replaceTaskChecklist,
   upsertTaskRecurrence,
 } from '../planning-api';
 import {
@@ -112,6 +113,7 @@ import type {
   IdeaNoteDto,
   LinkEntityType,
   NoteDto,
+  TaskChecklistItemDto,
   TaskDto,
   TaskStatus,
   TaskType,
@@ -342,6 +344,42 @@ function isComplete(task: TaskDto) {
   return task.status === 'done' || task.status === 'cancelled';
 }
 
+function sortTasksByPriority(tasks: TaskDto[]) {
+  return [...tasks].sort((left, right) => {
+    const priorityDelta = right.priority - left.priority;
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    const leftDue = left.dueTime ? new Date(left.dueTime).getTime() : Number.POSITIVE_INFINITY;
+    const rightDue = right.dueTime ? new Date(right.dueTime).getTime() : Number.POSITIVE_INFINITY;
+    if (leftDue !== rightDue) {
+      return leftDue - rightDue;
+    }
+
+    return left.createdAt.localeCompare(right.createdAt);
+  });
+}
+
+function sortChecklistItems(items: TaskChecklistItemDto[] | undefined) {
+  return [...(items ?? [])].sort((left, right) => {
+    const orderDelta = (left.displayOrder ?? 0) - (right.displayOrder ?? 0);
+    if (orderDelta !== 0) {
+      return orderDelta;
+    }
+
+    return checklistItemText(left).localeCompare(checklistItemText(right));
+  });
+}
+
+function checklistItemText(item: TaskChecklistItemDto) {
+  return item.text ?? item.title ?? '';
+}
+
+function isChecklistItemChecked(item: TaskChecklistItemDto) {
+  return item.checked ?? item.completed ?? false;
+}
+
 function statusProgressPercent(tasks: TaskDto[]) {
   if (tasks.length === 0) {
     return 0;
@@ -509,7 +547,7 @@ function groupGoalsByFolder(goals: GoalDto[]) {
 }
 
 function groupTasksByGoal(tasks: TaskDto[]) {
-  return tasks.reduce<TasksByGoal>((groups, task) => {
+  return sortTasksByPriority(tasks).reduce<TasksByGoal>((groups, task) => {
     groups[task.goalId] = [...(groups[task.goalId] ?? []), task];
     return groups;
   }, {});
@@ -600,6 +638,12 @@ function usePlanCopy() {
     archiveGoalConfirm: locale === 'ru' ? 'Переместить цель в архив?' : 'Archive this goal?',
     archiveIdeaConfirm: locale === 'ru' ? 'Удалить идею?' : 'Delete this idea?',
     deleteNoteConfirm: locale === 'ru' ? 'Удалить заметку?' : 'Delete this note?',
+    delete: locale === 'ru' ? 'Удалить' : 'Delete',
+    checklistEmpty: locale === 'ru' ? 'План пока пуст.' : 'No plan items yet.',
+    checklistAdd: locale === 'ru' ? 'Добавить пункт' : 'Add item',
+    checklistPlaceholder: locale === 'ru' ? 'Пункт плана' : 'Plan item',
+    checklistDelete: locale === 'ru' ? 'Удалить пункт' : 'Delete item',
+    checklistToggle: locale === 'ru' ? 'Отметить пункт' : 'Toggle item',
     deleteLinksWarning: locale === 'ru'
       ? 'Есть связи: {count}. При удалении они тоже будут удалены.'
       : 'Links: {count}. They will also be deleted.',
@@ -719,6 +763,7 @@ export function TasksRoute() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [draft, setDraft] = useState<TaskDraft>(() => toDraft(null));
+  const [checklistDraft, setChecklistDraft] = useState('');
   const [reminderDrafts, setReminderDrafts] = useState<LocalTaskReminder[]>([]);
   const [folderDraft, setFolderDraft] = useState<FolderDraft>(() => toFolderDraft(null));
   const [goalDraft, setGoalDraft] = useState<GoalDraft>(() => toGoalDraft(null));
@@ -752,8 +797,8 @@ export function TasksRoute() {
   const selectedNote = notes.find((note) => note.id === selection.noteId) ?? null;
   const selectedIdeaNotes = selectedIdea ? ideaNotesByIdea[selectedIdea.id] ?? [] : [];
   const selectedFolderGoals = selectedFolder ? goals.filter((goal) => goal.folderId === selectedFolder.id) : [];
-  const selectedFolderTasks = selectedFolderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []);
-  const selectedGoalTasks = selectedGoal ? tasksByGoal[selectedGoal.id] ?? [] : [];
+  const selectedFolderTasks = sortTasksByPriority(selectedFolderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []));
+  const selectedGoalTasks = selectedGoal ? sortTasksByPriority(tasksByGoal[selectedGoal.id] ?? []) : [];
   const ideaCreationFolder = createIdeaFolderId ? folders.find((folder) => folder.id === createIdeaFolderId) ?? null : null;
   const noteCreationFolder = createNoteFolderId ? folders.find((folder) => folder.id === createNoteFolderId) ?? null : null;
   const taskCreationGoal = goals.find((goal) => goal.id === createTaskGoalId) ?? null;
@@ -2040,6 +2085,7 @@ export function TasksRoute() {
           version: 0,
           tags: [],
           recurrence: null,
+          checklistItems: [],
           createdAt: now,
           updatedAt: now,
         };
@@ -2240,6 +2286,147 @@ export function TasksRoute() {
         throw error;
       }
     });
+  }
+
+  function replaceCachedTask(task: TaskDto) {
+    setTasksByGoal((current) => ({
+      ...current,
+      [task.goalId]: (current[task.goalId] ?? []).map((item) => item.id === task.id ? task : item),
+    }));
+  }
+
+  function checklistPayload(items: TaskChecklistItemDto[]) {
+    return {
+      items: sortChecklistItems(items).map((item, index) => ({
+        id: item.id.startsWith('optimistic-checklist-') ? null : item.id,
+        text: checklistItemText(item).trim(),
+        checked: isChecklistItemChecked(item),
+        displayOrder: item.displayOrder ?? index,
+      })),
+    };
+  }
+
+  async function handleAddChecklistItem() {
+    if (!selectedTask || !canEditSelectedTaskFields || !checklistDraft.trim()) {
+      return;
+    }
+
+    const originalTask = selectedTask;
+    const now = new Date().toISOString();
+    const optimisticItem: TaskChecklistItemDto = {
+      id: `optimistic-checklist-${Date.now()}`,
+      taskId: selectedTask.id,
+      text: checklistDraft.trim(),
+      checked: false,
+      displayOrder: (selectedTask.checklistItems ?? []).length,
+      version: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const optimisticTask: TaskDto = {
+      ...selectedTask,
+      checklistItems: [...(selectedTask.checklistItems ?? []), optimisticItem],
+    };
+
+    await runAction(async () => {
+      replaceCachedTask(optimisticTask);
+      setChecklistDraft('');
+
+      try {
+        const response = await replaceTaskChecklist(authorizedFetch, originalTask.id, checklistPayload(optimisticTask.checklistItems ?? []));
+        replaceCachedTask({
+          ...optimisticTask,
+          checklistItems: response.items,
+        });
+      } catch (error) {
+        replaceCachedTask(originalTask);
+        setChecklistDraft(optimisticItem.text);
+        throw error;
+      }
+    });
+  }
+
+  async function handleToggleChecklistItem(item: TaskChecklistItemDto) {
+    if (!selectedTask || !canEditSelectedTaskFields) {
+      return;
+    }
+
+    const originalTask = selectedTask;
+    const optimisticItem = { ...item, checked: !isChecklistItemChecked(item) };
+    const optimisticTask: TaskDto = {
+      ...selectedTask,
+      checklistItems: (selectedTask.checklistItems ?? []).map((current) => current.id === item.id ? optimisticItem : current),
+    };
+
+    await runAction(async () => {
+      replaceCachedTask(optimisticTask);
+
+      try {
+        const response = await replaceTaskChecklist(authorizedFetch, selectedTask.id, checklistPayload(optimisticTask.checklistItems ?? []));
+        replaceCachedTask({
+          ...optimisticTask,
+          checklistItems: response.items,
+        });
+      } catch (error) {
+        replaceCachedTask(originalTask);
+        throw error;
+      }
+    });
+  }
+
+  async function handleDeleteChecklistItem(item: TaskChecklistItemDto) {
+    if (!selectedTask || !canEditSelectedTaskFields) {
+      return;
+    }
+
+    const originalTask = selectedTask;
+    const optimisticTask: TaskDto = {
+      ...selectedTask,
+      checklistItems: (selectedTask.checklistItems ?? []).filter((current) => current.id !== item.id),
+    };
+
+    await runAction(async () => {
+      replaceCachedTask(optimisticTask);
+
+      try {
+        const response = await replaceTaskChecklist(authorizedFetch, selectedTask.id, checklistPayload(optimisticTask.checklistItems ?? []));
+        replaceCachedTask({
+          ...optimisticTask,
+          checklistItems: response.items,
+        });
+      } catch (error) {
+        replaceCachedTask(originalTask);
+        throw error;
+      }
+    });
+  }
+
+  async function handleDeleteFromMenu(entity: EntitySelection) {
+    setDetailMenuOpen(false);
+
+    if (entity.type === 'folder') {
+      await handleArchiveFolder();
+      return;
+    }
+
+    if (entity.type === 'goal') {
+      await handleArchiveGoal();
+      return;
+    }
+
+    if (entity.type === 'task' && selectedTask && selectedGoal) {
+      await handleArchiveTask(selectedTask, selectedGoal);
+      return;
+    }
+
+    if (entity.type === 'idea') {
+      await handleArchiveIdea();
+      return;
+    }
+
+    if (entity.type === 'note') {
+      await handleDeleteNote();
+    }
   }
 
   async function handleCreateEntityLink() {
@@ -2650,6 +2837,76 @@ export function TasksRoute() {
     );
   }
 
+  function renderChecklistPanel() {
+    if (!selectedTask || isCreatingTask) {
+      return null;
+    }
+
+    const items = sortChecklistItems(selectedTask.checklistItems);
+    const completedCount = items.filter(isChecklistItemChecked).length;
+
+    return (
+      <section className="detail-section task-checklist">
+        <div className="detail-disclosure__header">
+          <div>
+            <div className="detail-label">{copy.plan}</div>
+            <div className="field__hint">{completedCount}/{items.length}</div>
+          </div>
+        </div>
+        {items.length === 0 ? <p className="muted">{copy.checklistEmpty}</p> : null}
+        {items.length > 0 ? (
+          <div className="task-checklist__items">
+            {items.map((item) => (
+              <div className={`task-checklist__item${isChecklistItemChecked(item) ? ' is-complete' : ''}`} key={item.id}>
+                <button
+                  className="plan-row__check"
+                  type="button"
+                  aria-label={copy.checklistToggle}
+                  title={copy.checklistToggle}
+                  disabled={saving || !canEditSelectedTaskFields}
+                  onClick={() => void handleToggleChecklistItem(item)}
+                >
+                  {isChecklistItemChecked(item) ? <CheckCircle2 aria-hidden="true" size={17} strokeWidth={1.75} /> : <Circle aria-hidden="true" size={17} strokeWidth={1.75} />}
+                </button>
+                <span className="task-checklist__title">{checklistItemText(item)}</span>
+                <button
+                  className="icon-button local-reminder__delete"
+                  type="button"
+                  aria-label={copy.checklistDelete}
+                  title={copy.checklistDelete}
+                  disabled={saving || !canEditSelectedTaskFields}
+                  onClick={() => void handleDeleteChecklistItem(item)}
+                >
+                  <Trash2 aria-hidden="true" size={16} strokeWidth={1.75} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {canEditSelectedTaskFields ? (
+          <div className="task-checklist__add">
+            <input
+              className="field__control"
+              value={checklistDraft}
+              placeholder={copy.checklistPlaceholder}
+              onChange={(event) => setChecklistDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void handleAddChecklistItem();
+                }
+              }}
+            />
+            <button className="button button--ghost" type="button" disabled={saving || !checklistDraft.trim()} onClick={() => void handleAddChecklistItem()}>
+              <Plus aria-hidden="true" size={16} strokeWidth={1.75} />
+              <span>{copy.checklistAdd}</span>
+            </button>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
   function renderLocalReminders(editable: boolean) {
     const canRequestNotifications = typeof window !== 'undefined'
       && 'Notification' in window
@@ -2752,6 +3009,16 @@ export function TasksRoute() {
   }
 
   function renderMoreMenu(entity: EntitySelection) {
+    const canDelete = entity.type === 'folder'
+      ? canEditSelectedFolder
+      : entity.type === 'goal'
+        ? canEditSelectedGoal
+        : entity.type === 'task'
+          ? canArchiveSelectedTask
+          : entity.type === 'idea'
+            ? canDeleteSelectedIdea
+            : canEditSelectedNote;
+
     return (
       <div className="create-menu">
         <button
@@ -2774,6 +3041,10 @@ export function TasksRoute() {
             <button type="button" role="menuitem" onClick={() => startOperation('clone', entity)}>
               <Copy aria-hidden="true" size={16} strokeWidth={1.75} />
               <span>{copy.clone}</span>
+            </button>
+            <button type="button" role="menuitem" disabled={!canDelete || saving} onClick={() => void handleDeleteFromMenu(entity)}>
+              <Trash2 aria-hidden="true" size={16} strokeWidth={1.75} />
+              <span>{copy.delete}</span>
             </button>
           </div>
         ) : null}
@@ -3108,13 +3379,13 @@ export function TasksRoute() {
     const allIdeas = ideasByFolder[folder.id] ?? [];
     const allNotes = notesByFolder[folder.id] ?? [];
     const children = childFoldersByParent[folder.id] ?? [];
-    const folderTasks = allGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []);
+    const folderTasks = sortTasksByPriority(allGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []));
     const currentFolderMatches = isSearching && folderMatches(folder);
     const visibleIdeas = allIdeas.filter((idea) => !isSearching || currentFolderMatches || matchesQuery(idea.title, normalizedSearch, locale) || matchesQuery(idea.body, normalizedSearch, locale));
     const visibleNotes = allNotes.filter((note) => !isSearching || currentFolderMatches || matchesQuery(note.title, normalizedSearch, locale) || matchesQuery(note.body, normalizedSearch, locale));
     const visibleGoals = allGoals
       .map((goal) => {
-        const allTasks = tasksByGoal[goal.id] ?? [];
+        const allTasks = sortTasksByPriority(tasksByGoal[goal.id] ?? []);
         const activeTasks = allTasks.filter((task) => !isComplete(task));
         const goalMatches = isSearching && (matchesQuery(goal.name, normalizedSearch, locale) || matchesQuery(goal.description, normalizedSearch, locale));
         const visibleTasks = activeTasks.filter((task) => {
@@ -3720,6 +3991,7 @@ export function TasksRoute() {
               ) : null}
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(panelFolder.id)} / {panelGoal.name}</span></div></div>
               <div className="detail-section"><div className="detail-label">{planningCopy.tasks.descriptionLabel}</div><div className="detail-note"><StickyNote aria-hidden="true" size={15} strokeWidth={1.75} /><p>{selectedTask?.description || planningCopy.common.noDescription}</p></div></div>
+              {renderChecklistPanel()}
               {!isCreatingTask && !(selectedTask && editingEntity?.type === 'task' && editingEntity.id === selectedTask.id) ? renderLocalReminders(false) : null}
               {isCreatingTask || (selectedTask && editingEntity?.type === 'task' && editingEntity.id === selectedTask.id) ? renderSection('task-details', isCreatingTask ? copy.details : copy.edit, (
                 <div className="detail-editor">

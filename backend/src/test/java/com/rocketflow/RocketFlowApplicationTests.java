@@ -26,6 +26,7 @@ import com.rocketflow.sharing.ShareLinkRepository;
 import com.rocketflow.sharing.TaskShareRepository;
 import com.rocketflow.reminders.TaskReminderRuleRepository;
 import com.rocketflow.settings.UserSettingsRepository;
+import com.rocketflow.tasks.TaskChecklistItemRepository;
 import com.rocketflow.tasks.TaskRepository;
 import com.rocketflow.tasks.TaskTagLinkRepository;
 import com.rocketflow.tasks.TaskTagRepository;
@@ -106,6 +107,9 @@ class RocketFlowApplicationTests {
 
     @MockitoBean
     private TaskRepository taskRepository;
+
+    @MockitoBean
+    private TaskChecklistItemRepository taskChecklistItemRepository;
 
     @MockitoBean
     private TaskTagRepository taskTagRepository;

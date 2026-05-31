@@ -33,6 +33,7 @@ import com.rocketflow.sharing.IdeaShareRepository;
 import com.rocketflow.sharing.ShareInvitationRepository;
 import com.rocketflow.sharing.ShareLinkRepository;
 import com.rocketflow.sharing.TaskShareRepository;
+import com.rocketflow.tasks.TaskChecklistItemRepository;
 import com.rocketflow.tasks.TaskRepository;
 import com.rocketflow.tasks.TaskTagLinkRepository;
 import com.rocketflow.tasks.TaskTagRepository;
@@ -121,6 +122,9 @@ class CorsConfigurationIntegrationTest {
 
     @MockitoBean
     private TaskRepository taskRepository;
+
+    @MockitoBean
+    private TaskChecklistItemRepository taskChecklistItemRepository;
 
     @MockitoBean
     private TaskTagRepository taskTagRepository;

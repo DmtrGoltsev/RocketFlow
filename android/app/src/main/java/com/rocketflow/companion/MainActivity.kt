@@ -56,10 +56,12 @@ import com.rocketflow.companion.auth.AuthSession
 import com.rocketflow.companion.auth.SessionStore
 import com.rocketflow.companion.network.ApiException
 import com.rocketflow.companion.notifications.DeviceRegistration
+import com.rocketflow.companion.notifications.DefaultTaskReminderSetting
 import com.rocketflow.companion.notifications.NotificationIntents
 import com.rocketflow.companion.notifications.NotificationRuntime
 import com.rocketflow.companion.notifications.PushTokenSnapshot
 import com.rocketflow.companion.notifications.TaskReminderRepeat
+import com.rocketflow.companion.notifications.TaskReminderSchedule
 import com.rocketflow.companion.notifications.TaskReminderSetting
 import com.rocketflow.companion.planning.EntityLink
 import com.rocketflow.companion.planning.EntityLinkDraft
@@ -82,8 +84,8 @@ import com.rocketflow.companion.planning.PlanningPendingIssueClassifier
 import com.rocketflow.companion.planning.PlanningSnapshot
 import com.rocketflow.companion.planning.PlanningSyncReason
 import com.rocketflow.companion.planning.PlanningTask
+import com.rocketflow.companion.planning.TaskChecklistItem
 import com.rocketflow.companion.planning.TaskDraft
-import com.rocketflow.companion.settings.PriorityDecayPolicy
 import com.rocketflow.companion.settings.UserSettings
 import com.rocketflow.companion.sharing.ShareInvitation
 import com.rocketflow.companion.sharing.ShareLink
@@ -197,6 +199,12 @@ class MainActivity : Activity() {
         val reminderId: String? = null
     )
 
+    private data class ChecklistEditorRow(
+        val id: String,
+        val checkedInput: CheckBox,
+        val textInput: EditText
+    )
+
     private data class Copy(
         val signInTitle: String,
         val email: String,
@@ -303,6 +311,11 @@ class MainActivity : Activity() {
         val remindersHelp: String = "Android permission allows notifications; this phone connects task reminder delivery.",
         val androidPermission: String = "Android permission",
         val accountReminders: String = "Account reminders",
+        val defaultTaskReminder: String = "Default reminder for new tasks",
+        val taskPlan: String = "Plan",
+        val addPlanItem: String = "Add plan item",
+        val planItemField: String = "Plan item",
+        val noPlanItems: String = "No plan items",
         val deviceRegistration: String = "This phone",
         val taskType: String = "Task type",
         val greenTask: String = "Green",
@@ -311,12 +324,6 @@ class MainActivity : Activity() {
         val deleteFolderWarning: String = "This folder contains %1\$d goals and %2\$d tasks. They will be deleted with the folder.",
         val deleteGoalWarning: String = "This goal contains %1\$d tasks. They will be deleted with the goal.",
         val deleteLinksWarning: String = "Links: %1\$d. They will also be deleted.",
-        val priorityDecay: String = "Снижение приоритета",
-        val priorityDecayHelp: String = "Приоритет меняется после переносов задачи.",
-        val greenTasks: String = "Зеленые задачи",
-        val redTasks: String = "Красные задачи",
-        val threshold: String = "Порог",
-        val decayAmount: String = "Снижение",
         val remindersOn: String,
         val remindersOff: String,
         val enableNotifications: String,
@@ -348,8 +355,6 @@ class MainActivity : Activity() {
         val later1h: String = "1 час",
         val later3h: String = "3 часа",
         val later24h: String = "24 часа",
-        val decayApplied: String = "Приоритет снижен",
-        val decayNotApplied: String = "Приоритет без изменений",
         val statusTodo: String,
         val statusInProgress: String,
         val statusDone: String,
@@ -1192,6 +1197,7 @@ class MainActivity : Activity() {
             )
             content.addView(linksSection("task", task.id))
             content.addView(linkedNotesSection("task", task.id))
+            content.addView(taskPlanSection(task))
             content.addView(expandableSectionHeader(c.details, null, detailsExpanded) {
                     detailsExpanded = !detailsExpanded
                     render()
@@ -1469,24 +1475,15 @@ class MainActivity : Activity() {
         content.addView(settingsHelp(c.sharingHelp))
         content.addView(settingsRow(c.acceptLink, c.shareLink) { showAcceptShareLinkDialog() })
 
-        content.addView(sectionLabel(c.priorityDecay))
-        content.addView(settingsHelp(c.priorityDecayHelp))
         val settings = currentSettings
-        if (settings == null) {
-            content.addView(settingsRow(c.priorityDecay, if (settingsLoading) c.loading else c.couldNotSync))
-        } else {
-            content.addView(settingsRow(c.greenTasks, readableDecayPolicySummary(settings.greenPriorityDecayPolicy)) {
-                showDecayPolicyDialog(settings.greenPriorityDecayPolicy)
-            })
-            content.addView(settingsRow(c.redTasks, readableDecayPolicySummary(settings.redPriorityDecayPolicy)) {
-                showDecayPolicyDialog(settings.redPriorityDecayPolicy)
-            })
-        }
         content.addView(sectionLabel(c.reminders))
         content.addView(settingsHelp(c.remindersHelp))
         settings?.let {
             content.addView(settingsRow(c.accountReminders, if (it.notificationsEnabled) c.remindersOn else c.remindersOff))
         }
+        content.addView(settingsRow(c.defaultTaskReminder, describeDefaultTaskReminder()) {
+            showDefaultTaskReminderDialog()
+        })
         content.addView(settingsRow(c.androidPermission, notificationPermissionLabel()))
         if (!notificationRuntime.hasNotificationPermission()) {
             content.addView(textButton(c.enableNotifications, primary = true) {
@@ -1528,109 +1525,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showDecayPolicyDialog(policy: PriorityDecayPolicy) {
-        val c = copy()
-        val enabledInput = CheckBox(this).apply {
-            text = c.remindersOn
-            isChecked = policy.enabled
-            setTextColor(color(Ui.TEXT))
-            textSize = 15f
-            setPadding(0, dp(8), 0, dp(4))
-        }
-        var selectedPreset = normalizeDecayPreset(policy.thresholdPreset)
-        val presetIds = mutableMapOf<Int, String>()
-        val thresholdGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-            decayPresetOptions().forEach { (preset, label) ->
-                val id = View.generateViewId()
-                presetIds[id] = preset
-                addView(RadioButton(this@MainActivity).apply {
-                    this.id = id
-                    text = label
-                    textSize = 15f
-                    setTextColor(color(Ui.TEXT))
-                    isChecked = preset == selectedPreset
-                })
-            }
-            setOnCheckedChangeListener { _, checkedId ->
-                selectedPreset = presetIds[checkedId] ?: selectedPreset
-            }
-        }
-        val amountInput = dialogInput(
-            c.decayAmount,
-            policy.decayAmount.toString(),
-            inputPurpose = TextInputPurpose.Number,
-            inputTypeOverride = InputType.TYPE_CLASS_NUMBER
-        )
-        AlertDialog.Builder(this)
-            .setTitle(if (policy.taskType == "red") c.redTasks else c.greenTasks)
-            .setView(dialogForm(enabledInput, dialogLabel(c.threshold), thresholdGroup, amountInput))
-            .setNegativeButton(c.cancel, null)
-            .setPositiveButton(c.save) { _, _ ->
-                val amount = amountInput.text.toString().trim().toIntOrNull()
-                if (selectedPreset !in setOf("day", "week", "month") || amount == null || amount < 1) {
-                    message = c.invalidDate
-                    render()
-                    return@setPositiveButton
-                }
-                updateDecayPolicy(
-                    policy.copy(
-                        enabled = enabledInput.isChecked,
-                        thresholdPreset = selectedPreset,
-                        decayAmount = amount
-                    )
-                )
-            }
-            .show()
-    }
-
-    private fun updateDecayPolicy(policy: PriorityDecayPolicy) {
-        val session = currentSession ?: return
-        val settings = currentSettings ?: return
-        val next = if (policy.taskType == "red") {
-            settings.copy(language = currentLanguage, redPriorityDecayPolicy = policy)
-        } else {
-            settings.copy(language = currentLanguage, greenPriorityDecayPolicy = policy)
-        }
-        setBusy(true)
-        scope.launch {
-            try {
-                val result = userSettingsRepository.updateSettings(session, next)
-                currentSession = result.session
-                currentSettings = result.value
-                message = copy().synced
-            } catch (error: Exception) {
-                message = humanError(error)
-            } finally {
-                setBusy(false)
-            }
-        }
-    }
-
-    private fun decayPolicySummary(policy: PriorityDecayPolicy): String {
-        val enabled = if (policy.enabled) copy().remindersOn else copy().remindersOff
-        return "$enabled / ${thresholdLabel(policy.thresholdPreset)} / -${policy.decayAmount}"
-    }
-
-    private fun thresholdLabel(preset: String): String {
-        return when (preset) {
-            "day" -> if (currentLanguage == "en") "day" else "\u0434\u0435\u043d\u044c"
-            "week" -> if (currentLanguage == "en") "week" else "\u043d\u0435\u0434\u0435\u043b\u044f"
-            "month" -> if (currentLanguage == "en") "month" else "\u043c\u0435\u0441\u044f\u0446"
-            else -> preset
-        }
-    }
-
-    private fun readableDecayPolicySummary(policy: PriorityDecayPolicy): String {
-        val enabled = if (policy.enabled) copy().remindersOn else copy().remindersOff
-        val threshold = readableThresholdLabel(policy.thresholdPreset)
-        return if (currentLanguage == "en") {
-            "$enabled; threshold: $threshold; -${policy.decayAmount}"
-        } else {
-            "$enabled; \u043f\u043e\u0440\u043e\u0433: $threshold; -${policy.decayAmount}"
-        }
-    }
-
     private fun startPlannerRefresh() {
         if (plannerRefreshJob?.isActive == true) return
         plannerRefreshJob = scope.launch {
@@ -1662,31 +1556,6 @@ class MainActivity : Activity() {
         val trackedInput = activeTextInput
         return currentFocus is EditText ||
             (trackedInput != null && trackedInput.isFocused && trackedInput.windowToken != null)
-    }
-
-    private fun readableThresholdLabel(preset: String): String {
-        return when (preset) {
-            "day" -> if (currentLanguage == "en") "day" else "\u0434\u0435\u043d\u044c"
-            "week" -> if (currentLanguage == "en") "week" else "\u043d\u0435\u0434\u0435\u043b\u044f"
-            "month" -> if (currentLanguage == "en") "month" else "\u043c\u0435\u0441\u044f\u0446"
-            else -> preset
-        }
-    }
-
-    private fun normalizeDecayPreset(preset: String): String {
-        return when (preset.trim().lowercase(Locale.ROOT)) {
-            "week" -> "week"
-            "month" -> "month"
-            else -> "day"
-        }
-    }
-
-    private fun decayPresetOptions(): List<Pair<String, String>> {
-        return listOf(
-            "day" to readableThresholdLabel("day"),
-            "week" to readableThresholdLabel("week"),
-            "month" to readableThresholdLabel("month")
-        )
     }
 
     private fun appBar(title: String, showBack: Boolean, mode: Screen): LinearLayout {
@@ -3058,10 +2927,11 @@ class MainActivity : Activity() {
         val c = copy()
         AlertDialog.Builder(this)
             .setTitle(note.title)
-            .setItems(arrayOf(c.move, c.clone)) { _, which ->
+            .setItems(arrayOf(c.move, c.clone, c.delete)) { _, which ->
                 when (which) {
                     0 -> showMoveNoteDialog(note)
-                    else -> showCloneNoteDialog(note)
+                    1 -> showCloneNoteDialog(note)
+                    else -> confirmDelete(note.title, deleteEntityMessage("note", note.id, note.title)) { deleteNote(note) }
                 }
             }
             .show()
@@ -3947,8 +3817,10 @@ class MainActivity : Activity() {
         val plannedField = dateTimeField(c.plannedField, task?.plannedTime)
         val dueField = dateTimeField(c.dueField, task?.dueTime)
         var recurrenceJson = task?.recurrenceJson
-        var reminderDraft = task?.let { currentReminderDraft(it) }
+        var reminderDraft = task?.let { currentReminderDraft(it) } ?: if (task == null) defaultReminderDraftForNewTask() else null
         var reminderTouched = false
+        val checklistItems = task?.checklistItems?.toMutableList() ?: mutableListOf()
+        val checklistEditor = checklistEditor(checklistItems, task?.id.orEmpty())
         val recurrenceButton = Button(this).apply {
             text = "${c.recurrence}: ${describeRecurrence(recurrenceJson)}"
             setOnClickListener {
@@ -3987,7 +3859,9 @@ class MainActivity : Activity() {
                     plannedField.view,
                     dueField.view,
                     recurrenceButton,
-                    reminderButton
+                    reminderButton,
+                    dialogLabel(c.taskPlan),
+                    checklistEditor.first
                 )
             )
             .setNegativeButton(c.cancel, null)
@@ -4006,6 +3880,7 @@ class MainActivity : Activity() {
                     status = task?.status ?: "todo",
                     plannedTime = plannedField.isoValue(),
                     dueTime = dueField.isoValue(),
+                    checklistItems = checklistEditor.second(),
                     recurrenceJson = recurrenceJson
                 )
                 if (draft.title.isBlank()) {
@@ -4344,6 +4219,161 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun checklistEditor(
+        initialItems: MutableList<TaskChecklistItem>,
+        taskId: String
+    ): Pair<LinearLayout, () -> List<TaskChecklistItem>> {
+        val c = copy()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val rows = mutableListOf<ChecklistEditorRow>()
+
+        fun collectRows(): MutableList<TaskChecklistItem> {
+            val now = PlanningLocalStore.nowIso()
+            return rows.mapIndexedNotNull { index, row ->
+                val text = row.textInput.text.toString().trim()
+                if (text.isBlank()) {
+                    null
+                } else {
+                    TaskChecklistItem(
+                        id = row.id,
+                        taskId = taskId,
+                        text = text,
+                        checked = row.checkedInput.isChecked,
+                        displayOrder = index,
+                        version = 0,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                }
+            }.toMutableList()
+        }
+
+        fun renderItems(items: MutableList<TaskChecklistItem>) {
+            rows.clear()
+            container.removeAllViews()
+            items.forEachIndexed { index, item ->
+                val checkBox = CheckBox(this).apply {
+                    isChecked = item.checked
+                    contentDescription = c.taskPlan
+                }
+                val input = dialogInput(c.planItemField, item.text, inputPurpose = TextInputPurpose.Text)
+                rows += ChecklistEditorRow(item.id.ifBlank { PlanningLocalStore.localId() }, checkBox, input)
+                container.addView(
+                    LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(checkBox)
+                        addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                        addView(deleteIconButton(c.delete) {
+                            val next = collectRows()
+                            if (index in next.indices) {
+                                next.removeAt(index)
+                            }
+                            renderItems(next)
+                        })
+                    }
+                )
+            }
+            container.addView(Button(this).apply {
+                text = c.addPlanItem
+                setOnClickListener {
+                    val now = PlanningLocalStore.nowIso()
+                    val next = collectRows()
+                    next += TaskChecklistItem(
+                        id = PlanningLocalStore.localId(),
+                        taskId = taskId,
+                        text = "",
+                        checked = false,
+                        displayOrder = next.size,
+                        version = 0,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                    renderItems(next)
+                }
+            })
+        }
+
+        renderItems(initialItems)
+        return container to { collectRows() }
+    }
+
+    private fun taskPlanSection(task: PlanningTask): View {
+        val c = copy()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(8), 0, dp(12))
+            addView(sectionLabel(c.taskPlan))
+            val items = task.checklistItems.sortedWith(compareBy<TaskChecklistItem> { it.displayOrder }.thenBy { it.createdAt }.thenBy { it.id })
+            if (items.isEmpty()) {
+                addView(TextView(this@MainActivity).apply {
+                    text = c.noPlanItems
+                    textSize = 14f
+                    setTextColor(color(Ui.MUTED))
+                    setPadding(0, dp(6), 0, dp(4))
+                })
+            } else {
+                items.forEach { item ->
+                    addView(CheckBox(this@MainActivity).apply {
+                        text = item.text
+                        isChecked = item.checked
+                        isEnabled = canWrite(task)
+                        setTextColor(color(if (item.checked) Ui.MUTED else Ui.TEXT))
+                        textSize = 15f
+                        setPadding(0, dp(2), 0, dp(2))
+                        setOnClickListener {
+                            val next = task.checklistItems.map { existing ->
+                                if (existing.id == item.id) {
+                                    existing.copy(checked = isChecked, updatedAt = PlanningLocalStore.nowIso())
+                                } else {
+                                    existing
+                                }
+                            }
+                            saveTask(task.goalId, task, task.toDraft(checklistItems = next))
+                        }
+                    })
+                }
+            }
+            if (canWrite(task)) {
+                addView(textButton(c.addPlanItem, quiet = true) { showAddTaskPlanItemDialog(task) })
+            }
+        }
+    }
+
+    private fun showAddTaskPlanItemDialog(task: PlanningTask) {
+        val c = copy()
+        val input = dialogInput(c.planItemField, "", inputPurpose = TextInputPurpose.Text)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(c.addPlanItem)
+            .setView(dialogForm(input))
+            .setNegativeButton(c.cancel, null)
+            .setPositiveButton(c.add, null)
+            .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val text = input.text.toString().trim()
+            if (text.isBlank()) {
+                input.error = c.titleRequired
+                return@setOnClickListener
+            }
+            val now = PlanningLocalStore.nowIso()
+            val next = task.checklistItems + TaskChecklistItem(
+                id = PlanningLocalStore.localId(),
+                taskId = task.id,
+                text = text,
+                checked = false,
+                displayOrder = task.checklistItems.size,
+                version = 0,
+                createdAt = now,
+                updatedAt = now
+            )
+            dialog.dismiss()
+            saveTask(task.goalId, task, task.toDraft(checklistItems = next))
+        }
+        focusDialogInput(dialog, input)
+    }
+
     private fun newReminderId(): String {
         return "local-${System.currentTimeMillis()}"
     }
@@ -4417,6 +4447,69 @@ class MainActivity : Activity() {
                 onSelected(ReminderDraft(selectedDateTime, selectedRepeat, currentDraft?.reminderId))
             }
             .show()
+    }
+
+    private fun describeDefaultTaskReminder(): String {
+        val setting = currentSession?.user?.id?.let(taskReminderStore::readDefault) ?: return copy().noDate
+        val next = TaskReminderSchedule.nextTriggerAtOrAfter(
+            triggerAtMillis = setting.triggerAtMillis,
+            repeat = setting.repeat,
+            nowMillis = System.currentTimeMillis(),
+            zone = zone,
+            anchorAtMillis = setting.anchorAtMillis
+        ) ?: setting.triggerAtMillis
+        return listOfNotNull(formatReminderDateTime(next), reminderRepeatLabel(setting.repeat)).joinToString(", ")
+    }
+
+    private fun defaultReminderDraftForNewTask(): ReminderDraft? {
+        val setting = currentSession?.user?.id?.let(taskReminderStore::readDefault) ?: return null
+        val next = TaskReminderSchedule.nextTriggerAtOrAfter(
+            triggerAtMillis = setting.triggerAtMillis,
+            repeat = setting.repeat,
+            nowMillis = System.currentTimeMillis(),
+            zone = zone,
+            anchorAtMillis = setting.anchorAtMillis
+        ) ?: return null
+        return ReminderDraft(
+            triggerAt = Instant.ofEpochMilli(next).atZone(zone).toLocalDateTime(),
+            repeat = setting.repeat
+        )
+    }
+
+    private fun showDefaultTaskReminderDialog() {
+        val session = currentSession ?: return
+        val current = taskReminderStore.readDefault(session.user.id)?.let {
+            val trigger = TaskReminderSchedule.nextTriggerAtOrAfter(
+                triggerAtMillis = it.triggerAtMillis,
+                repeat = it.repeat,
+                nowMillis = System.currentTimeMillis(),
+                zone = zone,
+                anchorAtMillis = it.anchorAtMillis
+            ) ?: it.triggerAtMillis
+            ReminderDraft(
+                triggerAt = Instant.ofEpochMilli(trigger).atZone(zone).toLocalDateTime(),
+                repeat = it.repeat
+            )
+        }
+        showReminderDraftDialog(null, current) { draft ->
+            if (draft == null) {
+                taskReminderStore.clearDefault(session.user.id)
+                message = copy().remindersOff
+            } else {
+                val trigger = draft.triggerAt.atZone(zone).toInstant().toEpochMilli()
+                taskReminderStore.saveDefault(
+                    DefaultTaskReminderSetting(
+                        userId = session.user.id,
+                        triggerAtMillis = trigger,
+                        repeat = draft.repeat,
+                        enabled = true,
+                        anchorAtMillis = trigger
+                    )
+                )
+                message = copy().remindersOn
+            }
+            render()
+        }
     }
 
     private fun showRemindersDialog(task: PlanningTask) {
@@ -5123,7 +5216,7 @@ class MainActivity : Activity() {
                 applyPlanningSnapshot(result.snapshot)
                 selectedTaskId = task.id
                 selectedTaskDetail = findTask(task.id)
-                message = if (result.priorityDecayApplied) copy().decayApplied else copy().decayNotApplied
+                message = copy().synced
             } catch (error: Exception) {
                 message = humanError(error)
             } finally {
@@ -6643,7 +6736,18 @@ class MainActivity : Activity() {
 
     private fun tasksForGoal(goalId: String, includeShared: Boolean = false): List<PlanningTask> {
         val own = tasks.filter { it.goalId == goalId }
-        return if (includeShared) own + sharedTasks.filter { it.goalId == goalId } else own
+        val combined = if (includeShared) own + sharedTasks.filter { it.goalId == goalId } else own
+        return sortTasksByPriority(combined)
+    }
+
+    private fun sortTasksByPriority(items: List<PlanningTask>): List<PlanningTask> {
+        return items.sortedWith(
+            compareByDescending<PlanningTask> { it.priority }
+                .thenBy { it.plannedTime == null }
+                .thenBy { it.plannedTime.orEmpty() }
+                .thenBy { it.createdAt }
+                .thenBy { it.id }
+        )
     }
 
     private fun ideasForFolder(folderId: String, includeShared: Boolean = false): List<PlanningIdea> {
@@ -7606,6 +7710,7 @@ class MainActivity : Activity() {
         plannedTime: String? = this.plannedTime,
         dueTime: String? = this.dueTime,
         tagIds: List<String>? = this.tagIds,
+        checklistItems: List<TaskChecklistItem> = this.checklistItems,
         recurrenceJson: String? = this.recurrenceJson,
         remindersJson: String? = this.remindersJson
     ): TaskDraft {
@@ -7619,6 +7724,7 @@ class MainActivity : Activity() {
             plannedTime = plannedTime,
             dueTime = dueTime,
             tagIds = tagIds,
+            checklistItems = checklistItems,
             recurrenceJson = recurrenceJson,
             remindersJson = remindersJson
         )
@@ -8049,11 +8155,12 @@ class MainActivity : Activity() {
                 remindersHelp = "Task reminders are local on this phone. Android permission controls whether they can appear.",
                 androidPermission = "Android permission",
                 accountReminders = "Local reminders on this phone",
+                defaultTaskReminder = "Default reminder for new tasks",
+                taskPlan = "Plan",
+                addPlanItem = "Add plan item",
+                planItemField = "Plan item",
+                noPlanItems = "No plan items",
                 deviceRegistration = "Server push registration",
-                priorityDecay = "Priority decay",
-                priorityDecayHelp = "When you postpone a task, RocketFlow totals the delay. After the selected threshold, priority drops by the chosen amount.",
-                greenTasks = "Green tasks",
-                redTasks = "Red tasks",
                 taskType = "Task type",
                 greenTask = "Green",
                 redTask = "Red",
@@ -8061,8 +8168,6 @@ class MainActivity : Activity() {
                 deleteFolderWarning = "This folder contains %1\$d goals and %2\$d tasks. They will be deleted with the folder.",
                 deleteGoalWarning = "This goal contains %1\$d tasks. They will be deleted with the goal.",
                 deleteLinksWarning = "Links: %1\$d. They will also be deleted.",
-                threshold = "Threshold",
-                decayAmount = "Decay",
                 remindersOn = "On",
                 remindersOff = "Off",
                 enableNotifications = "Enable notifications",
@@ -8094,8 +8199,6 @@ class MainActivity : Activity() {
                 later1h = "1 hour",
                 later3h = "3 hours",
                 later24h = "24 hours",
-                decayApplied = "Priority lowered",
-                decayNotApplied = "Priority unchanged",
                 statusTodo = "To do",
                 statusInProgress = "In progress",
                 statusDone = "Done",
@@ -8241,11 +8344,12 @@ class MainActivity : Activity() {
                 remindersHelp = "\u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f \u0437\u0430\u0434\u0430\u0447 \u043b\u043e\u043a\u0430\u043b\u044c\u043d\u044b \u043d\u0430 \u044d\u0442\u043e\u043c \u0442\u0435\u043b\u0435\u0444\u043e\u043d\u0435. \u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043d\u0438\u0435 Android \u0443\u043f\u0440\u0430\u0432\u043b\u044f\u0435\u0442 \u0438\u0445 \u043f\u043e\u043a\u0430\u0437\u043e\u043c.",
                 androidPermission = "Разрешение Android",
                 accountReminders = "\u041b\u043e\u043a\u0430\u043b\u044c\u043d\u044b\u0435 \u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f \u043d\u0430 \u044d\u0442\u043e\u043c \u0442\u0435\u043b\u0435\u0444\u043e\u043d\u0435",
+                defaultTaskReminder = "\u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u0435 \u0434\u043b\u044f \u043d\u043e\u0432\u044b\u0445 \u0437\u0430\u0434\u0430\u0447",
+                taskPlan = "\u041f\u043b\u0430\u043d",
+                addPlanItem = "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0443\u043d\u043a\u0442",
+                planItemField = "\u041f\u0443\u043d\u043a\u0442 \u043f\u043b\u0430\u043d\u0430",
+                noPlanItems = "\u041f\u0443\u043d\u043a\u0442\u043e\u0432 \u043f\u043b\u0430\u043d\u0430 \u043d\u0435\u0442",
                 deviceRegistration = "\u0421\u0435\u0440\u0432\u0435\u0440\u043d\u0430\u044f push-\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0430\u0446\u0438\u044f",
-                priorityDecay = "Снижение приоритета",
-                priorityDecayHelp = "Если вы переносите задачу на позже, RocketFlow суммирует задержку. Когда набирается выбранный срок, приоритет уменьшается на указанное число.",
-                greenTasks = "Зеленые задачи",
-                redTasks = "Красные задачи",
                 taskType = "\u0422\u0438\u043f \u0437\u0430\u0434\u0430\u0447\u0438",
                 greenTask = "\u0417\u0435\u043b\u0435\u043d\u0430\u044f",
                 redTask = "\u041a\u0440\u0430\u0441\u043d\u0430\u044f",
@@ -8253,8 +8357,6 @@ class MainActivity : Activity() {
                 deleteFolderWarning = "\u0412 \u043f\u0430\u043f\u043a\u0435 \u0435\u0441\u0442\u044c \u0446\u0435\u043b\u0438: %1\$d, \u0437\u0430\u0434\u0430\u0447\u0438: %2\$d. \u041e\u043d\u0438 \u0443\u0434\u0430\u043b\u044f\u0442\u0441\u044f \u0432\u043c\u0435\u0441\u0442\u0435 \u0441 \u043f\u0430\u043f\u043a\u043e\u0439.",
                 deleteGoalWarning = "\u0412 \u0446\u0435\u043b\u0438 \u0435\u0441\u0442\u044c \u0437\u0430\u0434\u0430\u0447\u0438: %1\$d. \u041e\u043d\u0438 \u0443\u0434\u0430\u043b\u044f\u0442\u0441\u044f \u0432\u043c\u0435\u0441\u0442\u0435 \u0441 \u0446\u0435\u043b\u044c\u044e.",
                 deleteLinksWarning = "\u0415\u0441\u0442\u044c \u0441\u0432\u044f\u0437\u0438: %1\$d. \u041f\u0440\u0438 \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0438 \u043e\u043d\u0438 \u0442\u043e\u0436\u0435 \u0431\u0443\u0434\u0443\u0442 \u0443\u0434\u0430\u043b\u0435\u043d\u044b.",
-                threshold = "Порог",
-                decayAmount = "Снижение",
                 remindersOn = "Включено",
                 remindersOff = "Выключено",
                 enableNotifications = "Включить уведомления",
@@ -8286,8 +8388,6 @@ class MainActivity : Activity() {
                 later1h = "1 час",
                 later3h = "3 часа",
                 later24h = "24 часа",
-                decayApplied = "Приоритет снижен",
-                decayNotApplied = "Приоритет без изменений",
                 statusTodo = "К выполнению",
                 statusInProgress = "В работе",
                 statusDone = "Готово",

@@ -12,8 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.common.ApiException;
-import com.rocketflow.prioritypolicy.PriorityDecayService;
-import com.rocketflow.prioritypolicy.PriorityDecayService.PriorityDecayResult;
 import com.rocketflow.sharing.SharingAccessService;
 import com.rocketflow.tasks.Task;
 import com.rocketflow.tasks.TaskRepository;
@@ -31,18 +29,15 @@ public class TaskScheduleService {
     private final SharingAccessService sharingAccessService;
     private final TaskRepository taskRepository;
     private final TaskRescheduleEventRepository taskRescheduleEventRepository;
-    private final PriorityDecayService priorityDecayService;
 
     public TaskScheduleService(
             SharingAccessService sharingAccessService,
             TaskRepository taskRepository,
-            TaskRescheduleEventRepository taskRescheduleEventRepository,
-            PriorityDecayService priorityDecayService
+            TaskRescheduleEventRepository taskRescheduleEventRepository
     ) {
         this.sharingAccessService = sharingAccessService;
         this.taskRepository = taskRepository;
         this.taskRescheduleEventRepository = taskRescheduleEventRepository;
-        this.priorityDecayService = priorityDecayService;
     }
 
     @Transactional
@@ -50,12 +45,12 @@ public class TaskScheduleService {
         Task task = sharingAccessService.requireTaskOwner(taskId, actorUserId).task();
         Instant previousPlannedTime = task.getPlannedTime();
         Instant newPlannedTime = request.plannedTime();
-        PriorityDecayResult decayResult = priorityDecayService.evaluate(task, previousPlannedTime, newPlannedTime);
         Instant now = Instant.now();
+        int priorityBefore = task.getPriority();
 
-        applyTaskUpdate(task, newPlannedTime, decayResult.priorityAfter(), now);
+        applyTaskUpdate(task, newPlannedTime, now);
         if (shouldRecordReschedule(previousPlannedTime, newPlannedTime)) {
-            taskRescheduleEventRepository.save(buildEvent(task, actorUserId, previousPlannedTime, newPlannedTime, decayResult, now));
+            taskRescheduleEventRepository.save(buildEvent(task, actorUserId, previousPlannedTime, newPlannedTime, priorityBefore, now));
         }
         taskRepository.save(task);
 
@@ -75,25 +70,24 @@ public class TaskScheduleService {
         }
 
         Instant newPlannedTime = previousPlannedTime.plus(resolveDuration(request));
-        PriorityDecayResult decayResult = priorityDecayService.evaluate(task, previousPlannedTime, newPlannedTime);
         Instant now = Instant.now();
+        int priorityBefore = task.getPriority();
 
-        applyTaskUpdate(task, newPlannedTime, decayResult.priorityAfter(), now);
+        applyTaskUpdate(task, newPlannedTime, now);
         TaskRescheduleEvent event = taskRescheduleEventRepository.save(
-                buildEvent(task, actorUserId, previousPlannedTime, newPlannedTime, decayResult, now)
+                buildEvent(task, actorUserId, previousPlannedTime, newPlannedTime, priorityBefore, now)
         );
         taskRepository.save(task);
 
         return new QuickRescheduleResponse(
                 new RescheduledTaskDto(task.getId(), task.getPlannedTime(), task.getPriority(), task.getUpdatedAt()),
                 new RescheduleEventDto(event.getId(), event.getPreviousPlannedTime(), event.getNewPlannedTime(), event.getCreatedAt()),
-                decayResult.applied()
+                false
         );
     }
 
-    private void applyTaskUpdate(Task task, Instant plannedTime, int priority, Instant updatedAt) {
+    private void applyTaskUpdate(Task task, Instant plannedTime, Instant updatedAt) {
         task.setPlannedTime(plannedTime);
-        task.setPriority(priority);
         task.setUpdatedAt(updatedAt);
     }
 
@@ -106,7 +100,7 @@ public class TaskScheduleService {
             UUID actorUserId,
             Instant previousPlannedTime,
             Instant newPlannedTime,
-            PriorityDecayResult decayResult,
+            int priorityBefore,
             Instant now
     ) {
         TaskRescheduleEvent event = new TaskRescheduleEvent();
@@ -116,9 +110,9 @@ public class TaskScheduleService {
         event.setPreviousPlannedTime(previousPlannedTime);
         event.setNewPlannedTime(newPlannedTime);
         event.setReason(null);
-        event.setPriorityBefore(decayResult.priorityBefore());
-        event.setPriorityAfter(decayResult.priorityAfter());
-        event.setPriorityDecayApplied(decayResult.applied());
+        event.setPriorityBefore(priorityBefore);
+        event.setPriorityAfter(priorityBefore);
+        event.setPriorityDecayApplied(false);
         event.setCreatedAt(now);
         return event;
     }

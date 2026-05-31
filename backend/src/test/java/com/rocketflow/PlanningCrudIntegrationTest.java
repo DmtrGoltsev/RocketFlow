@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -46,7 +47,7 @@ class PlanningCrudIntegrationTest {
     void cleanDatabase() throws Exception {
         try (var connection = POSTGRES.getPostgresDatabase().getConnection();
              var statement = connection.createStatement()) {
-            statement.executeUpdate("truncate table task_tag_links, task_tags, tasks, goals, folders, auth_sessions, user_settings, user_credentials, users cascade");
+            statement.executeUpdate("truncate table task_checklist_items, task_tag_links, task_tags, tasks, goals, folders, auth_sessions, user_settings, user_credentials, users cascade");
         }
     }
 
@@ -306,6 +307,157 @@ class PlanningCrudIntegrationTest {
     }
 
     @Test
+    void taskChecklistPersistsInTaskDtoAndCanBeReplaced() throws Exception {
+        String tokens = registerAndLogin();
+        String accessToken = read(tokens, "/tokens/accessToken");
+
+        String folderId = read(mockMvc.perform(post("/api/folders")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Checklist",
+                                  "description": "Task plan source of truth"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        String goalId = read(mockMvc.perform(post("/api/folders/" + folderId + "/goals")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Task plan",
+                                  "description": "Checklist-backed plan"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        String taskResponse = mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Ship checklist contract",
+                                  "description": "Expose plan items",
+                                  "type": "green",
+                                  "priority": 8,
+                                  "status": "todo",
+                                  "plannedTime": "2026-05-01T09:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "checklistItems": [
+                                    {
+                                      "text": "Wire DTO",
+                                      "checked": true,
+                                      "displayOrder": 2
+                                    },
+                                    {
+                                      "text": "Draft API",
+                                      "checked": false,
+                                      "displayOrder": 1
+                                    }
+                                  ],
+                                  "tagIds": []
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.checklistItems.length()").value(2))
+                .andExpect(jsonPath("$.checklistItems[0].text").value("Draft API"))
+                .andExpect(jsonPath("$.checklistItems[0].checked").value(false))
+                .andExpect(jsonPath("$.checklistItems[1].text").value("Wire DTO"))
+                .andExpect(jsonPath("$.checklistItems[1].checked").value(true))
+                .andReturn().getResponse().getContentAsString();
+        String taskId = read(taskResponse, "/id");
+        String firstItemId = read(taskResponse, "/checklistItems/0/id");
+
+        mockMvc.perform(get("/api/tasks/" + taskId)
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.checklistItems[0].id").value(firstItemId))
+                .andExpect(jsonPath("$.checklistItems[0].taskId").value(taskId));
+
+        mockMvc.perform(put("/api/tasks/" + taskId + "/checklist")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "items": [
+                                    {
+                                      "id": "%s",
+                                      "text": "Draft API contract",
+                                      "checked": true,
+                                      "displayOrder": 0
+                                    },
+                                    {
+                                      "text": "Update clients",
+                                      "checked": false,
+                                      "displayOrder": 1
+                                    }
+                                  ]
+                                }
+                                """.formatted(firstItemId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.taskId").value(taskId))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].id").value(firstItemId))
+                .andExpect(jsonPath("$.items[0].text").value("Draft API contract"))
+                .andExpect(jsonPath("$.items[0].checked").value(true))
+                .andExpect(jsonPath("$.items[1].text").value("Update clients"));
+
+        mockMvc.perform(get("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].checklistItems[0].text").value("Draft API contract"))
+                .andExpect(jsonPath("$.items[0].checklistItems[1].checked").value(false));
+    }
+
+    @Test
+    void taskListOrdersByPriorityDescendingWithStableSecondaryKeys() throws Exception {
+        String tokens = registerAndLogin();
+        String accessToken = read(tokens, "/tokens/accessToken");
+
+        String folderId = read(mockMvc.perform(post("/api/folders")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Priority",
+                                  "description": "Sort task list"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        String goalId = read(mockMvc.perform(post("/api/folders/" + folderId + "/goals")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Ordering",
+                                  "description": "Higher priority first"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        createTask(accessToken, goalId, "Medium priority task", 5);
+        createTask(accessToken, goalId, "High priority task", 9);
+        createTask(accessToken, goalId, "Low priority task", 2);
+
+        mockMvc.perform(get("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].title").value("High priority task"))
+                .andExpect(jsonPath("$.items[0].priority").value(9))
+                .andExpect(jsonPath("$.items[1].title").value("Medium priority task"))
+                .andExpect(jsonPath("$.items[1].priority").value(5))
+                .andExpect(jsonPath("$.items[2].title").value("Low priority task"))
+                .andExpect(jsonPath("$.items[2].priority").value(2));
+    }
+
+    @Test
     void taskEffortDefaultsFromNullAndRejectsNegativeValues() throws Exception {
         String tokens = registerAndLogin();
         String accessToken = read(tokens, "/tokens/accessToken");
@@ -402,6 +554,25 @@ class PlanningCrudIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
+    }
+
+    private void createTask(String accessToken, String goalId, String title, int priority) throws Exception {
+        mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "%s",
+                                  "description": "Task description",
+                                  "type": "green",
+                                  "priority": %s,
+                                  "status": "todo",
+                                  "plannedTime": "2026-05-01T09:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "tagIds": []
+                                }
+                                """.formatted(title, priority)))
+                .andExpect(status().isCreated());
     }
 
     private String read(String json, String path) throws Exception {

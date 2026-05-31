@@ -99,6 +99,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             """.trimIndent()
         )
         createTaskTagsTable(db)
+        createTaskChecklistItemsTable(db)
         createIdeasTable(db)
         createIdeaNotesTable(db)
         createNotesTable(db)
@@ -153,6 +154,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 14) {
                 addPendingBlockedColumns(db)
             }
+            if (oldVersion < 15) {
+                createTaskChecklistItemsTable(db)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -168,6 +172,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             addColumnIfMissing(db, TABLE_TASKS, "creator_email", "TEXT")
             addColumnIfMissing(db, TABLE_TASKS, "creator_name", "TEXT")
             addTaskEffortColumn(db)
+            createTaskChecklistItemsTable(db)
             createIdeasTable(db)
             createIdeaNotesTable(db)
             addIdeaContractColumns(db)
@@ -295,6 +300,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         try {
             deleteLocalLinksForEntities(db, userId, folderTreeEntityKeys(db, userId, folder.id))
             if (folder.syncState == SyncState.PendingCreate) {
+                db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?))", arrayOf(userId, userId, userId, folder.id))
                 db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folder.id))
                 db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
                 db.delete(TABLE_IDEAS, "user_id = ? AND folder_id = ?", arrayOf(userId, folder.id))
@@ -371,6 +377,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         try {
             deleteLocalLinksForEntities(db, userId, goalTreeEntityKeys(db, userId, goal.id))
             if (goal.syncState == SyncState.PendingCreate) {
+                db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND goal_id = ?)", arrayOf(userId, userId, goal.id))
                 db.delete(TABLE_TASKS, "user_id = ? AND goal_id = ?", arrayOf(userId, goal.id))
                 db.delete(TABLE_GOALS, "user_id = ? AND id = ?", arrayOf(userId, goal.id))
             } else {
@@ -386,41 +393,51 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         val now = nowIso()
         val id = localId()
         val shared = isSharedGoal(userId, goalId)
-        writableDatabase.insertOrThrow(
-            TABLE_TASKS,
-            null,
-            taskValues(
-                userId = userId,
-                task = PlanningTask(
-                    id = id,
-                    goalId = goalId,
-                    title = draft.title,
-                    description = draft.description,
-                    type = draft.type,
-                    priority = draft.priority,
-                    effort = draft.effort,
-                    status = draft.status,
-                    plannedTime = draft.plannedTime,
-                    dueTime = draft.dueTime,
-                    archived = false,
-                    shared = shared,
-                    fullAccess = !shared || isFullAccessGoal(userId, goalId),
-                    creatorUserId = userId,
-                    creatorEmail = null,
-                    creatorName = null,
-                    version = 0,
-                    tagIds = draft.tagIds ?: emptyList(),
-                    recurrenceJson = draft.recurrenceJson,
-                    remindersJson = draft.remindersJson,
-                    createdAt = now,
-                    updatedAt = now,
-                    syncState = SyncState.PendingCreate,
-                    lastError = null
-                ),
-                pendingAction = ACTION_CREATE,
-                locallyDeleted = false
-            )
+        val task = PlanningTask(
+            id = id,
+            goalId = goalId,
+            title = draft.title,
+            description = draft.description,
+            type = draft.type,
+            priority = draft.priority,
+            effort = draft.effort,
+            status = draft.status,
+            plannedTime = draft.plannedTime,
+            dueTime = draft.dueTime,
+            archived = false,
+            shared = shared,
+            fullAccess = !shared || isFullAccessGoal(userId, goalId),
+            creatorUserId = userId,
+            creatorEmail = null,
+            creatorName = null,
+            version = 0,
+            tagIds = draft.tagIds ?: emptyList(),
+            checklistItems = draft.checklistItems,
+            recurrenceJson = draft.recurrenceJson,
+            remindersJson = draft.remindersJson,
+            createdAt = now,
+            updatedAt = now,
+            syncState = SyncState.PendingCreate,
+            lastError = null
         )
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.insertOrThrow(
+                TABLE_TASKS,
+                null,
+                taskValues(
+                    userId = userId,
+                    task = task,
+                    pendingAction = ACTION_CREATE,
+                    locallyDeleted = false
+                )
+            )
+            replaceTaskChecklistItems(db, userId, id, draft.checklistItems, now)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
         return id
     }
 
@@ -444,28 +461,37 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             return
         }
         val action = if (task.syncState == SyncState.PendingCreate) ACTION_CREATE else ACTION_UPDATE
-        writableDatabase.update(
-            TABLE_TASKS,
-            ContentValues().apply {
-                put("title", draft.title)
-                put("description", draft.description)
-                put("type", draft.type)
-                put("priority", draft.priority)
-                put("effort", draft.effort)
-                put("status", draft.status)
-                put("planned_time", draft.plannedTime)
-                put("due_time", draft.dueTime)
-                put("tag_ids_json", JSONArray(draft.tagIds ?: task.tagIds).toString())
-                put("recurrence_json", draft.recurrenceJson ?: task.recurrenceJson)
-                put("reminders_json", draft.remindersJson ?: task.remindersJson)
-                put("updated_at", nowIso())
-                put("pending_action", action)
-                put("pending_blocked", 0)
-                putNull("last_error")
-            },
-            "user_id = ? AND id = ?",
-            arrayOf(userId, task.id)
-        )
+        val now = nowIso()
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.update(
+                TABLE_TASKS,
+                ContentValues().apply {
+                    put("title", draft.title)
+                    put("description", draft.description)
+                    put("type", draft.type)
+                    put("priority", draft.priority)
+                    put("effort", draft.effort)
+                    put("status", draft.status)
+                    put("planned_time", draft.plannedTime)
+                    put("due_time", draft.dueTime)
+                    put("tag_ids_json", JSONArray(draft.tagIds ?: task.tagIds).toString())
+                    put("recurrence_json", draft.recurrenceJson ?: task.recurrenceJson)
+                    put("reminders_json", draft.remindersJson ?: task.remindersJson)
+                    put("updated_at", now)
+                    put("pending_action", action)
+                    put("pending_blocked", 0)
+                    putNull("last_error")
+                },
+                "user_id = ? AND id = ?",
+                arrayOf(userId, task.id)
+            )
+            replaceTaskChecklistItems(db, userId, task.id, draft.checklistItems, now)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun deleteTask(userId: String, task: PlanningTask) {
@@ -477,6 +503,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         try {
             deleteLocalLinksForEntity(db, userId, "task", task.id)
             if (task.syncState == SyncState.PendingCreate) {
+                db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id = ?", arrayOf(userId, task.id))
                 db.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, task.id))
                 db.setTransactionSuccessful()
                 return
@@ -645,7 +672,12 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             null,
             null
         ).use { cursor ->
-            if (cursor.moveToFirst()) cursor.toTask() else null
+            if (cursor.moveToFirst()) {
+                val task = cursor.toTask()
+                task.copy(checklistItems = queryTaskChecklistItems(readableDatabase, userId, task.id))
+            } else {
+                null
+            }
         }
     }
 
@@ -964,12 +996,14 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         try {
             tasks.forEach { task ->
                 if (!hasLocalPending(db, TABLE_TASKS, userId, task.id)) {
+                    db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id = ?", arrayOf(userId, task.id))
                     db.insertWithOnConflict(
                         TABLE_TASKS,
                         null,
                         taskValues(userId, task.copy(syncState = SyncState.Synced, lastError = null), null, false),
                         SQLiteDatabase.CONFLICT_REPLACE
                     )
+                    replaceTaskChecklistItems(db, userId, task.id, task.checklistItems, task.updatedAt)
                 }
             }
             db.setTransactionSuccessful()
@@ -994,6 +1028,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             removeMissingSharedRows(db, TABLE_FOLDERS, userId, folders.map { it.id })
             removeMissingSharedRows(db, TABLE_IDEAS, userId, ideas.map { it.id })
             removeMissingSharedRows(db, TABLE_NOTES, userId, notes.map { it.id })
+            db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id NOT IN (SELECT id FROM tasks WHERE user_id = ?)", arrayOf(userId, userId))
 
             folders.forEach { folder ->
                 if (!hasLocalPending(db, TABLE_FOLDERS, userId, folder.id)) {
@@ -1017,12 +1052,14 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             }
             tasks.forEach { task ->
                 if (!hasLocalPending(db, TABLE_TASKS, userId, task.id)) {
+                    db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id = ?", arrayOf(userId, task.id))
                     db.insertWithOnConflict(
                         TABLE_TASKS,
                         null,
                         taskValues(userId, task.copy(shared = true, syncState = SyncState.Synced, lastError = null), null, false),
                         SQLiteDatabase.CONFLICT_REPLACE
                     )
+                    replaceTaskChecklistItems(db, userId, task.id, task.checklistItems, task.updatedAt)
                 }
             }
             ideas.forEach { idea ->
@@ -1099,6 +1136,8 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                 "user_id = ? AND id = ?",
                 arrayOf(userId, localId)
             )
+            db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id = ?", arrayOf(userId, localId))
+            replaceTaskChecklistItems(db, userId, remote.id, remote.checklistItems, remote.updatedAt)
             if (localId != remote.id) {
                 updateEntityLinkRefs(db, userId, "task", localId, remote.id)
             }
@@ -1178,6 +1217,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         db.beginTransaction()
         try {
             deleteLocalLinksForEntities(db, userId, folderTreeEntityKeys(db, userId, folderId))
+            db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?))", arrayOf(userId, userId, userId, folderId))
             db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, folderId))
             db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
             db.delete(TABLE_IDEAS, "user_id = ? AND folder_id = ?", arrayOf(userId, folderId))
@@ -1194,6 +1234,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         db.beginTransaction()
         try {
             deleteLocalLinksForEntities(db, userId, goalTreeEntityKeys(db, userId, goalId))
+            db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND goal_id = ?)", arrayOf(userId, userId, goalId))
             db.delete(TABLE_TASKS, "user_id = ? AND goal_id = ?", arrayOf(userId, goalId))
             db.delete(TABLE_GOALS, "user_id = ? AND id = ?", arrayOf(userId, goalId))
             db.setTransactionSuccessful()
@@ -1207,6 +1248,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         db.beginTransaction()
         try {
             deleteLocalLinksForEntity(db, userId, "task", taskId)
+            db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id = ?", arrayOf(userId, taskId))
             db.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, taskId))
             db.setTransactionSuccessful()
         } finally {
@@ -1287,11 +1329,30 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             arrayOf(userId),
             null,
             null,
-            "planned_time IS NULL, planned_time ASC, created_at ASC"
+            "priority DESC, planned_time IS NULL, planned_time ASC, created_at ASC, id ASC"
         ).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
-                    add(cursor.toTask())
+                    val task = cursor.toTask()
+                    add(task.copy(checklistItems = queryTaskChecklistItems(db, userId, task.id)))
+                }
+            }
+        }
+    }
+
+    private fun queryTaskChecklistItems(db: SQLiteDatabase, userId: String, taskId: String): List<TaskChecklistItem> {
+        return db.query(
+            TABLE_TASK_CHECKLIST_ITEMS,
+            null,
+            "user_id = ? AND task_id = ?",
+            arrayOf(userId, taskId),
+            null,
+            null,
+            "display_order ASC, created_at ASC, id ASC"
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(cursor.toTaskChecklistItem())
                 }
             }
         }
@@ -1517,6 +1578,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         when (table) {
             TABLE_FOLDERS -> {
                 deleteLocalLinksForEntities(db, userId, folderTreeEntityKeys(db, userId, id))
+                db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?))", arrayOf(userId, userId, userId, id))
                 db.delete(TABLE_TASKS, "user_id = ? AND goal_id IN (SELECT id FROM goals WHERE user_id = ? AND folder_id = ?)", arrayOf(userId, userId, id))
                 db.delete(TABLE_GOALS, "user_id = ? AND folder_id = ?", arrayOf(userId, id))
                 db.delete(TABLE_NOTES, "user_id = ? AND folder_id = ?", arrayOf(userId, id))
@@ -1526,12 +1588,14 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
             TABLE_GOALS -> {
                 deleteLocalLinksForEntities(db, userId, goalTreeEntityKeys(db, userId, id))
+                db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id IN (SELECT id FROM tasks WHERE user_id = ? AND goal_id = ?)", arrayOf(userId, userId, id))
                 db.delete(TABLE_TASKS, "user_id = ? AND goal_id = ?", arrayOf(userId, id))
                 db.delete(TABLE_GOALS, "user_id = ? AND id = ?", arrayOf(userId, id))
             }
 
             TABLE_TASKS -> {
                 deleteLocalLinksForEntity(db, userId, "task", id)
+                db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id = ?", arrayOf(userId, id))
                 db.delete(TABLE_TASKS, "user_id = ? AND id = ?", arrayOf(userId, id))
             }
 
@@ -1781,6 +1845,58 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    private fun taskChecklistItemValues(
+        userId: String,
+        taskId: String,
+        item: TaskChecklistItem,
+        fallbackCreatedAt: String
+    ): ContentValues {
+        val timestamp = fallbackCreatedAt.ifBlank { nowIso() }
+        return ContentValues().apply {
+            put("user_id", userId)
+            put("id", item.id.ifBlank { localId() })
+            put("task_id", taskId)
+            put("text", item.text.trim())
+            put("checked", item.checked.toInt())
+            put("display_order", item.displayOrder)
+            put("version", item.version)
+            put("created_at", item.createdAt.ifBlank { timestamp })
+            put("updated_at", item.updatedAt.ifBlank { timestamp })
+        }
+    }
+
+    private fun replaceTaskChecklistItems(
+        db: SQLiteDatabase,
+        userId: String,
+        taskId: String,
+        items: List<TaskChecklistItem>,
+        fallbackTimestamp: String
+    ) {
+        db.delete(TABLE_TASK_CHECKLIST_ITEMS, "user_id = ? AND task_id = ?", arrayOf(userId, taskId))
+        items
+            .mapIndexedNotNull { index, item ->
+                val text = item.text.trim()
+                if (text.isBlank()) {
+                    null
+                } else {
+                    item.copy(taskId = taskId, text = text, displayOrder = item.displayOrder.takeIf { it >= 0 } ?: index)
+                }
+            }
+            .forEachIndexed { index, item ->
+                db.insertWithOnConflict(
+                    TABLE_TASK_CHECKLIST_ITEMS,
+                    null,
+                    taskChecklistItemValues(
+                        userId = userId,
+                        taskId = taskId,
+                        item = item.copy(displayOrder = item.displayOrder.takeIf { it >= 0 } ?: index),
+                        fallbackCreatedAt = fallbackTimestamp
+                    ),
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+            }
+    }
+
     private fun taskValues(
         userId: String,
         task: PlanningTask,
@@ -2002,12 +2118,26 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             creatorName = optionalStringOrNull("creator_name"),
             version = long("version"),
             tagIds = parseStringArray(optionalStringOrNull("tag_ids_json") ?: "[]"),
+            checklistItems = emptyList(),
             recurrenceJson = optionalStringOrNull("recurrence_json"),
             remindersJson = optionalStringOrNull("reminders_json"),
             createdAt = string("created_at"),
             updatedAt = string("updated_at"),
             syncState = syncState(stringOrNull("pending_action"), optionalBoolean("pending_blocked")),
             lastError = stringOrNull("last_error")
+        )
+    }
+
+    private fun Cursor.toTaskChecklistItem(): TaskChecklistItem {
+        return TaskChecklistItem(
+            id = string("id"),
+            taskId = string("task_id"),
+            text = string("text"),
+            checked = boolean("checked"),
+            displayOrder = int("display_order"),
+            version = optionalLong("version"),
+            createdAt = string("created_at"),
+            updatedAt = string("updated_at")
         )
     }
 
@@ -2254,6 +2384,28 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         )
     }
 
+    private fun createTaskChecklistItemsTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS task_checklist_items (
+                user_id TEXT NOT NULL,
+                id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                checked INTEGER NOT NULL DEFAULT 0,
+                display_order INTEGER NOT NULL DEFAULT 0,
+                version INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, id)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS task_checklist_items_task_id_order_idx ON task_checklist_items (user_id, task_id, display_order, created_at, id)"
+        )
+    }
+
     private fun createIdeasTable(db: SQLiteDatabase) {
         db.execSQL(
             """
@@ -2439,12 +2591,13 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 14
+        private const val DATABASE_VERSION = 15
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"
         const val TABLE_TASKS = "tasks"
         const val TABLE_TASK_TAGS = "task_tags"
+        const val TABLE_TASK_CHECKLIST_ITEMS = "task_checklist_items"
         const val TABLE_IDEAS = "ideas"
         const val TABLE_IDEA_NOTES = "idea_notes"
         const val TABLE_NOTES = "notes"

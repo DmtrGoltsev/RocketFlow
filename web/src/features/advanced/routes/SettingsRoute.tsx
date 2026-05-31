@@ -7,11 +7,9 @@ import { LoadingState } from '../../../ui/feedback/LoadingState';
 import { AdvancedApiError, getSettings, updateSettings } from '../advanced-api';
 import { mapAdvancedError } from '../advanced-errors';
 import { useAdvancedCopy } from '../advanced-copy';
-import type { Locale, ThresholdPreset, UpdateSettingsPayload, UserSettingsResponse } from '../types';
+import type { Locale, UpdateSettingsPayload, UserSettingsResponse } from '../types';
 
 type SettingsDraft = UserSettingsResponse;
-
-const thresholdPresets: ThresholdPreset[] = ['day', 'week', 'month'];
 
 function toPayload(draft: SettingsDraft): UpdateSettingsPayload {
   return {
@@ -97,21 +95,6 @@ export function SettingsRoute() {
     }
   }
 
-  function updatePolicy(
-    policy: 'greenPriorityDecayPolicy' | 'redPriorityDecayPolicy',
-    patch: Partial<SettingsDraft[typeof policy]>,
-  ) {
-    setDraft((current) => current
-      ? {
-        ...current,
-        [policy]: {
-          ...current[policy],
-          ...patch,
-        },
-      }
-      : current);
-  }
-
   if (loading) {
     return (
       <section className="planner planner--center">
@@ -179,61 +162,6 @@ export function SettingsRoute() {
               </select>
               <span className="field__hint">{copy.settings.notificationsHint}</span>
             </label>
-          </section>
-
-          <section className="detail-section">
-            <div className="detail-label">{copy.settings.policyTitle}</div>
-            {(['greenPriorityDecayPolicy', 'redPriorityDecayPolicy'] as const).map((policyKey) => {
-              const policy = draft[policyKey];
-              const title = policyKey === 'greenPriorityDecayPolicy' ? copy.settings.greenPolicy : copy.settings.redPolicy;
-
-              return (
-                <div className="detail-disclosure" key={policyKey}>
-                  <div className="breadcrumb">
-                    <span className={`marker-dot marker-dot--${policy.taskType}`} aria-hidden="true" />
-                    <strong>{title}</strong>
-                  </div>
-                  <div className="detail-grid">
-                    <label className="field">
-                      <span>{copy.common.status}</span>
-                      <select
-                        className="field__control"
-                        value={policy.enabled ? 'enabled' : 'disabled'}
-                        onChange={(event) => updatePolicy(policyKey, { enabled: event.target.value === 'enabled' })}
-                      >
-                        <option value="enabled">{copy.common.enabled}</option>
-                        <option value="disabled">{copy.common.disabled}</option>
-                      </select>
-                    </label>
-                    <label className="field">
-                      <span>{copy.settings.decayAmount}</span>
-                      <input
-                        className="field__control"
-                        min={0}
-                        max={10}
-                        type="number"
-                        value={policy.decayAmount}
-                        onChange={(event) => updatePolicy(policyKey, { decayAmount: Number(event.target.value) })}
-                      />
-                    </label>
-                    <label className="field detail-grid__wide">
-                      <span>{copy.settings.threshold}</span>
-                      <select
-                        className="field__control"
-                        value={policy.thresholdPreset}
-                        onChange={(event) => updatePolicy(policyKey, { thresholdPreset: event.target.value as ThresholdPreset })}
-                      >
-                        {thresholdPresets.map((preset) => (
-                          <option key={preset} value={preset}>
-                            {copy.enums.thresholdPreset[preset]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                </div>
-              );
-            })}
           </section>
 
           <button className="button button--primary detail-save" type="submit" disabled={saving}>
