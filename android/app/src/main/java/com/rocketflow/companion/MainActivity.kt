@@ -4316,23 +4316,38 @@ class MainActivity : Activity() {
                 })
             } else {
                 items.forEach { item ->
-                    addView(CheckBox(this@MainActivity).apply {
-                        text = item.text
-                        isChecked = item.checked
-                        isEnabled = canWrite(task)
-                        setTextColor(color(if (item.checked) Ui.MUTED else Ui.TEXT))
-                        textSize = 15f
-                        setPadding(0, dp(2), 0, dp(2))
-                        setOnClickListener {
-                            val next = task.checklistItems.map { existing ->
-                                if (existing.id == item.id) {
-                                    existing.copy(checked = isChecked, updatedAt = PlanningLocalStore.nowIso())
-                                } else {
-                                    existing
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(CheckBox(this@MainActivity).apply {
+                            text = item.text
+                            isChecked = item.checked
+                            isEnabled = canWrite(task)
+                            setTextColor(color(if (item.checked) Ui.MUTED else Ui.TEXT))
+                            textSize = 15f
+                            setPadding(0, dp(2), 0, dp(2))
+                            setOnClickListener {
+                                val next = task.checklistItems.map { existing ->
+                                    if (existing.id == item.id) {
+                                        existing.copy(checked = isChecked, updatedAt = PlanningLocalStore.nowIso())
+                                    } else {
+                                        existing
+                                    }
                                 }
+                                saveTask(task.goalId, task, task.toDraft(checklistItems = next))
                             }
-                            saveTask(task.goalId, task, task.toDraft(checklistItems = next))
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        })
+                        if (canWrite(task)) {
+                            addView(smallIconButton(R.drawable.ic_delete, c.delete, Ui.DANGER) {
+                                val next = task.checklistItems.filterNot { existing -> existing.id == item.id }
+                                saveTask(task.goalId, task, task.toDraft(checklistItems = next))
+                            })
                         }
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
                     })
                 }
             }
