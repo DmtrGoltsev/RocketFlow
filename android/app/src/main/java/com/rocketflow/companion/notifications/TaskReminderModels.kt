@@ -35,10 +35,9 @@ data class TaskReminderSetting(
 
 data class DefaultTaskReminderSetting(
     val userId: String,
-    val triggerAtMillis: Long,
+    val offsetMinutes: Int = TaskReminderSchedule.DEFAULT_TASK_REMINDER_OFFSET_MINUTES,
     val repeat: TaskReminderRepeat,
-    val enabled: Boolean = true,
-    val anchorAtMillis: Long = triggerAtMillis
+    val enabled: Boolean = true
 )
 
 object TaskReminderJson {
@@ -111,10 +110,9 @@ object DefaultTaskReminderJson {
     fun encode(setting: DefaultTaskReminderSetting): String {
         return JSONObject()
             .put("userId", setting.userId)
-            .put("triggerAtMillis", setting.triggerAtMillis)
+            .put("offsetMinutes", TaskReminderSchedule.sanitizeDefaultOffsetMinutes(setting.offsetMinutes))
             .put("repeat", setting.repeat.wireValue)
             .put("enabled", setting.enabled)
-            .put("anchorAtMillis", setting.anchorAtMillis)
             .toString()
     }
 
@@ -130,16 +128,47 @@ object DefaultTaskReminderJson {
             }
             DefaultTaskReminderSetting(
                 userId = userId,
-                triggerAtMillis = json.optLong("triggerAtMillis", 0L),
+                offsetMinutes = TaskReminderSchedule.sanitizeDefaultOffsetMinutes(
+                    json.optInt("offsetMinutes", TaskReminderSchedule.DEFAULT_TASK_REMINDER_OFFSET_MINUTES)
+                ),
                 repeat = TaskReminderRepeat.fromWireValue(json.optString("repeat")),
-                enabled = json.optBoolean("enabled", true),
-                anchorAtMillis = json.optLong("anchorAtMillis", json.optLong("triggerAtMillis", 0L))
+                enabled = json.optBoolean("enabled", true)
             )
         }.getOrNull()
     }
 }
 
 object TaskReminderSchedule {
+    const val DEFAULT_TASK_REMINDER_OFFSET_MINUTES = 60
+
+    fun sanitizeDefaultOffsetMinutes(offsetMinutes: Int): Int {
+        return offsetMinutes.coerceAtLeast(0)
+    }
+
+    fun materializeDefaultReminder(
+        userId: String,
+        taskId: String,
+        taskTitle: String,
+        dueTimeMillis: Long?,
+        defaultSetting: DefaultTaskReminderSetting?,
+        reminderId: String = "task-dialog-$taskId"
+    ): TaskReminderSetting? {
+        val dueMillis = dueTimeMillis ?: return null
+        val setting = defaultSetting?.takeIf { it.enabled } ?: return null
+        val offsetMillis = sanitizeDefaultOffsetMinutes(setting.offsetMinutes) * 60_000L
+        val triggerAtMillis = dueMillis - offsetMillis
+        return TaskReminderSetting(
+            userId = userId,
+            taskId = taskId,
+            reminderId = reminderId,
+            taskTitle = taskTitle,
+            triggerAtMillis = triggerAtMillis,
+            repeat = setting.repeat,
+            enabled = true,
+            anchorAtMillis = triggerAtMillis
+        )
+    }
+
     fun nextSettingAtOrAfter(
         setting: TaskReminderSetting,
         nowMillis: Long,

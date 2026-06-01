@@ -190,17 +190,123 @@ class TaskReminderScheduleUnitTest {
     }
 
     @Test
-    fun defaultReminderJsonRoundTripKeepsRepeatAndAnchor() {
-        val trigger = millis(2026, 5, 14, 9, 30)
+    fun defaultReminderJsonRoundTripKeepsRepeatAndOffset() {
         val setting = DefaultTaskReminderSetting(
             userId = "user-1",
-            triggerAtMillis = trigger,
+            offsetMinutes = 180,
             repeat = TaskReminderRepeat.Daily,
-            enabled = true,
-            anchorAtMillis = trigger
+            enabled = true
         )
 
         assertEquals(setting, DefaultTaskReminderJson.decode(DefaultTaskReminderJson.encode(setting)))
+    }
+
+    @Test
+    fun legacyDefaultReminderJsonKeepsRepeatAndUsesSafeOffset() {
+        val trigger = millis(2026, 5, 14, 9, 30)
+        val decoded = DefaultTaskReminderJson.decode(
+            """
+            {
+              "userId": "user-1",
+              "triggerAtMillis": $trigger,
+              "repeat": "hourly",
+              "enabled": true,
+              "anchorAtMillis": $trigger
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(TaskReminderSchedule.DEFAULT_TASK_REMINDER_OFFSET_MINUTES, decoded?.offsetMinutes)
+        assertEquals(TaskReminderRepeat.Hourly, decoded?.repeat)
+        assertEquals(true, decoded?.enabled)
+    }
+
+    @Test
+    fun legacyDefaultReminderJsonPreservesDisabledState() {
+        val trigger = millis(2026, 5, 14, 9, 30)
+        val decoded = DefaultTaskReminderJson.decode(
+            """
+            {
+              "userId": "user-1",
+              "triggerAtMillis": $trigger,
+              "repeat": "daily",
+              "enabled": false,
+              "anchorAtMillis": $trigger
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(TaskReminderRepeat.Daily, decoded?.repeat)
+        assertEquals(false, decoded?.enabled)
+    }
+
+    @Test
+    fun defaultReminderMaterializesFromDueTimeAndOffset() {
+        val due = millis(2026, 5, 14, 9, 30)
+        val setting = DefaultTaskReminderSetting(
+            userId = "user-1",
+            offsetMinutes = 60,
+            repeat = TaskReminderRepeat.Daily,
+            enabled = true
+        )
+
+        val materialized = TaskReminderSchedule.materializeDefaultReminder(
+            userId = "user-1",
+            taskId = "task-1",
+            taskTitle = "Prepare release",
+            dueTimeMillis = due,
+            defaultSetting = setting
+        )
+
+        assertEquals(millis(2026, 5, 14, 8, 30), materialized?.triggerAtMillis)
+        assertEquals(millis(2026, 5, 14, 8, 30), materialized?.anchorAtMillis)
+        assertEquals(TaskReminderRepeat.Daily, materialized?.repeat)
+    }
+
+    @Test
+    fun defaultReminderDoesNotMaterializeWithoutDueTime() {
+        val setting = DefaultTaskReminderSetting(
+            userId = "user-1",
+            offsetMinutes = 60,
+            repeat = TaskReminderRepeat.None,
+            enabled = true
+        )
+
+        assertNull(
+            TaskReminderSchedule.materializeDefaultReminder(
+                userId = "user-1",
+                taskId = "task-1",
+                taskTitle = "Prepare release",
+                dueTimeMillis = null,
+                defaultSetting = setting
+            )
+        )
+    }
+
+    @Test
+    fun touchedReminderCanSkipDefaultMaterialization() {
+        val due = millis(2026, 5, 14, 9, 30)
+        val setting = DefaultTaskReminderSetting(
+            userId = "user-1",
+            offsetMinutes = 60,
+            repeat = TaskReminderRepeat.None,
+            enabled = true
+        )
+        val reminderTouched = true
+
+        val materialized = if (reminderTouched) {
+            null
+        } else {
+            TaskReminderSchedule.materializeDefaultReminder(
+                userId = "user-1",
+                taskId = "task-1",
+                taskTitle = "Prepare release",
+                dueTimeMillis = due,
+                defaultSetting = setting
+            )
+        }
+
+        assertNull(materialized)
     }
 
     private fun millis(year: Int, month: Int, day: Int, hour: Int, minute: Int): Long {

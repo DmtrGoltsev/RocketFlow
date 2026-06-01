@@ -3814,11 +3814,19 @@ class MainActivity : Activity() {
             inputPurpose = TextInputPurpose.Number,
             inputTypeOverride = InputType.TYPE_CLASS_NUMBER
         )
+        var reminderButton: Button? = null
+        var onDueChanged: (() -> Unit)? = null
         val plannedField = dateTimeField(c.plannedField, task?.plannedTime)
-        val dueField = dateTimeField(c.dueField, task?.dueTime)
+        val dueField = dateTimeField(c.dueField, task?.dueTime) { onDueChanged?.invoke() }
         var recurrenceJson = task?.recurrenceJson
-        var reminderDraft = task?.let { currentReminderDraft(it) } ?: if (task == null) defaultReminderDraftForNewTask() else null
+        var reminderDraft = task?.let { currentReminderDraft(it) } ?: if (task == null) defaultReminderDraftForNewTask(dueField.isoValue()) else null
         var reminderTouched = false
+        onDueChanged = {
+            if (task == null && !reminderTouched) {
+                reminderDraft = defaultReminderDraftForNewTask(dueFieldIso = dueField.isoValue())
+                reminderButton?.text = "${c.reminders}: ${describeReminderDraft(reminderDraft)}"
+            }
+        }
         val checklistItems = task?.checklistItems?.toMutableList() ?: mutableListOf()
         val checklistEditor = checklistEditor(checklistItems, task?.id.orEmpty())
         val recurrenceButton = Button(this).apply {
@@ -3835,7 +3843,7 @@ class MainActivity : Activity() {
                 }
             }
         }
-        val reminderButton = Button(this).apply {
+        val reminderButtonView = Button(this).apply {
             text = "${c.reminders}: ${describeReminderDraft(reminderDraft)}"
             setOnClickListener {
                 showReminderDraftDialog(task, reminderDraft) { draft ->
@@ -3845,6 +3853,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+        reminderButton = reminderButtonView
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (task == null) c.newTask else c.edit)
             .setView(
@@ -3859,7 +3868,7 @@ class MainActivity : Activity() {
                     plannedField.view,
                     dueField.view,
                     recurrenceButton,
-                    reminderButton,
+                    reminderButtonView,
                     dialogLabel(c.taskPlan),
                     checklistEditor.first
                 )
@@ -4465,65 +4474,132 @@ class MainActivity : Activity() {
     }
 
     private fun describeDefaultTaskReminder(): String {
-        val setting = currentSession?.user?.id?.let(taskReminderStore::readDefault) ?: return copy().noDate
-        val next = TaskReminderSchedule.nextTriggerAtOrAfter(
-            triggerAtMillis = setting.triggerAtMillis,
-            repeat = setting.repeat,
-            nowMillis = System.currentTimeMillis(),
-            zone = zone,
-            anchorAtMillis = setting.anchorAtMillis
-        ) ?: setting.triggerAtMillis
-        return listOfNotNull(formatReminderDateTime(next), reminderRepeatLabel(setting.repeat)).joinToString(", ")
+        val setting = currentSession?.user?.id?.let(taskReminderStore::readDefault)?.takeIf { it.enabled }
+            ?: return copy().noDate
+        return listOfNotNull(
+            copy().remindersOn,
+            defaultReminderOffsetLabel(setting.offsetMinutes),
+            reminderRepeatLabel(setting.repeat)
+        ).joinToString("; ")
     }
 
-    private fun defaultReminderDraftForNewTask(): ReminderDraft? {
-        val setting = currentSession?.user?.id?.let(taskReminderStore::readDefault) ?: return null
-        val next = TaskReminderSchedule.nextTriggerAtOrAfter(
-            triggerAtMillis = setting.triggerAtMillis,
-            repeat = setting.repeat,
-            nowMillis = System.currentTimeMillis(),
-            zone = zone,
-            anchorAtMillis = setting.anchorAtMillis
+    private fun defaultReminderDraftForNewTask(dueFieldIso: String?): ReminderDraft? {
+        val userId = currentSession?.user?.id ?: return null
+        val setting = taskReminderStore.readDefault(userId) ?: return null
+        val dueMillis = dueFieldIso?.let(::parseInstant)?.toEpochMilli() ?: return null
+        val materialized = TaskReminderSchedule.materializeDefaultReminder(
+            userId = userId,
+            taskId = "new-task",
+            taskTitle = "",
+            dueTimeMillis = dueMillis,
+            defaultSetting = setting
         ) ?: return null
         return ReminderDraft(
-            triggerAt = Instant.ofEpochMilli(next).atZone(zone).toLocalDateTime(),
-            repeat = setting.repeat
+            triggerAt = Instant.ofEpochMilli(materialized.triggerAtMillis).atZone(zone).toLocalDateTime(),
+            repeat = materialized.repeat
         )
     }
 
     private fun showDefaultTaskReminderDialog() {
         val session = currentSession ?: return
-        val current = taskReminderStore.readDefault(session.user.id)?.let {
-            val trigger = TaskReminderSchedule.nextTriggerAtOrAfter(
-                triggerAtMillis = it.triggerAtMillis,
-                repeat = it.repeat,
-                nowMillis = System.currentTimeMillis(),
-                zone = zone,
-                anchorAtMillis = it.anchorAtMillis
-            ) ?: it.triggerAtMillis
-            ReminderDraft(
-                triggerAt = Instant.ofEpochMilli(trigger).atZone(zone).toLocalDateTime(),
-                repeat = it.repeat
-            )
+        val current = taskReminderStore.readDefault(session.user.id)
+        var enabled = current?.enabled == true
+        var selectedOffset = current?.offsetMinutes ?: TaskReminderSchedule.DEFAULT_TASK_REMINDER_OFFSET_MINUTES
+        var selectedRepeat = current?.repeat ?: TaskReminderRepeat.None
+        val enabledInput = CheckBox(this).apply {
+            text = copy().remindersOn
+            isChecked = enabled
+            setTextColor(color(Ui.TEXT))
+            textSize = 15f
+            setPadding(0, dp(4), 0, dp(8))
+            setOnCheckedChangeListener { _, checked -> enabled = checked }
         }
-        showReminderDraftDialog(null, current) { draft ->
-            if (draft == null) {
-                taskReminderStore.clearDefault(session.user.id)
-                message = copy().remindersOff
-            } else {
-                val trigger = draft.triggerAt.atZone(zone).toInstant().toEpochMilli()
-                taskReminderStore.saveDefault(
-                    DefaultTaskReminderSetting(
-                        userId = session.user.id,
-                        triggerAtMillis = trigger,
-                        repeat = draft.repeat,
-                        enabled = true,
-                        anchorAtMillis = trigger
-                    )
-                )
-                message = copy().remindersOn
+        val offsetIds = mutableMapOf<Int, Int>()
+        val offsetGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            defaultReminderOffsetOptions().forEach { (offset, label) ->
+                val id = View.generateViewId()
+                offsetIds[id] = offset
+                addView(RadioButton(this@MainActivity).apply {
+                    this.id = id
+                    text = label
+                    textSize = 15f
+                    setTextColor(color(Ui.TEXT))
+                    isChecked = offset == selectedOffset
+                })
             }
-            render()
+            setOnCheckedChangeListener { _, checkedId ->
+                selectedOffset = offsetIds[checkedId] ?: TaskReminderSchedule.DEFAULT_TASK_REMINDER_OFFSET_MINUTES
+            }
+        }
+        val repeatIds = mutableMapOf<Int, TaskReminderRepeat>()
+        val repeatGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            reminderRepeatOptions().forEach { (repeat, label) ->
+                val id = View.generateViewId()
+                repeatIds[id] = repeat
+                addView(RadioButton(this@MainActivity).apply {
+                    this.id = id
+                    text = label
+                    textSize = 15f
+                    setTextColor(color(Ui.TEXT))
+                    isChecked = repeat == selectedRepeat
+                })
+            }
+            setOnCheckedChangeListener { _, checkedId ->
+                selectedRepeat = repeatIds[checkedId] ?: TaskReminderRepeat.None
+            }
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), 0)
+            addView(enabledInput)
+            addView(dialogLabel(if (currentLanguage == "en") "Before deadline" else "\u0414\u043e \u0434\u0435\u0434\u043b\u0430\u0439\u043d\u0430"))
+            addView(offsetGroup)
+            addView(dialogLabel(copy().recurrence))
+            addView(repeatGroup)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(copy().defaultTaskReminder)
+            .setView(form)
+            .setNegativeButton(copy().cancel, null)
+            .setPositiveButton(copy().save) { _, _ ->
+                if (!enabled) {
+                    taskReminderStore.clearDefault(session.user.id)
+                    message = copy().remindersOff
+                } else {
+                    taskReminderStore.saveDefault(
+                        DefaultTaskReminderSetting(
+                            userId = session.user.id,
+                            offsetMinutes = selectedOffset,
+                            repeat = selectedRepeat,
+                            enabled = true
+                        )
+                    )
+                    message = copy().remindersOn
+                }
+                render()
+            }
+            .show()
+    }
+
+    private fun defaultReminderOffsetOptions(): List<Pair<Int, String>> {
+        return listOf(
+            0 to if (currentLanguage == "en") "At deadline" else "\u0412 \u043c\u043e\u043c\u0435\u043d\u0442 \u0434\u0435\u0434\u043b\u0430\u0439\u043d\u0430",
+            15 to if (currentLanguage == "en") "15 min before" else "\u0417\u0430 15 \u043c\u0438\u043d",
+            60 to if (currentLanguage == "en") "1 hour before" else "\u0417\u0430 1 \u0447\u0430\u0441",
+            180 to if (currentLanguage == "en") "3 hours before" else "\u0417\u0430 3 \u0447\u0430\u0441\u0430",
+            1440 to if (currentLanguage == "en") "1 day before" else "\u0417\u0430 1 \u0434\u0435\u043d\u044c"
+        )
+    }
+
+    private fun defaultReminderOffsetLabel(offsetMinutes: Int): String {
+        val offset = TaskReminderSchedule.sanitizeDefaultOffsetMinutes(offsetMinutes)
+        defaultReminderOffsetOptions().firstOrNull { it.first == offset }?.let { return it.second }
+        return if (currentLanguage == "en") {
+            "$offset min before"
+        } else {
+            "\u0417\u0430 $offset \u043c\u0438\u043d"
         }
     }
 
@@ -6024,7 +6100,11 @@ class MainActivity : Activity() {
         val isoValue: () -> String?
     )
 
-    private fun dateTimeField(label: String, initialIso: String?): DateTimeField {
+    private fun dateTimeField(
+        label: String,
+        initialIso: String?,
+        onValueChanged: (() -> Unit)? = null
+    ): DateTimeField {
         var value = parseInstant(initialIso)?.atZone(zone)?.toLocalDateTime()
         val c = copy()
         lateinit var pickerLabel: TextView
@@ -6062,6 +6142,7 @@ class MainActivity : Activity() {
                 pickDateTime(value ?: LocalDateTime.now(zone).plusHours(1).withMinute(0).withSecond(0).withNano(0)) {
                     value = it
                     updateButtons()
+                    onValueChanged?.invoke()
                 }
             }
             addView(pickerLabel)
@@ -6069,6 +6150,7 @@ class MainActivity : Activity() {
                 hideKeyboardAndClearFocus()
                 value = null
                 updateButtons()
+                onValueChanged?.invoke()
             }.apply {
                 setColorFilter(color(Ui.DANGER))
                 visibility = if (value == null) View.INVISIBLE else View.VISIBLE
