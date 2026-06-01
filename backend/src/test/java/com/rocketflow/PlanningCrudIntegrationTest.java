@@ -197,9 +197,7 @@ class PlanningCrudIntegrationTest {
 
         mockMvc.perform(get("/api/tasks/" + taskId)
                         .header("Authorization", "Bearer " + accessToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.effort").value(9))
-                .andExpect(jsonPath("$.archived").value(true));
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(delete("/api/goals/" + goalId)
                         .header("Authorization", "Bearer " + accessToken))
@@ -207,8 +205,11 @@ class PlanningCrudIntegrationTest {
 
         mockMvc.perform(get("/api/goals/" + goalId)
                         .header("Authorization", "Bearer " + accessToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.archived").value(true));
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNotFound());
 
         mockMvc.perform(delete("/api/folders/" + folderId)
                         .header("Authorization", "Bearer " + accessToken))
@@ -217,7 +218,11 @@ class PlanningCrudIntegrationTest {
         mockMvc.perform(get("/api/folders")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].archived").value(true));
+                .andExpect(jsonPath("$.items.length()").value(0));
+
+        mockMvc.perform(get("/api/folders/" + folderId + "/goals")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -304,6 +309,86 @@ class PlanningCrudIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.effort").value(4))
                 .andExpect(jsonPath("$.tags[0].id").value(tagId));
+    }
+
+    @Test
+    void successfulTaskPatchReturnsUpdatedTaskBody() throws Exception {
+        String tokens = registerAndLogin();
+        String accessToken = read(tokens, "/tokens/accessToken");
+
+        String folderId = read(mockMvc.perform(post("/api/folders")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Edit response",
+                                  "description": "Verify update contract"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        String goalId = read(mockMvc.perform(post("/api/folders/" + folderId + "/goals")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Task editing",
+                                  "description": "Successful patch response"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+
+        String taskResponse = mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Editable task",
+                                  "description": "Before edit",
+                                  "type": "green",
+                                  "priority": 4,
+                                  "effort": 2,
+                                  "status": "todo",
+                                  "plannedTime": "2026-05-01T09:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "tagIds": []
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String taskId = read(taskResponse, "/id");
+        String taskVersion = read(taskResponse, "/version");
+
+        mockMvc.perform(patch("/api/tasks/" + taskId)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Editable task saved",
+                                  "description": "After edit",
+                                  "type": "red",
+                                  "priority": 6,
+                                  "effort": 3,
+                                  "status": "in_progress",
+                                  "plannedTime": "2026-05-01T10:00:00Z",
+                                  "dueTime": "2026-05-02T19:00:00Z",
+                                  "archived": false,
+                                  "tagIds": [],
+                                  "version": %s
+                                }
+                                """.formatted(taskVersion)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(taskId))
+                .andExpect(jsonPath("$.title").value("Editable task saved"))
+                .andExpect(jsonPath("$.description").value("After edit"))
+                .andExpect(jsonPath("$.type").value("red"))
+                .andExpect(jsonPath("$.priority").value(6))
+                .andExpect(jsonPath("$.effort").value(3))
+                .andExpect(jsonPath("$.status").value("in_progress"))
+                .andExpect(jsonPath("$.archived").value(false))
+                .andExpect(jsonPath("$.version").exists());
     }
 
     @Test

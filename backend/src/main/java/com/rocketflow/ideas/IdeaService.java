@@ -47,7 +47,7 @@ public class IdeaService {
     @Transactional(readOnly = true)
     public IdeaListResponse listIdeas(UUID actorUserId, UUID folderId) {
         FolderAccess access = sharingAccessService.requireFolderContentAccess(folderId, actorUserId);
-        var ideas = ideaRepository.findByFolderIdAndOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(
+        var ideas = ideaRepository.findByFolderIdAndOwnerUserIdAndArchivedFalseOrderByDisplayOrderAscCreatedAtAsc(
                         folderId,
                         access.folder().getOwnerUserId()
                 );

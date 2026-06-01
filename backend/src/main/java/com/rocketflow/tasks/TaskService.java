@@ -68,7 +68,7 @@ public class TaskService {
     @Transactional(readOnly = true)
     public TaskListResponse list(UUID actorUserId, UUID goalId) {
         GoalAccess goalAccess = sharingAccessService.requireGoalAccess(goalId, actorUserId);
-        List<Task> tasks = taskRepository.findByGoalIdAndOwnerUserIdOrderByPriorityDescCreatedAtAscIdAsc(goalId, goalAccess.goal().getOwnerUserId());
+        List<Task> tasks = taskRepository.findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByPriorityDescCreatedAtAscIdAsc(goalId, goalAccess.goal().getOwnerUserId());
         List<UUID> taskIds = tasks.stream().map(Task::getId).toList();
         Set<UUID> directlySharedTaskIds = sharingAccessService.findSharedTaskIds(taskIds);
         Map<UUID, List<TagDto>> tagsByTaskId = resolveTags(taskIds);

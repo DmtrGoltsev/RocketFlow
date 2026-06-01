@@ -10,7 +10,11 @@ public interface IdeaRepository extends JpaRepository<Idea, UUID> {
 
     List<Idea> findByFolderIdAndOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(UUID folderId, UUID ownerUserId);
 
+    List<Idea> findByFolderIdAndOwnerUserIdAndArchivedFalseOrderByDisplayOrderAscCreatedAtAsc(UUID folderId, UUID ownerUserId);
+
     List<Idea> findByFolderIdIn(Collection<UUID> folderIds);
+
+    List<Idea> findByFolderIdInAndArchivedFalse(Collection<UUID> folderIds);
 
     long countByFolderIdAndOwnerUserId(UUID folderId, UUID ownerUserId);
 }

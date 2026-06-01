@@ -62,7 +62,11 @@ public class FolderService {
     @Transactional(readOnly = true)
     public FolderListResponse list(UUID ownerUserId) {
         Map<UUID, FolderDto> folders = new LinkedHashMap<>();
-        folderRepository.findByOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(ownerUserId)
+        List<Folder> ownerFolders = folderRepository.findByOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(ownerUserId);
+        Map<UUID, Folder> ownerFoldersById = ownerFolders.stream()
+                .collect(java.util.stream.Collectors.toMap(Folder::getId, folder -> folder));
+        ownerFolders.stream()
+                .filter(folder -> isVisibleInActiveTree(folder, ownerFoldersById))
                 .forEach(folder -> folders.put(folder.getId(), toDto(folder, sharingAccessService.hasActiveFolderShares(folder.getId()), true)));
         sharingAccessService.accessibleSharedFolders(ownerUserId)
                 .forEach(access -> folders.putIfAbsent(access.folder().getId(), toDto(access.folder(), true, access.fullAccess())));
@@ -118,9 +122,16 @@ public class FolderService {
         folder.setName(request.name().trim());
         folder.setDescription(request.description());
         folder.setDisplayOrder(request.displayOrder());
+        Instant now = Instant.now();
+        boolean archiveRequested = request.archived() && !folder.isArchived();
         folder.setArchived(request.archived());
-        folder.setUpdatedAt(Instant.now());
-        return toDto(folderRepository.save(folder), access.shared(), access.fullAccess());
+        folder.setUpdatedAt(now);
+        Folder saved = folderRepository.save(folder);
+        if (archiveRequested) {
+            archiveDescendants(saved, now);
+            archiveDescendantEntityLinks(saved);
+        }
+        return toDto(saved, access.shared(), access.fullAccess());
     }
 
     @Transactional
@@ -168,15 +179,17 @@ public class FolderService {
     @Transactional
     public void softDelete(UUID actorUserId, UUID folderId) {
         Folder folder = sharingAccessService.requireFolderFullAccess(folderId, actorUserId).folder();
+        Instant now = Instant.now();
         folder.setArchived(true);
-        folder.setUpdatedAt(Instant.now());
+        folder.setUpdatedAt(now);
         folderRepository.save(folder);
+        archiveDescendants(folder, now);
         archiveDescendantEntityLinks(folder);
     }
 
     @Transactional(readOnly = true)
     public Folder requireFolder(UUID folderId, UUID ownerUserId) {
-        return folderRepository.findByIdAndOwnerUserId(folderId, ownerUserId)
+        return folderRepository.findByIdAndOwnerUserIdAndArchivedFalse(folderId, ownerUserId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "not_found", "Folder was not found."));
     }
 
@@ -208,6 +221,25 @@ public class FolderService {
         return (int) folderRepository.countByOwnerUserIdAndParentFolderId(ownerUserId, parentFolderId) + 1;
     }
 
+    private boolean isVisibleInActiveTree(Folder folder, Map<UUID, Folder> foldersById) {
+        Set<UUID> seen = new HashSet<>();
+        Folder current = folder;
+        while (current != null) {
+            if (current.isArchived() || !seen.add(current.getId())) {
+                return false;
+            }
+            UUID parentId = current.getParentFolderId();
+            if (parentId == null) {
+                return true;
+            }
+            current = foldersById.get(parentId);
+            if (current == null) {
+                return false;
+            }
+        }
+        return false;
+    }
+
     private void ensureNotSelfOrDescendant(UUID folderId, UUID targetFolderId) {
         UUID currentId = targetFolderId;
         while (currentId != null) {
@@ -236,6 +268,52 @@ public class FolderService {
                 EntityLinkService.TYPE_IDEA, ideaIds,
                 EntityLinkService.TYPE_NOTE, noteIds
         ));
+    }
+
+    private void archiveDescendants(Folder folder, Instant now) {
+        List<UUID> folderIds = descendantFolderIds(folder);
+        List<Folder> folders = folderRepository.findByOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(folder.getOwnerUserId())
+                .stream()
+                .filter(candidate -> folderIds.contains(candidate.getId()))
+                .toList();
+        for (Folder descendant : folders) {
+            if (!descendant.isArchived()) {
+                descendant.setArchived(true);
+                descendant.setUpdatedAt(now);
+            }
+        }
+        folderRepository.saveAll(folders);
+
+        List<Goal> goals = goalRepository.findByFolderIdInAndArchivedFalse(folderIds);
+        for (Goal goal : goals) {
+            goal.setArchived(true);
+            goal.setUpdatedAt(now);
+        }
+        goalRepository.saveAll(goals);
+
+        List<UUID> goalIds = goals.stream().map(Goal::getId).toList();
+        if (!goalIds.isEmpty()) {
+            List<Task> tasks = taskRepository.findByGoalIdInAndArchivedFalse(goalIds);
+            for (Task task : tasks) {
+                task.setArchived(true);
+                task.setUpdatedAt(now);
+            }
+            taskRepository.saveAll(tasks);
+        }
+
+        List<Idea> ideas = ideaRepository.findByFolderIdInAndArchivedFalse(folderIds);
+        for (Idea idea : ideas) {
+            idea.setArchived(true);
+            idea.setUpdatedAt(now);
+        }
+        ideaRepository.saveAll(ideas);
+
+        List<Note> notes = noteRepository.findByFolderIdInAndArchivedFalse(folderIds);
+        for (Note note : notes) {
+            note.setArchived(true);
+            note.setUpdatedAt(now);
+        }
+        noteRepository.saveAll(notes);
     }
 
     private List<UUID> descendantFolderIds(Folder root) {

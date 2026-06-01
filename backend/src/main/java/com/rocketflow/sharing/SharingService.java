@@ -228,14 +228,24 @@ public class SharingService {
         for (FolderShare folderShare : folderShares.stream()
                 .sorted(Comparator.comparing(FolderShare::getCreatedAt))
                 .toList()) {
-            Folder folder = sharingAccessService.requireFolderAccess(folderShare.getFolderId(), actorUserId).folder();
+            Folder folder;
+            try {
+                folder = sharingAccessService.requireFolderAccess(folderShare.getFolderId(), actorUserId).folder();
+            } catch (ApiException exception) {
+                continue;
+            }
             foldersById.putIfAbsent(folder.getId(), toSharedFolderDto(folder, true, folderShare.isFullAccess(), true));
         }
 
         Map<UUID, Goal> folderGoalsById = new LinkedHashMap<>();
         for (FolderShare folderShare : folderShares) {
-            Folder folder = sharingAccessService.requireFolderAccess(folderShare.getFolderId(), actorUserId).folder();
-            goalRepository.findByFolderIdAndOwnerUserIdOrderByCreatedAtAsc(folder.getId(), folder.getOwnerUserId())
+            Folder folder;
+            try {
+                folder = sharingAccessService.requireFolderAccess(folderShare.getFolderId(), actorUserId).folder();
+            } catch (ApiException exception) {
+                continue;
+            }
+            goalRepository.findByFolderIdAndOwnerUserIdAndArchivedFalseOrderByCreatedAtAsc(folder.getId(), folder.getOwnerUserId())
                     .forEach(goal -> {
                         folderGoalsById.put(goal.getId(), goal);
                         goalFullAccessById.putIfAbsent(goal.getId(), folderShare.isFullAccess());
@@ -244,7 +254,12 @@ public class SharingService {
 
         Map<UUID, Goal> directGoalsById = new LinkedHashMap<>();
         for (GoalShare goalShare : goalShares) {
-            Goal goal = sharingAccessService.requireGoalAccess(goalShare.getGoalId(), actorUserId).goal();
+            Goal goal;
+            try {
+                goal = sharingAccessService.requireGoalAccess(goalShare.getGoalId(), actorUserId).goal();
+            } catch (ApiException exception) {
+                continue;
+            }
             directGoalsById.put(goal.getId(), goal);
             goalFullAccessById.put(goal.getId(), goalShare.isFullAccess());
             Folder parentFolder = requireFolder(goal.getFolderId(), goal.getOwnerUserId());
@@ -271,22 +286,31 @@ public class SharingService {
         Map<UUID, Task> tasksById = new LinkedHashMap<>();
         for (Goal goal : folderGoalsById.values()) {
             boolean inheritedFullAccess = goalFullAccessById.getOrDefault(goal.getId(), false);
-            taskRepository.findByGoalIdAndOwnerUserIdOrderByPriorityDescCreatedAtAscIdAsc(goal.getId(), goal.getOwnerUserId())
+            taskRepository.findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByPriorityDescCreatedAtAscIdAsc(goal.getId(), goal.getOwnerUserId())
                     .forEach(task -> {
                         tasksById.put(task.getId(), task);
                         taskFullAccessById.putIfAbsent(task.getId(), inheritedFullAccess);
                     });
         }
         for (GoalShare goalShare : goalShares) {
-            sharingAccessService.requireGoalAccess(goalShare.getGoalId(), actorUserId);
-            taskRepository.findByGoalIdAndOwnerUserIdOrderByPriorityDescCreatedAtAscIdAsc(goalShare.getGoalId(), goalShare.getOwnerUserId())
+            try {
+                sharingAccessService.requireGoalAccess(goalShare.getGoalId(), actorUserId);
+            } catch (ApiException exception) {
+                continue;
+            }
+            taskRepository.findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByPriorityDescCreatedAtAscIdAsc(goalShare.getGoalId(), goalShare.getOwnerUserId())
                     .forEach(task -> {
                         tasksById.put(task.getId(), task);
                         taskFullAccessById.put(task.getId(), goalShare.isFullAccess());
                     });
         }
         for (TaskShare taskShare : taskShares) {
-            Task task = sharingAccessService.requireTaskAccess(taskShare.getTaskId(), actorUserId).task();
+            Task task;
+            try {
+                task = sharingAccessService.requireTaskAccess(taskShare.getTaskId(), actorUserId).task();
+            } catch (ApiException exception) {
+                continue;
+            }
             Goal parentGoal = requireGoal(task.getGoalId(), task.getOwnerUserId());
             goalsById.putIfAbsent(parentGoal.getId(), toGoalDto(parentGoal, true, false));
             Folder parentFolder = requireFolder(parentGoal.getFolderId(), parentGoal.getOwnerUserId());
@@ -297,7 +321,12 @@ public class SharingService {
 
         Map<UUID, Idea> ideasById = new LinkedHashMap<>();
         for (IdeaShare ideaShare : ideaShares) {
-            Idea idea = sharingAccessService.requireIdeaAccess(ideaShare.getIdeaId(), actorUserId).idea();
+            Idea idea;
+            try {
+                idea = sharingAccessService.requireIdeaAccess(ideaShare.getIdeaId(), actorUserId).idea();
+            } catch (ApiException exception) {
+                continue;
+            }
             Folder parentFolder = requireFolder(idea.getFolderId(), idea.getOwnerUserId());
             foldersById.putIfAbsent(parentFolder.getId(), toSharedFolderDto(parentFolder, true, false, false));
             ideasById.put(idea.getId(), idea);
@@ -781,12 +810,12 @@ public class SharingService {
     }
 
     private Goal requireGoal(UUID goalId, UUID ownerUserId) {
-        return goalRepository.findByIdAndOwnerUserId(goalId, ownerUserId)
+        return goalRepository.findByIdAndOwnerUserIdAndArchivedFalse(goalId, ownerUserId)
                 .orElseThrow(() -> notFound("Goal"));
     }
 
     private Folder requireFolder(UUID folderId, UUID ownerUserId) {
-        return folderRepository.findByIdAndOwnerUserId(folderId, ownerUserId)
+        return folderRepository.findByIdAndOwnerUserIdAndArchivedFalse(folderId, ownerUserId)
                 .orElseThrow(() -> notFound("Folder"));
     }
 

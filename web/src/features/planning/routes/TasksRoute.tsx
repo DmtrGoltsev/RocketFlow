@@ -129,6 +129,7 @@ type NotesByFolder = Record<string, NoteDto[]>;
 type IdeaNotesByIdea = Record<string, IdeaNoteDto[]>;
 type LinksByEntity = Record<string, EntityLinkDto[]>;
 type MarkerTone = 'green' | 'red' | 'blue' | 'amber' | 'gray';
+type MaybeArchivedEntity = { archived?: boolean | null; deleted?: boolean | null; deletedAt?: string | null };
 
 interface Selection {
   folderId: string | null;
@@ -511,6 +512,34 @@ function mergeById<TItem extends { id: string }>(primary: TItem[], secondary: TI
   return Array.from(merged.values());
 }
 
+function isActiveEntity<TItem extends MaybeArchivedEntity>(item: TItem) {
+  return item.archived !== true && item.deleted !== true && !item.deletedAt;
+}
+
+function filterActiveEntities<TItem extends MaybeArchivedEntity>(items: TItem[]) {
+  return items.filter(isActiveEntity);
+}
+
+function resolveExistingId<TItem extends { id: string }>(items: TItem[], id: string | null) {
+  return id && items.some((item) => item.id === id) ? id : null;
+}
+
+function inactiveExistingRecurrencePayload(task: TaskDto) {
+  if (!task.recurrence) {
+    return null;
+  }
+
+  return {
+    mode: task.recurrence.mode,
+    interval: task.recurrence.interval,
+    daysOfWeek: task.recurrence.daysOfWeek,
+    dayOfMonth: task.recurrence.dayOfMonth,
+    startAt: task.recurrence.startAt,
+    endAt: task.recurrence.endAt,
+    active: false,
+  };
+}
+
 function entityKey(type: LinkEntityType, id: string) {
   return `${type}:${id}`;
 }
@@ -532,7 +561,7 @@ function canMutateShared(item: { shared?: boolean; fullAccess?: boolean } | null
 }
 
 function groupFoldersByParent(folders: PlanFolder[]) {
-  return folders.reduce<Record<string, PlanFolder[]>>((groups, folder) => {
+  return filterActiveEntities(folders).reduce<Record<string, PlanFolder[]>>((groups, folder) => {
     const key = parentKey(folder);
     groups[key] = [...(groups[key] ?? []), folder];
     return groups;
@@ -540,28 +569,28 @@ function groupFoldersByParent(folders: PlanFolder[]) {
 }
 
 function groupGoalsByFolder(goals: GoalDto[]) {
-  return goals.reduce<GoalsByFolder>((groups, goal) => {
+  return filterActiveEntities(goals).reduce<GoalsByFolder>((groups, goal) => {
     groups[goal.folderId] = [...(groups[goal.folderId] ?? []), goal];
     return groups;
   }, {});
 }
 
 function groupTasksByGoal(tasks: TaskDto[]) {
-  return sortTasksByPriority(tasks).reduce<TasksByGoal>((groups, task) => {
+  return sortTasksByPriority(filterActiveEntities(tasks)).reduce<TasksByGoal>((groups, task) => {
     groups[task.goalId] = [...(groups[task.goalId] ?? []), task];
     return groups;
   }, {});
 }
 
 function groupIdeasByFolder(ideas: IdeaDto[]) {
-  return ideas.reduce<IdeasByFolder>((groups, idea) => {
+  return filterActiveEntities(ideas).reduce<IdeasByFolder>((groups, idea) => {
     groups[idea.folderId] = [...(groups[idea.folderId] ?? []), idea];
     return groups;
   }, {});
 }
 
 function groupNotesByFolder(notes: NoteDto[]) {
-  return notes.reduce<NotesByFolder>((groups, note) => {
+  return filterActiveEntities(notes).reduce<NotesByFolder>((groups, note) => {
     groups[note.folderId] = [...(groups[note.folderId] ?? []), note];
     return groups;
   }, {});
@@ -751,6 +780,8 @@ export function TasksRoute() {
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [createFolderParentId, setCreateFolderParentId] = useState<string | null | undefined>(undefined);
+  const [createGoalFolderId, setCreateGoalFolderId] = useState<string | null>(null);
   const [createTaskGoalId, setCreateTaskGoalId] = useState<string | null>(null);
   const [createIdeaFolderId, setCreateIdeaFolderId] = useState<string | null>(null);
   const [createNoteFolderId, setCreateNoteFolderId] = useState<string | null>(null);
@@ -799,6 +830,8 @@ export function TasksRoute() {
   const selectedFolderGoals = selectedFolder ? goals.filter((goal) => goal.folderId === selectedFolder.id) : [];
   const selectedFolderTasks = sortTasksByPriority(selectedFolderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []));
   const selectedGoalTasks = selectedGoal ? sortTasksByPriority(tasksByGoal[selectedGoal.id] ?? []) : [];
+  const folderCreationParent = createFolderParentId ? folders.find((folder) => folder.id === createFolderParentId) ?? null : null;
+  const goalCreationFolder = createGoalFolderId ? folders.find((folder) => folder.id === createGoalFolderId) ?? null : null;
   const ideaCreationFolder = createIdeaFolderId ? folders.find((folder) => folder.id === createIdeaFolderId) ?? null : null;
   const noteCreationFolder = createNoteFolderId ? folders.find((folder) => folder.id === createNoteFolderId) ?? null : null;
   const taskCreationGoal = goals.find((goal) => goal.id === createTaskGoalId) ?? null;
@@ -806,6 +839,8 @@ export function TasksRoute() {
     ? folders.find((folder) => folder.id === taskCreationGoal.folderId) ?? null
     : null;
   const isCreatingTask = Boolean(createTaskGoalId);
+  const isCreatingFolder = createFolderParentId !== undefined;
+  const isCreatingGoal = Boolean(createGoalFolderId);
   const isCreatingIdea = Boolean(createIdeaFolderId);
   const isCreatingNote = Boolean(createNoteFolderId);
   const panelGoal = isCreatingTask ? taskCreationGoal : selectedGoal;
@@ -1047,6 +1082,8 @@ export function TasksRoute() {
   }
 
   function clearCreation() {
+    setCreateFolderParentId(undefined);
+    setCreateGoalFolderId(null);
     setCreateTaskGoalId(null);
     setCreateIdeaFolderId(null);
     setCreateNoteFolderId(null);
@@ -1238,30 +1275,34 @@ export function TasksRoute() {
         getInvitations(authorizedFetch).catch(() => ({ items: [] as ShareInvitationDto[] })),
       ]);
       const nextFolders = mergeById<PlanFolder>(
-        ownedFolders.map((folder) => ({
+        filterActiveEntities(ownedFolders).map((folder) => ({
           ...folder,
           shared: folder.shared ?? false,
           fullAccess: folder.fullAccess ?? true,
           canAccessFolderContent: folder.canAccessFolderContent ?? true,
         })),
-        (sharedResources.folders ?? []).map((folder) => ({
+        filterActiveEntities(sharedResources.folders ?? []).map((folder) => ({
           ...folder,
           shared: true,
           fullAccess: folder.fullAccess === true,
           canAccessFolderContent: folder.canAccessFolderContent === true || folder.fullAccess === true,
         })),
       );
+      const accessibleFolderIds = new Set(nextFolders.map((folder) => folder.id));
       const folderContentFolders = nextFolders.filter(canAccessFolderContent);
       const nextGoalsEntries = await Promise.all(
         folderContentFolders.map(async (folder) => [folder.id, await listGoals(authorizedFetch, folder.id).catch(() => [])] as const),
       );
       const loadedGoals = nextGoalsEntries.flatMap(([, folderGoals]) => folderGoals);
-      const nextGoals = mergeById(loadedGoals, sharedResources.goals ?? []);
+      const nextGoals = mergeById(filterActiveEntities(loadedGoals), filterActiveEntities(sharedResources.goals ?? []))
+        .filter((goal) => accessibleFolderIds.has(goal.folderId));
+      const accessibleGoalIds = new Set(nextGoals.map((goal) => goal.id));
       const nextTaskEntries = await Promise.all(
         nextGoals.map(async (goal) => [goal.id, await listTasks(authorizedFetch, goal.id).catch(() => [])] as const),
       );
       const loadedTasks = nextTaskEntries.flatMap(([, goalTasks]) => goalTasks);
-      const nextTasks = mergeById(loadedTasks, sharedResources.tasks ?? []);
+      const nextTasks = mergeById(filterActiveEntities(loadedTasks), filterActiveEntities(sharedResources.tasks ?? []))
+        .filter((task) => accessibleGoalIds.has(task.goalId));
       const [nextIdeaEntries, nextNoteEntries] = await Promise.all([
         Promise.all(
           folderContentFolders.map(async (folder) => [
@@ -1279,21 +1320,50 @@ export function TasksRoute() {
 
       const nextGoalsByFolder = groupGoalsByFolder(nextGoals);
       const nextTasksByGoal = groupTasksByGoal(nextTasks);
-      const nextIdeas = mergeById(nextIdeaEntries.flatMap(([, folderIdeas]) => folderIdeas), sharedResources.ideas ?? []);
+      const nextIdeas = mergeById(
+        filterActiveEntities(nextIdeaEntries.flatMap(([, folderIdeas]) => folderIdeas)),
+        filterActiveEntities(sharedResources.ideas ?? []),
+      ).filter((idea) => accessibleFolderIds.has(idea.folderId));
       const nextIdeasByFolder = groupIdeasByFolder(nextIdeas);
-      const nextNotesByFolder = groupNotesByFolder(nextNoteEntries.flatMap(([, notesResult]) => notesResult));
-      const nextFolderId = preferred.folderId !== undefined ? preferred.folderId : selection.folderId ?? nextFolders[0]?.id ?? null;
-      const nextGoalId = preferred.goalId !== undefined ? preferred.goalId : selection.goalId;
-      const nextTaskId = preferred.taskId !== undefined ? preferred.taskId : selection.taskId;
-      const nextIdeaId = preferred.ideaId !== undefined ? preferred.ideaId : selection.ideaId;
-      const nextNoteId = preferred.noteId !== undefined ? preferred.noteId : selection.noteId;
+      const nextNotes = filterActiveEntities(nextNoteEntries.flatMap(([, notesResult]) => notesResult))
+        .filter((note) => accessibleFolderIds.has(note.folderId));
+      const nextNotesByFolder = groupNotesByFolder(nextNotes);
+      const preferredFolderId = preferred.folderId !== undefined ? preferred.folderId : selection.folderId;
+      const preferredGoalId = preferred.goalId !== undefined ? preferred.goalId : selection.goalId;
+      const preferredTaskId = preferred.taskId !== undefined ? preferred.taskId : selection.taskId;
+      const preferredIdeaId = preferred.ideaId !== undefined ? preferred.ideaId : selection.ideaId;
+      const preferredNoteId = preferred.noteId !== undefined ? preferred.noteId : selection.noteId;
+      let nextFolderId = preferred.folderId !== undefined
+        ? resolveExistingId(nextFolders, preferredFolderId)
+        : resolveExistingId(nextFolders, preferredFolderId) ?? nextFolders[0]?.id ?? null;
+      let nextGoalId = resolveExistingId(nextGoals, preferredGoalId);
+      let nextTaskId = resolveExistingId(nextTasks, preferredTaskId);
+      let nextIdeaId = resolveExistingId(nextIdeas, preferredIdeaId);
+      let nextNoteId = resolveExistingId(nextNotes, preferredNoteId);
+
+      if (nextTaskId) {
+        const taskGoal = nextGoals.find((goal) => goal.id === nextTasks.find((task) => task.id === nextTaskId)?.goalId) ?? null;
+        nextGoalId = taskGoal?.id ?? null;
+        nextFolderId = taskGoal?.folderId ?? nextFolderId;
+        nextIdeaId = null;
+        nextNoteId = null;
+      } else if (nextGoalId) {
+        nextFolderId = nextGoals.find((goal) => goal.id === nextGoalId)?.folderId ?? nextFolderId;
+        nextIdeaId = null;
+        nextNoteId = null;
+      } else if (nextIdeaId) {
+        nextFolderId = nextIdeas.find((idea) => idea.id === nextIdeaId)?.folderId ?? nextFolderId;
+        nextNoteId = null;
+      } else if (nextNoteId) {
+        nextFolderId = nextNotes.find((note) => note.id === nextNoteId)?.folderId ?? nextFolderId;
+      }
 
       setFolders(nextFolders);
       setGoalsByFolder(nextGoalsByFolder);
       setTasksByGoal(nextTasksByGoal);
       setIdeasByFolder(nextIdeasByFolder);
       setNotesByFolder(nextNotesByFolder);
-      setCreateTaskGoalIds(new Set(sharedResources.createTaskGoalIds ?? []));
+      setCreateTaskGoalIds(new Set((sharedResources.createTaskGoalIds ?? []).filter((goalId) => accessibleGoalIds.has(goalId))));
       setShareInvitations(invitationsResponse.items);
       setLinksByEntity({});
       setSelection({
@@ -1399,78 +1469,85 @@ export function TasksRoute() {
     }
   }
 
-  async function handleCreateFolder(parentFolderId: string | null = null) {
+  function handleCreateFolder(parentFolderId: string | null = null) {
+    const parentFolder = parentFolderId ? folders.find((folder) => folder.id === parentFolderId) ?? null : null;
+    if (parentFolderId && !canCreateFolderResource(parentFolder)) {
+      return;
+    }
+
+    resetTransientState();
+    setCreateFolderParentId(parentFolderId);
+    setCreateGoalFolderId(null);
+    setCreateTaskGoalId(null);
+    setCreateIdeaFolderId(null);
+    setCreateNoteFolderId(null);
+    setCreateNoteLinkEntity(null);
+    setFolderDraft(toFolderDraft(null));
+    setEditingEntity(null);
+    setSelection({ folderId: parentFolderId, goalId: null, taskId: null, ideaId: null, noteId: null });
+    setIsPanelOpen(true);
+  }
+
+  async function handleSaveNewFolder() {
+    if (createFolderParentId === undefined || !folderDraft.name.trim()) {
+      return;
+    }
+
     await runAction(async () => {
-      const parentFolder = parentFolderId ? folders.find((folder) => folder.id === parentFolderId) ?? null : null;
-      if (parentFolderId && !canCreateFolderResource(parentFolder)) {
+      const parentFolder = createFolderParentId ? folders.find((folder) => folder.id === createFolderParentId) ?? null : null;
+      if (createFolderParentId && !canCreateFolderResource(parentFolder)) {
         return;
       }
 
-      const folder = parentFolderId
-        ? await createChildFolder(authorizedFetch, parentFolderId, {
-          name: copy.folderName,
-          description: '',
+      const folder = createFolderParentId
+        ? await createChildFolder(authorizedFetch, createFolderParentId, {
+          name: folderDraft.name.trim(),
+          description: folderDraft.description.trim(),
         })
         : await createFolder(authorizedFetch, {
-          name: copy.folderName,
-          description: '',
+          name: folderDraft.name.trim(),
+          description: folderDraft.description.trim(),
           parentFolderId: null,
         });
+      setCreateFolderParentId(undefined);
       await loadPlan({ folderId: folder.id, goalId: null, taskId: null, ideaId: null, noteId: null });
       setIsPanelOpen(true);
     });
   }
 
-  async function handleCreateGoal(folderId = selection.folderId) {
+  function handleCreateGoal(folderId = selection.folderId) {
     const targetFolder = folders.find((folder) => folder.id === folderId) ?? null;
     if (!folderId || !canCreateGoalInFolder(targetFolder)) {
       return;
     }
 
-    const now = new Date().toISOString();
-    const optimisticId = `optimistic-goal-${Date.now()}`;
-    const optimisticGoal: GoalDto = {
-      id: optimisticId,
-      folderId,
-      ownerUserId: session?.user.id ?? null,
-      name: copy.goalName,
-      description: '',
-      status: 'todo',
-      archived: false,
-      shared: false,
-      fullAccess: true,
-      version: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
+    resetTransientState();
+    setCreateFolderParentId(undefined);
+    setCreateGoalFolderId(folderId);
+    setCreateTaskGoalId(null);
+    setCreateIdeaFolderId(null);
+    setCreateNoteFolderId(null);
+    setCreateNoteLinkEntity(null);
+    setGoalDraft(toGoalDraft(null));
+    setEditingEntity(null);
+    setSelection({ folderId, goalId: null, taskId: null, ideaId: null, noteId: null });
+    setIsPanelOpen(true);
+  }
+
+  async function handleSaveNewGoal() {
+    if (!createGoalFolderId || !goalDraft.name.trim()) {
+      return;
+    }
 
     await runAction(async () => {
-      setGoalsByFolder((current) => ({
-        ...current,
-        [folderId]: [...(current[folderId] ?? []), optimisticGoal],
-      }));
-      setSelection({ folderId, goalId: optimisticId, taskId: null, ideaId: null, noteId: null });
+      const goal = await createGoal(authorizedFetch, createGoalFolderId, {
+        name: goalDraft.name.trim(),
+        description: goalDraft.description.trim(),
+        status: goalDraft.status,
+      });
+      setCreateGoalFolderId(null);
+      await loadPlan({ folderId: goal.folderId, goalId: goal.id, taskId: null, ideaId: null, noteId: null });
       setIsPanelOpen(true);
-
-      try {
-        const goal = await createGoal(authorizedFetch, folderId, {
-          name: copy.goalName,
-          description: '',
-          status: 'todo',
-        });
-        setGoalsByFolder((current) => ({
-          ...current,
-          [folderId]: (current[folderId] ?? []).map((item) => item.id === optimisticId ? goal : item),
-        }));
-        setSelection({ folderId, goalId: goal.id, taskId: null, ideaId: null, noteId: null });
-      } catch (error) {
-        setGoalsByFolder((current) => ({
-          ...current,
-          [folderId]: (current[folderId] ?? []).filter((item) => item.id !== optimisticId),
-        }));
-        setSelection({ folderId, goalId: null, taskId: null, ideaId: null, noteId: null });
-        throw error;
-      }
     });
   }
 
@@ -1481,7 +1558,11 @@ export function TasksRoute() {
     }
 
     resetTransientState();
+    setCreateFolderParentId(undefined);
+    setCreateGoalFolderId(null);
     setCreateIdeaFolderId(null);
+    setCreateNoteFolderId(null);
+    setCreateNoteLinkEntity(null);
     setCreateTaskGoalId(goalId);
     setSelection({ folderId: targetGoal.folderId, goalId, taskId: null, ideaId: null, noteId: null });
     setDraft(toDraft(null));
@@ -1504,36 +1585,11 @@ export function TasksRoute() {
       : folders.find((folder) => canCreateGoalInFolder(folder)) ?? null;
 
     if (targetFolder) {
-      await runAction(async () => {
-        const goal = await createGoal(authorizedFetch, targetFolder.id, {
-          name: copy.goalName,
-          description: '',
-          status: 'todo',
-        });
-        await loadPlan({ folderId: targetFolder.id, goalId: goal.id, taskId: null, ideaId: null, noteId: null });
-        setCreateTaskGoalId(goal.id);
-        setDraft(toDraft(null));
-        setIsPanelOpen(true);
-      });
+      handleCreateGoal(targetFolder.id);
       return;
     }
 
-    await runAction(async () => {
-      const folder = await createFolder(authorizedFetch, {
-        name: copy.folderName,
-        description: '',
-        parentFolderId: null,
-      });
-      const goal = await createGoal(authorizedFetch, folder.id, {
-        name: copy.goalName,
-        description: '',
-        status: 'todo',
-      });
-      await loadPlan({ folderId: folder.id, goalId: goal.id, taskId: null, ideaId: null, noteId: null });
-      setCreateTaskGoalId(goal.id);
-      setDraft(toDraft(null));
-      setIsPanelOpen(true);
-    });
+    handleCreateFolder();
   }
 
   function handleCreateIdea(folderId = selection.folderId) {
@@ -1543,7 +1599,11 @@ export function TasksRoute() {
     }
 
     resetTransientState();
+    setCreateFolderParentId(undefined);
+    setCreateGoalFolderId(null);
     setCreateTaskGoalId(null);
+    setCreateNoteFolderId(null);
+    setCreateNoteLinkEntity(null);
     setCreateIdeaFolderId(folderId);
     setSelection({ folderId, goalId: null, taskId: null, ideaId: null, noteId: null });
     setIdeaDraft({
@@ -1562,6 +1622,8 @@ export function TasksRoute() {
     }
 
     resetTransientState();
+    setCreateFolderParentId(undefined);
+    setCreateGoalFolderId(null);
     setCreateTaskGoalId(null);
     setCreateIdeaFolderId(null);
     setCreateNoteFolderId(folderId);
@@ -2111,7 +2173,7 @@ export function TasksRoute() {
             dueTime: optimisticTask.dueTime,
           });
 
-          const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
+          const recurrencePayload = draft.recurrence.enabled ? toTaskRecurrenceUpsertPayload(draft) : null;
           let nextTask = task;
           if (recurrencePayload) {
             const recurrenceResult = await upsertTaskRecurrence(authorizedFetch, task.id, recurrencePayload);
@@ -2164,6 +2226,16 @@ export function TasksRoute() {
       setEditingEntity(null);
 
       try {
+        const draftRecurrencePayload = draft.recurrence.enabled || Boolean(originalTask.recurrence)
+          ? toTaskRecurrenceUpsertPayload(draft)
+          : null;
+        const fallbackInactiveRecurrencePayload = !draft.recurrence.enabled && !draftRecurrencePayload
+          ? inactiveExistingRecurrencePayload(originalTask)
+          : null;
+        const preUpdateRecurrence = fallbackInactiveRecurrencePayload
+          ? (await upsertTaskRecurrence(authorizedFetch, originalTask.id, fallbackInactiveRecurrencePayload)).recurrence
+          : null;
+
         const updated = await updateTask(authorizedFetch, originalTask.id, {
           title: optimisticTask.title,
           description: optimisticTask.description,
@@ -2177,10 +2249,9 @@ export function TasksRoute() {
           version: originalTask.version,
         });
 
-        const recurrencePayload = toTaskRecurrenceUpsertPayload(draft);
-        let nextTask = updated;
-        if (recurrencePayload) {
-          const recurrenceResult = await upsertTaskRecurrence(authorizedFetch, originalTask.id, recurrencePayload);
+        let nextTask = preUpdateRecurrence ? { ...updated, recurrence: preUpdateRecurrence } : updated;
+        if (draftRecurrencePayload) {
+          const recurrenceResult = await upsertTaskRecurrence(authorizedFetch, originalTask.id, draftRecurrencePayload);
           nextTask = { ...updated, recurrence: recurrenceResult.recurrence };
         }
 
@@ -3715,7 +3786,51 @@ export function TasksRoute() {
       </section>
 
       <aside className={`detail-panel${isPanelOpen ? ' is-open' : ''}`}>
-        {selectedIdea && selectedFolder ? (
+        {isCreatingFolder && (createFolderParentId === null || folderCreationParent) ? (
+          <>
+            {renderDetailHeader(planningCopy.folders.createTitle, null, null)}
+            <div className="detail-panel__body">
+              <div className="detail-section">
+                <div className="detail-label">{copy.path}</div>
+                <div className="breadcrumb">
+                  <Folder aria-hidden="true" size={15} strokeWidth={1.75} />
+                  <span>{createFolderParentId ? folderPath(createFolderParentId) : copy.plan}</span>
+                </div>
+              </div>
+              {renderSection('create-folder-details', copy.details, (
+                <div className="detail-editor">
+                  <label className="field detail-grid__wide"><span>{planningCopy.folders.name}</span><input className="field__control" autoFocus value={folderDraft.name} onChange={(event) => setFolderDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+                  <label className="field detail-grid__wide"><span>{planningCopy.folders.description}</span><textarea className="field__control field__control--area" value={folderDraft.description} onChange={(event) => setFolderDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+                  <div className="cluster detail-grid__wide detail-editor__actions">
+                    <button className="button button--ghost" type="button" disabled={saving} onClick={() => { setCreateFolderParentId(undefined); setFolderDraft(toFolderDraft(selectedFolder)); }}>{copy.cancel}</button>
+                    <button className="button button--primary" type="button" disabled={saving || !folderDraft.name.trim()} onClick={() => void handleSaveNewFolder()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : isCreatingGoal && goalCreationFolder ? (
+          <>
+            {renderDetailHeader(planningCopy.goals.createTitle, null, null)}
+            <div className="detail-panel__body">
+              <div className="detail-section">
+                <div className="detail-label">{copy.path}</div>
+                <div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(goalCreationFolder.id)}</span></div>
+              </div>
+              {renderSection('create-goal-details', copy.details, (
+                <div className="detail-editor">
+                  <label className="field detail-grid__wide"><span>{planningCopy.goals.name}</span><input className="field__control" autoFocus value={goalDraft.name} onChange={(event) => setGoalDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+                  <label className="field detail-grid__wide"><span>{planningCopy.goals.description}</span><textarea className="field__control field__control--area" value={goalDraft.description} onChange={(event) => setGoalDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+                  <label className="field detail-grid__wide"><span>{planningCopy.goals.statusLabel}</span><select className="field__control" value={goalDraft.status} onChange={(event) => setGoalDraft((current) => ({ ...current, status: event.target.value as GoalStatus }))}>{GOAL_STATUSES.map((status) => <option key={status} value={status}>{planningCopy.enums.goalStatus[status]}</option>)}</select></label>
+                  <div className="cluster detail-grid__wide detail-editor__actions">
+                    <button className="button button--ghost" type="button" disabled={saving} onClick={() => { setCreateGoalFolderId(null); setGoalDraft(toGoalDraft(selectedGoal)); }}>{copy.cancel}</button>
+                    <button className="button button--primary" type="button" disabled={saving || !goalDraft.name.trim()} onClick={() => void handleSaveNewGoal()}><Save aria-hidden="true" size={16} strokeWidth={1.75} /><span>{copy.save}</span></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : selectedIdea && selectedFolder ? (
           <>
             {renderDetailHeader(selectedIdea.title, null, { type: 'idea', id: selectedIdea.id })}
             <div className="detail-panel__body">

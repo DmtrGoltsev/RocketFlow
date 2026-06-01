@@ -14,9 +14,15 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
 
     List<Task> findByGoalIdAndOwnerUserIdOrderByPriorityDescCreatedAtAscIdAsc(UUID goalId, UUID ownerUserId);
 
+    List<Task> findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByPriorityDescCreatedAtAscIdAsc(UUID goalId, UUID ownerUserId);
+
     List<Task> findByGoalIdIn(Collection<UUID> goalIds);
 
+    List<Task> findByGoalIdInAndArchivedFalse(Collection<UUID> goalIds);
+
     Optional<Task> findByIdAndOwnerUserId(UUID id, UUID ownerUserId);
+
+    Optional<Task> findByIdAndOwnerUserIdAndArchivedFalse(UUID id, UUID ownerUserId);
 
     @Query("""
             select task

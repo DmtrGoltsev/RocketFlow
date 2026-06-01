@@ -11,9 +11,15 @@ public interface NoteRepository extends JpaRepository<Note, UUID> {
 
     List<Note> findByFolderIdAndOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(UUID folderId, UUID ownerUserId);
 
+    List<Note> findByFolderIdAndOwnerUserIdAndArchivedFalseOrderByDisplayOrderAscCreatedAtAsc(UUID folderId, UUID ownerUserId);
+
     List<Note> findByFolderIdIn(Collection<UUID> folderIds);
 
+    List<Note> findByFolderIdInAndArchivedFalse(Collection<UUID> folderIds);
+
     Optional<Note> findByIdAndOwnerUserId(UUID id, UUID ownerUserId);
+
+    Optional<Note> findByIdAndOwnerUserIdAndArchivedFalse(UUID id, UUID ownerUserId);
 
     long countByFolderIdAndOwnerUserId(UUID folderId, UUID ownerUserId);
 }

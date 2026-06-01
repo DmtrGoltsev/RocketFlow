@@ -62,6 +62,7 @@ public class SharingAccessService {
     public FolderAccess requireFolderAccess(UUID folderId, UUID actorUserId) {
         Folder folder = folderRepository.findById(folderId)
                 .orElseThrow(() -> notFound("Folder"));
+        ensureFolderVisible(folder);
         if (folder.getOwnerUserId().equals(actorUserId)) {
             return new FolderAccess(folder, true, hasActiveFolderShares(folderId), true);
         }
@@ -81,6 +82,7 @@ public class SharingAccessService {
     public FolderAccess requireFolderOwner(UUID folderId, UUID actorUserId) {
         Folder folder = folderRepository.findById(folderId)
                 .orElseThrow(() -> notFound("Folder"));
+        ensureFolderVisible(folder);
         if (!folder.getOwnerUserId().equals(actorUserId)) {
             throw notFound("Folder");
         }
@@ -105,6 +107,7 @@ public class SharingAccessService {
     public GoalAccess requireGoalAccess(UUID goalId, UUID actorUserId) {
         Goal goal = goalRepository.findById(goalId)
                 .orElseThrow(() -> notFound("Goal"));
+        ensureGoalVisible(goal);
         if (goal.getOwnerUserId().equals(actorUserId)) {
             return new GoalAccess(goal, true, hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(goalId), true);
         }
@@ -124,6 +127,7 @@ public class SharingAccessService {
     public GoalAccess requireGoalOwner(UUID goalId, UUID actorUserId) {
         Goal goal = goalRepository.findById(goalId)
                 .orElseThrow(() -> notFound("Goal"));
+        ensureGoalVisible(goal);
         if (!goal.getOwnerUserId().equals(actorUserId)) {
             throw notFound("Goal");
         }
@@ -143,6 +147,7 @@ public class SharingAccessService {
     public GoalAccess requireGoalTaskCreateAccess(UUID goalId, UUID actorUserId) {
         Goal goal = goalRepository.findById(goalId)
                 .orElseThrow(() -> notFound("Goal"));
+        ensureGoalVisible(goal);
         if (goal.getOwnerUserId().equals(actorUserId)) {
             return new GoalAccess(goal, true, hasActiveFolderShares(goal.getFolderId()) || hasActiveGoalShares(goalId), true);
         }
@@ -163,6 +168,7 @@ public class SharingAccessService {
                 .orElseThrow(() -> notFound("Task"));
         Goal goal = goalRepository.findById(task.getGoalId())
                 .orElseThrow(() -> notFound("Goal"));
+        ensureTaskVisible(task, goal);
         if (task.getOwnerUserId().equals(actorUserId)) {
             return new TaskAccess(
                     task,
@@ -196,6 +202,7 @@ public class SharingAccessService {
         }
         Goal goal = goalRepository.findById(task.getGoalId())
                 .orElseThrow(() -> notFound("Goal"));
+        ensureTaskVisible(task, goal);
         return new TaskAccess(
                 task,
                 true,
@@ -217,6 +224,7 @@ public class SharingAccessService {
     public IdeaAccess requireIdeaAccess(UUID ideaId, UUID actorUserId) {
         Idea idea = ideaRepository.findById(ideaId)
                 .orElseThrow(() -> notFound("Idea"));
+        ensureIdeaVisible(idea);
         if (idea.getOwnerUserId().equals(actorUserId)) {
             return new IdeaAccess(idea, true, hasActiveFolderShares(idea.getFolderId()) || hasActiveIdeaShares(ideaId), true);
         }
@@ -236,6 +244,7 @@ public class SharingAccessService {
     public IdeaAccess requireIdeaOwner(UUID ideaId, UUID actorUserId) {
         Idea idea = ideaRepository.findById(ideaId)
                 .orElseThrow(() -> notFound("Idea"));
+        ensureIdeaVisible(idea);
         if (!idea.getOwnerUserId().equals(actorUserId)) {
             throw notFound("Idea");
         }
@@ -259,8 +268,11 @@ public class SharingAccessService {
             if (root == null) {
                 continue;
             }
+            if (!isFolderVisible(root)) {
+                continue;
+            }
             for (Folder folder : folderRepository.findByOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(root.getOwnerUserId())) {
-                if (isSameOrDescendant(folder, root.getId())) {
+                if (isFolderVisible(folder) && isSameOrDescendant(folder, root.getId())) {
                     result.putIfAbsent(folder.getId(), new FolderAccess(folder, false, true, share.isFullAccess()));
                 }
             }
@@ -357,6 +369,55 @@ public class SharingAccessService {
                     .orElse(null);
         }
         return false;
+    }
+
+    private void ensureFolderVisible(Folder folder) {
+        if (!isFolderVisible(folder)) {
+            throw notFound("Folder");
+        }
+    }
+
+    private void ensureGoalVisible(Goal goal) {
+        if (!isGoalVisible(goal)) {
+            throw notFound("Goal");
+        }
+    }
+
+    private void ensureTaskVisible(Task task, Goal goal) {
+        if (task.isArchived() || !isGoalVisible(goal)) {
+            throw notFound("Task");
+        }
+    }
+
+    private void ensureIdeaVisible(Idea idea) {
+        if (idea.isArchived() || !isFolderVisible(idea.getFolderId())) {
+            throw notFound("Idea");
+        }
+    }
+
+    private boolean isGoalVisible(Goal goal) {
+        return !goal.isArchived() && isFolderVisible(goal.getFolderId());
+    }
+
+    private boolean isFolderVisible(UUID folderId) {
+        return folderRepository.findById(folderId)
+                .map(this::isFolderVisible)
+                .orElse(false);
+    }
+
+    private boolean isFolderVisible(Folder folder) {
+        if (folder.isArchived()) {
+            return false;
+        }
+        UUID currentId = folder.getParentFolderId();
+        while (currentId != null) {
+            Folder parent = folderRepository.findById(currentId).orElse(null);
+            if (parent == null || parent.isArchived()) {
+                return false;
+            }
+            currentId = parent.getParentFolderId();
+        }
+        return true;
     }
 
     private ApiException notFound(String entityName) {

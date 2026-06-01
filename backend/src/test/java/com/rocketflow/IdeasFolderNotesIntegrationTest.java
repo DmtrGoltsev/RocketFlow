@@ -529,6 +529,82 @@ class IdeasFolderNotesIntegrationTest {
     }
 
     @Test
+    void archivedIdeasNotesAndFolderChildrenAreHiddenFromDefaultReads() throws Exception {
+        Session owner = registerAndLogin("owner@example.com", "Owner");
+        String folderId = createFolder(owner.accessToken());
+
+        String deletedIdeaId = read(createIdea(owner.accessToken(), folderId, "Archived idea"), "/id");
+        String deletedNoteId = read(createNote(owner.accessToken(), folderId), "/id");
+
+        mockMvc.perform(delete("/api/ideas/" + deletedIdeaId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/notes/" + deletedNoteId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/folders/" + folderId + "/ideas")
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(0));
+        mockMvc.perform(get("/api/ideas/" + deletedIdeaId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/folders/" + folderId + "/notes")
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(0));
+        mockMvc.perform(get("/api/notes/" + deletedNoteId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNotFound());
+
+        String childFolderId = read(mockMvc.perform(post("/api/folders/" + folderId + "/folders")
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Child folder",
+                                  "description": "Hidden with parent"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(), "/id");
+        String goalId = read(createGoal(owner.accessToken(), folderId), "/id");
+        String taskId = read(createTask(owner.accessToken(), goalId), "/id");
+        String ideaId = read(createIdea(owner.accessToken(), folderId, "Folder child idea"), "/id");
+        String noteId = read(createNote(owner.accessToken(), folderId), "/id");
+
+        mockMvc.perform(delete("/api/folders/" + folderId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/folders")
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(0));
+        mockMvc.perform(get("/api/folders/" + childFolderId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/folders/" + folderId + "/goals")
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/goals/" + goalId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/tasks/" + taskId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/ideas/" + ideaId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/notes/" + noteId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void legacyFolderNoteEndpointsAreRemoved() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
 
@@ -647,6 +723,28 @@ class IdeasFolderNotesIntegrationTest {
                                 {
                                   "title": "Private note",
                                   "body": "Folder-only note"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+    }
+
+    private String createTask(String accessToken, String goalId) throws Exception {
+        return mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Folder child task",
+                                  "description": "Hidden with parent goal",
+                                  "type": "green",
+                                  "priority": 5,
+                                  "status": "todo",
+                                  "plannedTime": "2026-05-01T09:00:00Z",
+                                  "dueTime": "2026-05-02T18:00:00Z",
+                                  "tagIds": []
                                 }
                                 """))
                 .andExpect(status().isCreated())

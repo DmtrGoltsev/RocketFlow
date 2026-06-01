@@ -50,7 +50,7 @@ public class GoalService {
     @Transactional(readOnly = true)
     public GoalListResponse list(UUID actorUserId, UUID folderId) {
         FolderAccess folderAccess = folderService.requireFolderAccess(folderId, actorUserId);
-        List<Goal> goals = goalRepository.findByFolderIdAndOwnerUserIdOrderByCreatedAtAsc(
+        List<Goal> goals = goalRepository.findByFolderIdAndOwnerUserIdAndArchivedFalseOrderByCreatedAtAsc(
                 folderId,
                 folderAccess.folder().getOwnerUserId()
         );
@@ -92,9 +92,15 @@ public class GoalService {
         goal.setName(request.name().trim());
         goal.setDescription(request.description());
         goal.setStatus(resolveStatus(request.status(), goal.getStatus()));
+        Instant now = Instant.now();
+        boolean archiveRequested = request.archived() && !goal.isArchived();
         goal.setArchived(request.archived());
-        goal.setUpdatedAt(Instant.now());
-        return toDto(goalRepository.save(goal), access.shared(), access.fullAccess());
+        goal.setUpdatedAt(now);
+        Goal saved = goalRepository.save(goal);
+        if (archiveRequested) {
+            archiveTasks(saved, now);
+        }
+        return toDto(saved, access.shared(), access.fullAccess());
     }
 
     @Transactional
@@ -136,10 +142,11 @@ public class GoalService {
     @Transactional
     public void softDelete(UUID actorUserId, UUID goalId) {
         Goal goal = sharingAccessService.requireGoalFullAccess(goalId, actorUserId).goal();
+        Instant now = Instant.now();
         goal.setArchived(true);
-        goal.setUpdatedAt(Instant.now());
+        goal.setUpdatedAt(now);
         goalRepository.save(goal);
-        List<UUID> taskIds = taskRepository.findByGoalIdIn(List.of(goal.getId()))
+        List<UUID> taskIds = archiveTasks(goal, now)
                 .stream()
                 .map(Task::getId)
                 .toList();
@@ -151,7 +158,7 @@ public class GoalService {
 
     @Transactional(readOnly = true)
     public Goal requireGoalOwner(UUID goalId, UUID ownerUserId) {
-        return goalRepository.findByIdAndOwnerUserId(goalId, ownerUserId)
+        return goalRepository.findByIdAndOwnerUserIdAndArchivedFalse(goalId, ownerUserId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "not_found", "Goal was not found."));
     }
 
@@ -176,6 +183,15 @@ public class GoalService {
             return fallback;
         }
         return requestedStatus.trim();
+    }
+
+    private List<Task> archiveTasks(Goal goal, Instant now) {
+        List<Task> tasks = taskRepository.findByGoalIdInAndArchivedFalse(List.of(goal.getId()));
+        for (Task task : tasks) {
+            task.setArchived(true);
+            task.setUpdatedAt(now);
+        }
+        return taskRepository.saveAll(tasks);
     }
 
     private void ensureVersion(long actual, long expected, String entityName) {

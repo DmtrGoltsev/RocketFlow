@@ -10,7 +10,11 @@ public interface FolderRepository extends JpaRepository<Folder, UUID> {
 
     List<Folder> findByOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(UUID ownerUserId);
 
+    List<Folder> findByOwnerUserIdAndArchivedFalseOrderByDisplayOrderAscCreatedAtAsc(UUID ownerUserId);
+
     Optional<Folder> findByIdAndOwnerUserId(UUID id, UUID ownerUserId);
+
+    Optional<Folder> findByIdAndOwnerUserIdAndArchivedFalse(UUID id, UUID ownerUserId);
 
     long countByOwnerUserId(UUID ownerUserId);
 

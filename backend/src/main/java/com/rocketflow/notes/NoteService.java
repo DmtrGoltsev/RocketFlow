@@ -39,7 +39,7 @@ public class NoteService {
     @Transactional(readOnly = true)
     public NoteListResponse list(UUID actorUserId, UUID folderId) {
         FolderAccess access = sharingAccessService.requireFolderContentAccess(folderId, actorUserId);
-        return new NoteListResponse(noteRepository.findByFolderIdAndOwnerUserIdOrderByDisplayOrderAscCreatedAtAsc(
+        return new NoteListResponse(noteRepository.findByFolderIdAndOwnerUserIdAndArchivedFalseOrderByDisplayOrderAscCreatedAtAsc(
                         folderId,
                         access.folder().getOwnerUserId()
                 )
@@ -134,6 +134,9 @@ public class NoteService {
     @Transactional(readOnly = true)
     public NoteAccess requireNoteAccess(UUID noteId, UUID actorUserId) {
         Note note = noteRepository.findById(noteId).orElseThrow(() -> notFound("Note"));
+        if (note.isArchived()) {
+            throw notFound("Note");
+        }
         FolderAccess folderAccess = sharingAccessService.requireFolderContentAccess(note.getFolderId(), actorUserId);
         if (!note.getOwnerUserId().equals(folderAccess.folder().getOwnerUserId())) {
             throw notFound("Note");
