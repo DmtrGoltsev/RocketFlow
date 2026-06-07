@@ -18,7 +18,12 @@ Use this together with:
 
 Project root:
 
-- `C:\Users\hp\Documents\Codex\RocketFlow`
+- `C:\Users\style\Documents\Codex\RocketFlow`
+
+Current checkpoint:
+
+- `MVP3` points at HEAD `9825a40` (`Use due date offsets for Android default reminders`)
+- `MVP2..MVP3` contains 21 commits
 
 Completed:
 
@@ -37,16 +42,17 @@ Verified:
 - backend full test suite passes with `mvn test`
 - backend container baseline now exists via `backend/Dockerfile` and `backend/.dockerignore`
 - local `rocketflow-backend:latest` build is proven, and the backend container reaches `/actuator/health = UP` against a temporary `postgres:16` smoke runtime
-- backend image registry target is now fixed to GHCR via the planned image family `ghcr.io/<owner>/rocketflow-backend`
+- current HexCore production deploy truth is jar/systemd for backend plus web archive promotion through `.github/workflows/backend-hexcore-prod-deploy.yml`
+- Docker/GHCR publishing remains an open gate; no GHCR publish workflow is present in `.github/workflows/`
 - web production build passes with `npm run build`
 - Android local `assembleDebug` passes with the installed Gradle distribution and workspace SDK setup
 - backend `NotificationDeliveryIntegrationTest` passes after the logical-device upsert repair on `2026-04-27`
 - Android `:app:assembleDebug` passes after the same repair follow-up on `2026-04-27`
 - local end-to-end notification runtime proof `reminder -> push -> tap -> task open` passed on `2026-04-27` and was reconfirmed as `tap-open proven` by the controlled rerun on `2026-04-28`
 - GitHub Actions `backend-verify` now covers `mvn test`, backend image build, and a temporary `postgres:16`-backed `/actuator/health` smoke
-- GitHub Actions `backend-image-publish` now exists as the manual GHCR publish lane for backend images
 - GitHub Actions `web-verify` and `android-verify` exist in the repository
-- web and Android CI lanes remain build-only lanes
+- GitHub Actions `android-verify` runs Android unit, build and lint gates: `:app:testDebugUnitTest`, `:app:assembleDebug`, `:app:lintDebug`
+- web CI remains a build-only lane
 
 ## Most Important Docs
 
@@ -150,7 +156,7 @@ Wave C:
 - backend is the strongest verified surface
 - backend CI now proves both the Maven suite and the tracked container artifact baseline
 - web build is green and covered by a build-only CI lane, but still lightly tested
-- Android build is green and covered by a build-only CI lane, and the local Android notification gate is now closed on the owned backend + emulator path
+- Android build is green and covered by unit/build/lint CI gates, and the local Android notification gate is now closed on the owned backend + emulator path
 - notification code is now implemented and locally proven end-to-end on both backend and Android
 - backend and Android now both support stable logical-device registration through `installationId`
 - Android emulator smoke has now proven login, real Firebase token acquisition, post-repair device registration, push receipt, tap-open routing, and task detail open
@@ -160,7 +166,7 @@ Wave C:
 - repo-backed smoke-task provisioning and backend delivery evidence capture now have a canonical helper in `scripts/Invoke-NotificationSmokeTask.ps1`, and its repo-owned blocker is closed
 - the historical `failed_backend_send` and apparent Firebase auth blockers were closed by the dependency-alignment fix documented in `docs/50-notification-runtime-clean-pass.md`
 - the next active notification gate is now staging notification certification
-- the next active backend delivery gate before staging certification is the first successful remote GHCR image publish
+- the Docker/GHCR delivery lane remains open until a real publish workflow or replacement decision is added
 - no active subagents need to be resumed
 
 Known non-blocking note:
@@ -172,7 +178,7 @@ Known non-blocking note:
 
 The local notification gate is closed. The next active gates are:
 
-- first successful remote publish of the backend image through GHCR
+- settle the open Docker/GHCR delivery gate, either by adding a real publish workflow or by documenting the jar/systemd HexCore lane as the intended production path
 - then staging deployment/runtime wiring plus the notification certification path from `docs/45-notification-staging-smoke-runbook.md`
 - keep `docs/51-agent-notification-runtime-playbook.md` as the fallback local re-verification path for future regressions, not as the active gate
 

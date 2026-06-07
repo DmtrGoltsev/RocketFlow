@@ -71,6 +71,10 @@ Backup-файлы:
 
 `/var/backups/rocketflow/rocketflow_prod_*.dump`
 
+Локальное скачивание production dump и guarded recovery-процедура описаны отдельно:
+
+`docs/65-prod-db-backup-local-runbook.md`
+
 Ручной запуск:
 
 ```bash

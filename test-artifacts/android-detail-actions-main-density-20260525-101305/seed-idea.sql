@@ -1,2 +1,0 @@
-INSERT OR IGNORE INTO ideas (user_id,id,folder_id,title,body,status,display_order,archived,shared,full_access,allow_author_note_edits,creator_user_id,creator_email,creator_name,version,created_at,updated_at,pending_action,last_error,locally_deleted)
-VALUES ('acceptance-user','qa-idea-evidence-20260525-101305','1c33b277-c56c-451f-93e7-29d78ccbb7bb','IdeaEvidence0525','Local QA idea detail evidence','active',1,0,0,1,0,'acceptance-user',NULL,'Acceptance User',0,'2026-05-25T07:20:00Z','2026-05-25T07:20:00Z','create',NULL,0);

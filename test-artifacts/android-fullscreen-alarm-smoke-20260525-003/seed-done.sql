@@ -1,3 +1,0 @@
-﻿DELETE FROM tasks WHERE user_id='smoke-user' OR id LIKE 'smoke-task-%';
-INSERT OR REPLACE INTO tasks (user_id,id,goal_id,title,description,type,priority,effort,status,planned_time,due_time,archived,shared,full_access,creator_user_id,creator_email,creator_name,version,tag_ids_json,recurrence_json,reminders_json,created_at,updated_at,pending_action,last_error,locally_deleted)
-VALUES ('smoke-user','smoke-task-done','smoke-goal','RocketFlow done suppression smoke','Done task must suppress reminder','green',3,0,'done',NULL,'2026-05-25T17:59:02Z',0,0,1,'smoke-user',NULL,NULL,0,'[]',NULL,NULL,'2026-05-25T17:56:32Z','2026-05-25T17:56:32Z','create',NULL,0);

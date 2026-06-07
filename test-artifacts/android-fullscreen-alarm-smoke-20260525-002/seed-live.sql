@@ -1,3 +1,0 @@
-﻿DELETE FROM tasks WHERE user_id='smoke-user' OR id LIKE 'smoke-task-%';
-INSERT OR REPLACE INTO tasks (user_id,id,goal_id,title,description,type,priority,effort,status,planned_time,due_time,archived,shared,full_access,creator_user_id,creator_email,creator_name,version,tag_ids_json,recurrence_json,reminders_json,created_at,updated_at,pending_action,last_error,locally_deleted)
-VALUES ('smoke-user','smoke-task-live','smoke-goal','RocketFlow fullscreen smoke live','AlarmManager live delivery smoke','green',3,0,'todo',NULL,'2026-05-25T17:54:09Z',0,0,1,'smoke-user',NULL,NULL,0,'[]',NULL,NULL,'2026-05-25T17:51:09Z','2026-05-25T17:51:09Z','create',NULL,0);

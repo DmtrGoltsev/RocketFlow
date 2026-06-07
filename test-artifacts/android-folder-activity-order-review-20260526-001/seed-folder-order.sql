@@ -1,8 +1,0 @@
-INSERT OR REPLACE INTO folders (user_id,id,parent_folder_id,name,description,display_order,archived,shared,full_access,version,created_at,updated_at,pending_action,last_error,locally_deleted) VALUES
-('acceptance-user','rf-order-quiet',NULL,'QA Quiet Folder','Lower descendant activity but lower display_order',10,0,0,1,1,'2026-05-01T00:00:00Z','2026-05-10T00:00:00Z',NULL,NULL,0),
-('acceptance-user','rf-order-active',NULL,'QA Active Folder','Descendant task should lift this folder',20,0,0,1,1,'2026-05-01T00:00:00Z','2026-05-01T00:00:00Z',NULL,NULL,0),
-('acceptance-user','rf-order-child','rf-order-active','QA Active Child','Child under active folder',0,0,0,1,1,'2026-05-02T00:00:00Z','2026-05-02T00:00:00Z',NULL,NULL,0);
-INSERT OR REPLACE INTO goals (user_id,id,folder_id,name,description,status,archived,shared,can_create_tasks,full_access,version,created_at,updated_at,pending_action,last_error,locally_deleted) VALUES
-('acceptance-user','rf-order-goal','rf-order-child','QA Goal','Goal under active child','todo',0,0,1,1,1,'2026-05-03T00:00:00Z','2026-05-03T00:00:00Z',NULL,NULL,0);
-INSERT OR REPLACE INTO tasks (user_id,id,goal_id,title,description,type,priority,effort,status,planned_time,due_time,archived,shared,full_access,creator_user_id,creator_email,creator_name,version,tag_ids_json,recurrence_json,reminders_json,created_at,updated_at,pending_action,last_error,locally_deleted) VALUES
-('acceptance-user','rf-order-task','rf-order-goal','QA Fresh Descendant Task','Newest descendant activity','task',0,0,'todo',NULL,NULL,0,0,1,NULL,NULL,NULL,1,'[]',NULL,NULL,'2026-05-04T00:00:00Z','2026-05-25T00:00:00Z',NULL,NULL,0);

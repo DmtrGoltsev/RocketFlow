@@ -1,6 +1,0 @@
-﻿<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="task_reminder::smoke-user::smoke-task-done">[{"userId":"smoke-user","taskId":"smoke-task-done","reminderId":"reminder-done","taskTitle":"RocketFlow done suppression smoke","triggerAtMillis":1779731942858,"repeat":"none","enabled":true,"anchorAtMillis":1779731942858}]</string>
-</map>
-
-

@@ -1,6 +1,0 @@
-﻿<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="task_reminder::smoke-user::smoke-task-live">[{"userId":"smoke-user","taskId":"smoke-task-live","reminderId":"reminder-live","taskTitle":"RocketFlow fullscreen smoke live","triggerAtMillis":1779731649186,"repeat":"none","enabled":true,"anchorAtMillis":1779731649186}]</string>
-</map>
-
-

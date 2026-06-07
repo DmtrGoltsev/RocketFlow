@@ -1,3 +1,0 @@
-  mCurrentFocus=Window{53988bd u0 com.rocketflow.companion/com.rocketflow.companion.MainActivity}
-  mFocusedApp=ActivityRecord{191662769 u0 com.rocketflow.companion/.MainActivity t161}
-  mTopFocusedDisplayId=0

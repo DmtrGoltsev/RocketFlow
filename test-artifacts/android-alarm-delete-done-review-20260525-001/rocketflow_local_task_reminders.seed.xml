@@ -1,5 +1,0 @@
-﻿<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="task_reminder::acceptance-user::23d6def0-84b1-4ef3-ac98-bbc72742a019">[{"userId":"acceptance-user","taskId":"23d6def0-84b1-4ef3-ac98-bbc72742a019","reminderId":"review-active","taskTitle":"Prepare the sign-in screen","triggerAtMillis":1779730505336,"repeat":"none","enabled":true,"anchorAtMillis":1779730505336}]</string>
-    <string name="task_reminder::acceptance-user::284ac65a-103b-4e08-b87e-aec4662b5cdd">[{"userId":"acceptance-user","taskId":"284ac65a-103b-4e08-b87e-aec4662b5cdd","reminderId":"review-done","taskTitle":"Team call","triggerAtMillis":1779730505336,"repeat":"none","enabled":true,"anchorAtMillis":1779730505336}]</string>
-</map>

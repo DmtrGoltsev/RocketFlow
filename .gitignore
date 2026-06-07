@@ -8,14 +8,20 @@ android/.android-user-home-verify/
 android/local.properties
 android/app/google-services.json
 android/**/build/
-tmp/notification-smoke/
-tmp/
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+/test-artifacts/
+/screenshots/
+/browser-logs/
+/tmp/
 scripts/Set-NotificationSmokeStagingEnv.ps1
 *.log
 rocketflow-web-sha-*.tar.gz
 tmp-android-login*.png
 tmp-window.xml
-test-artifacts/**/gradle-user-home/caches/
+/tmp-collapse-window.xml
+/.secrets/
 
 # Локальное состояние и рабочие файлы Terraform
 **/.terraform/
@@ -25,3 +31,11 @@ test-artifacts/**/gradle-user-home/caches/
 !*.tfvars.example
 crash.log
 crash.*.log
+
+# Local production backup download artifacts and secrets
+/tmp/prod-db-backups/
+/backups/
+*.dump
+*.dump.sha256
+scripts/Set-ProdBackupDownloadEnv.ps1
+scripts/Set-ProdBackupDownloadEnv.local.ps1

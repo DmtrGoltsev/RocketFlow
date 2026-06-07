@@ -1,9 +1,0 @@
-﻿adb.exe : Error: in prepare, no such column: smoke
-At line:39 char:1
-+ & $adb -s $serial shell "run-as $pkg sqlite3 databases/rocketflow_pla ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (Error: in prepare, no such column: smoke:String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 
-  r_id,id,title,status,due_time from tasks where id=smoke-task-live;
-                                      error here ---^
