@@ -2559,7 +2559,7 @@ class MainActivity : Activity() {
 
     private fun showGoalFolderDialog(openTaskAfterSave: Boolean = false) {
         val c = copy()
-        val availableFolders = (folders + sharedFolders).filter { canWrite(it) }
+        val availableFolders = sortFoldersNewestFirst((folders + sharedFolders).filter { canWrite(it) })
         if (availableFolders.isEmpty()) {
             AlertDialog.Builder(this)
                 .setTitle(c.newGoal)
@@ -2604,15 +2604,17 @@ class MainActivity : Activity() {
             )
         })
         dialog = AlertDialog.Builder(this)
-            .setView(content)
+            .setView(scrollableDialogContent(content))
             .create()
         dialog.show()
     }
 
     private fun showTaskTargetDialog() {
         val c = copy()
-        val availableGoals = goals.filter { goal -> folders.any { it.id == goal.folderId } } +
-            sharedGoals.filter { goal -> canCreateTasks(goal) }
+        val availableGoals = sortGoalsNewestFirst(
+            goals.filter { goal -> folders.any { it.id == goal.folderId } } +
+                sharedGoals.filter { goal -> canCreateTasks(goal) }
+        )
         if (availableGoals.isEmpty()) {
             showGoalFolderDialog(openTaskAfterSave = true)
             return
@@ -2641,7 +2643,7 @@ class MainActivity : Activity() {
             window.decorView.postDelayed({ showGoalFolderDialog(openTaskAfterSave = true) }, 120)
         })
         dialog = AlertDialog.Builder(this)
-            .setView(content)
+            .setView(scrollableDialogContent(content))
             .create()
         dialog.show()
     }
@@ -2883,6 +2885,25 @@ class MainActivity : Activity() {
                     openNoteDetail(note.id)
                 })
             }
+        }
+    }
+
+    private fun scrollableDialogContent(content: View): ScrollView {
+        (content.parent as? ViewGroup)?.removeView(content)
+        return object : ScrollView(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val maxHeight = dp(520)
+                val cappedHeightSpec = View.MeasureSpec.makeMeasureSpec(
+                    minOf(View.MeasureSpec.getSize(heightMeasureSpec), maxHeight),
+                    View.MeasureSpec.AT_MOST
+                )
+                super.onMeasure(widthMeasureSpec, cappedHeightSpec)
+            }
+        }.apply {
+            isFillViewport = false
+            clipToPadding = false
+            addView(content)
+            hideKeyboardWhenTouchingOutsideInputs()
         }
     }
 
@@ -4845,6 +4866,8 @@ class MainActivity : Activity() {
 
     private fun saveGoal(folderId: String, goal: PlanningGoal?, draft: GoalDraft, openTaskAfterSave: Boolean = false) {
         val session = currentSession ?: return
+        val creatingGoal = goal == null
+        val previousGoalIds = allGoals().map { it.id }.toSet()
         setBusy(true)
         message = null
         scope.launch {
@@ -4856,13 +4879,21 @@ class MainActivity : Activity() {
                 }
                 applyPlanningResult(result)
                 val savedGoal = goal?.id?.let { goalId ->
-                    result.snapshot.goals.firstOrNull { it.id == goalId }
-                } ?: result.snapshot.goals.firstOrNull { it.folderId == folderId && it.name == draft.name }
+                    (result.snapshot.goals + result.snapshot.sharedGoals).firstOrNull { it.id == goalId }
+                } ?: (result.snapshot.goals + result.snapshot.sharedGoals).firstOrNull { it.id !in previousGoalIds && it.folderId == folderId }
+                    ?: sortGoalsNewestFirst(result.snapshot.goals + result.snapshot.sharedGoals).firstOrNull { it.folderId == folderId && it.name == draft.name }
                 if (savedGoal != null) {
                     selectedFolderId = savedGoal.folderId
                     selectedGoalId = savedGoal.id
+                    selectedGoalDetail = savedGoal
+                    selectedTaskId = null
+                    selectedTaskDetail = null
+                    expandFolderPath(savedGoal.folderId)
+                    collapsedGoalIds.remove(savedGoal.id)
                     if (openTaskAfterSave && canCreateTasks(savedGoal)) {
                         window.decorView.post { showTaskDialog(null, savedGoal.id) }
+                    } else if (creatingGoal) {
+                        currentScreen = Screen.GoalDetail
                     }
                 }
             } catch (error: Exception) {
@@ -4883,6 +4914,7 @@ class MainActivity : Activity() {
     ) {
         val session = currentSession ?: return
         val previousTaskIds = allTasks().map { it.id }.toSet()
+        val returnToGoalDetail = task == null && currentScreen == Screen.GoalDetail && selectedGoalId == goalId
         setBusy(true)
         message = null
         scope.launch {
@@ -4906,13 +4938,21 @@ class MainActivity : Activity() {
                 selectedGoalId = goalId
                 val savedTask = if (task == null) {
                     (result.snapshot.tasks + result.snapshot.sharedTasks).firstOrNull { it.id !in previousTaskIds && it.goalId == goalId }
-                        ?: (result.snapshot.tasks + result.snapshot.sharedTasks).firstOrNull { it.goalId == goalId && it.title == draft.title }
+                        ?: sortTasksNewestFirst(result.snapshot.tasks + result.snapshot.sharedTasks).firstOrNull { it.goalId == goalId && it.title == draft.title }
                 } else {
                     (result.snapshot.tasks + result.snapshot.sharedTasks).firstOrNull { it.id == task.id }
                 }
-                selectedTaskId = savedTask?.id ?: selectedTaskId
-                selectedTaskDetail = savedTask ?: selectedTaskId?.let(::findTask)
-                val currentSavedTask = selectedTaskDetail
+                if (returnToGoalDetail) {
+                    selectedTaskId = null
+                    selectedTaskDetail = null
+                    selectedGoalDetail = parentGoal ?: selectedGoalId?.let(::findGoal)
+                    collapsedGoalIds.remove(goalId)
+                    currentScreen = Screen.GoalDetail
+                } else {
+                    selectedTaskId = savedTask?.id ?: selectedTaskId
+                    selectedTaskDetail = savedTask ?: selectedTaskId?.let(::findTask)
+                }
+                val currentSavedTask = savedTask ?: selectedTaskDetail
                 if (currentSavedTask != null && isClosed(currentSavedTask)) {
                     cancelLocalReminders(session.user.id, currentSavedTask.id)
                 } else if (reminderDraft != null && currentSavedTask != null) {
@@ -5407,6 +5447,15 @@ class MainActivity : Activity() {
             !link.archived && keys.any { (type, id) ->
                 (link.sourceType == type && link.sourceId == id) || (link.targetType == type && link.targetId == id)
             }
+        }
+    }
+
+    private fun expandFolderPath(folderId: String) {
+        var currentId: String? = folderId
+        val visited = mutableSetOf<String>()
+        while (currentId != null && visited.add(currentId)) {
+            collapsedFolderIds.remove(currentId)
+            currentId = findFolder(currentId)?.parentFolderId
         }
     }
 
@@ -6745,8 +6794,8 @@ class MainActivity : Activity() {
         includeShared: Boolean,
         siblingFolders: List<PlanningFolder>
     ): List<PlanningFolder> {
-        val userId = currentSession?.user?.id ?: return siblingFolders
-        return folderActivityOrdering.orderSiblings(
+        val userId = currentSession?.user?.id ?: return sortFoldersNewestFirst(siblingFolders)
+        val activityOrdered = folderActivityOrdering.orderSiblings(
             userId = userId,
             parentFolderId = parentFolderId,
             scope = if (includeShared) "shared" else "own",
@@ -6761,6 +6810,7 @@ class MainActivity : Activity() {
             ),
             persist = searchQuery.trim().isBlank()
         )
+        return sortFoldersNewestFirst(activityOrdered)
     }
 
     private fun filteredSharedFolders(): List<PlanningFolder> {
@@ -6818,7 +6868,8 @@ class MainActivity : Activity() {
 
     private fun goalsForFolder(folderId: String, includeShared: Boolean = false): List<PlanningGoal> {
         val own = goals.filter { it.folderId == folderId }
-        return if (includeShared) own + sharedGoals.filter { it.folderId == folderId } else own
+        val combined = if (includeShared) own + sharedGoals.filter { it.folderId == folderId } else own
+        return sortGoalsNewestFirst(combined)
     }
 
     private fun childFoldersForFolder(folderId: String, includeShared: Boolean = false): List<PlanningFolder> {
@@ -6834,16 +6885,27 @@ class MainActivity : Activity() {
     private fun tasksForGoal(goalId: String, includeShared: Boolean = false): List<PlanningTask> {
         val own = tasks.filter { it.goalId == goalId }
         val combined = if (includeShared) own + sharedTasks.filter { it.goalId == goalId } else own
-        return sortTasksByPriority(combined)
+        return sortTasksNewestFirst(combined)
     }
 
-    private fun sortTasksByPriority(items: List<PlanningTask>): List<PlanningTask> {
+    private fun sortFoldersNewestFirst(items: List<PlanningFolder>): List<PlanningFolder> {
         return items.sortedWith(
-            compareByDescending<PlanningTask> { it.priority }
-                .thenBy { it.plannedTime == null }
-                .thenBy { it.plannedTime.orEmpty() }
-                .thenBy { it.createdAt }
-                .thenBy { it.id }
+            compareByDescending<PlanningFolder> { it.createdAt }
+                .thenByDescending { it.id }
+        )
+    }
+
+    private fun sortGoalsNewestFirst(items: List<PlanningGoal>): List<PlanningGoal> {
+        return items.sortedWith(
+            compareByDescending<PlanningGoal> { it.createdAt }
+                .thenByDescending { it.id }
+        )
+    }
+
+    private fun sortTasksNewestFirst(items: List<PlanningTask>): List<PlanningTask> {
+        return items.sortedWith(
+            compareByDescending<PlanningTask> { it.createdAt }
+                .thenByDescending { it.id }
         )
     }
 
