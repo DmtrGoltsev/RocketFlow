@@ -22,8 +22,12 @@ Project root:
 
 Current checkpoint:
 
-- `MVP3` points at HEAD `9825a40` (`Use due date offsets for Android default reminders`)
-- `MVP2..MVP3` contains 21 commits
+- Status timestamp: `2026-06-13`
+- `MVP3` points at HEAD `21f95c1` (`Fix Android goal and task creation flow`)
+- full HEAD: `21f95c15166b9c41de4279c4209d00da429688f3`
+- `origin/MVP3` is synced with local `MVP3`
+- `MVP2..MVP3` contains 23 commits
+- DB was not re-inspected in this documentation pass; user confirmed DB works
 
 Completed:
 
@@ -38,6 +42,8 @@ Completed:
 - `Wave C.1` web scheduling authoring follow-up
 
 Verified:
+
+These items are last recorded evidence unless explicitly tied to HEAD `21f95c1`; fresh evidence is required for current HEAD gates that were not rerun in this pass.
 
 - backend full test suite passes with `mvn test`
 - backend container baseline now exists via `backend/Dockerfile` and `backend/.dockerignore`
