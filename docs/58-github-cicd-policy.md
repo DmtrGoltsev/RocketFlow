@@ -1,69 +1,105 @@
-# Настройка GitHub CI/CD для RocketFlow
+# GitHub CI/CD Policy for RocketFlow
 
-Этот файл не выполняется GitHub напрямую. Исполняемые сценарии лежат в `.github/workflows/*.yml`.
+This file describes repository policy. Executable workflows live in `.github/workflows/*.yml`.
 
-## Что проверяется автоматически
+## Continuous verification
 
-На каждый `push`, `pull_request` и ручной запуск должны проходить проверки:
+The normal verification workflows remain:
 
-- `backend-verify`: Maven tests backend, Flyway migrations через тесты, сборка backend Docker image, container health smoke против временного PostgreSQL.
-- `web-verify`: установка зависимостей web и `npm run build`.
-- `android-verify`: установка Android SDK packages, `:app:testDebugUnitTest`, `:app:assembleDebug` и `:app:lintDebug`.
+- `backend-verify`: backend Maven tests, migration coverage through tests, backend Docker image build, and container health smoke against temporary PostgreSQL.
+- `web-verify`: web dependency install and `npm run build`.
+- `android-verify`: Android SDK setup, unit tests, debug assembly, and lint.
 
-## Production Deploy
+## Production deploy policy
 
-Production deploy работает только через HexCore-сервер:
+Production deploys are handled by GitHub Actions through HexCore.
 
-- workflow: `Деплой backend в HexCore Prod`;
-- файл: `.github/workflows/backend-hexcore-prod-deploy.yml`;
-- сервер: `45.10.110.42`;
-- пользователь деплоя: `rocketdeploy`;
-- backend runtime: jar + `systemd`, без Docker;
-- web runtime: статическая сборка Vite через Nginx;
-- backend service: `rocketflow-backend`;
-- health check: `http://45.10.110.42/rocket-api/health`.
+- Workflow: `RocketFlow HexCore Prod Deploy`.
+- File: `.github/workflows/backend-hexcore-prod-deploy.yml`.
+- Runtime: backend jar plus `rocketflow-backend.service`; web static build through Nginx.
+- Backend service: `rocketflow-backend.service`.
+- Backend current symlink: `/opt/rocketflow/current/rocketflow-backend.jar`.
+- Web route: `/rocket/ -> /var/www/rocketflow-web/current`.
+- API route: `/rocket-api/ -> 127.0.0.1:8080/api/`.
+- Production DB: `rocketflow_prod`.
+- Flyway history baseline: 18 rows.
 
-Workflow запускается:
+Release triggers:
 
-- вручную через `workflow_dispatch`;
-- автоматически на `push` в ветки `release_1` и `MVP2`.
+- automatic `push` to branch names containing `release` runs build/package/artifact upload only;
+- manual `workflow_dispatch` on branch names containing `release` is required for any production SSH, staging, or promotion step.
 
-`release_1` может оставаться release/promotion веткой: PR из `MVP2` вливается в `release_1`, GitHub создаёт push в `release_1`, после чего стартует production deploy. При этом MVP2 также деплоится напрямую: каждый push в `MVP2` автоматически запускает production deploy.
+Manual production deploys also require:
 
-## GitHub Secrets
+- `approval_ticket`;
+- `production_confirmation=DEPLOY_ROCKETFLOW_PROD`;
+- `production` environment approval.
 
-Для production environment или repository secrets нужны:
+The deploy workflow builds backend and web artifacts, writes SHA256 checksums, writes a release manifest, uploads the release bundle with 30-day retention, verifies the manifest locally and remotely, and only then calls the server-side promotion helper.
 
-- `HEXCORE_PROD_SSH_HOST`: `45.10.110.42`
-- `HEXCORE_PROD_SSH_USER`: `rocketdeploy`
-- `HEXCORE_PROD_SSH_PRIVATE_KEY`: приватный deploy-ключ из `C:\Users\style\.ssh\rocketflow_prod_deploy`
+`MVP2` must not deploy directly unless it is renamed or promoted through a branch whose name contains `release`.
 
-Приватный ключ нельзя коммитить в репозиторий. Его нужно добавить только в GitHub secrets.
+## GHCR package policy
 
-## Branch Protection
+The GHCR workflow is package-only by default.
 
-Минимальная защита для `release_1`:
+- Workflow: `RocketFlow GHCR Package`.
+- File: `.github/workflows/rocketflow-ghcr-package.yml`.
+- Default behavior: build Docker image package and upload a GitHub Actions artifact.
+- Publish behavior: push to GHCR only when `publish_image=true`, `approval_ticket` is present, `publish_confirmation=PUBLISH_ROCKETFLOW_GHCR`, and the `production` environment gate passes.
+- It never deploys to HexCore.
 
-- требовать status checks перед merge;
-- требовать актуальную ветку перед merge;
-- обязательные checks: `backend-verify`, `web-verify`, `android-verify`;
-- запретить force push;
-- запретить удаление ветки;
-- требовать resolution всех conversations;
-- требовать pull request перед merge.
+## Rollback policy
 
-## Нормальный Promotion Flow
+Manual application rollback is handled by:
 
-1. Работать в `MVP2`.
-2. Открыть pull request из `MVP2` в `release_1`.
-3. Дождаться зелёных checks: `backend-verify`, `web-verify`, `android-verify`.
-4. Делать merge только после зелёных checks.
-5. После push в `MVP2` или merge в `release_1` GitHub запускает deploy на HexCore.
-6. Workflow выкладывает backend jar и web build.
-7. Workflow проверяет `http://45.10.110.42/rocket-api/health` и доступность web root `http://45.10.110.42/rocket/`.
+`.github/workflows/rocketflow-prod-rollback.yml`
 
-## Текущие ограничения
+Rollback requires:
 
-- GitHub secrets и branch protection являются настройками GitHub, а не файлами репозитория.
-- HTTPS ещё не настроен, потому что домен пока не привязан.
-- Android APK для пользователя собирается локально или отдельным release workflow, которого пока нет.
+- target release id;
+- current release confirmation;
+- approval ticket or incident id;
+- `include_db_rollback=false`;
+- `production` environment approval.
+
+The rollback workflow does not perform database rollback, backup restore, or Flyway repair/migrate/undo commands.
+
+## Secret policy
+
+Repository docs and workflows should reference production secrets by name only:
+
+- `HEXCORE_PROD_SSH_HOST`
+- `HEXCORE_PROD_SSH_USER`
+- `HEXCORE_PROD_SSH_PRIVATE_KEY`
+- `HEXCORE_PROD_SSH_KNOWN_HOSTS`
+
+Secret values belong only in GitHub repository or environment secrets.
+
+## Branch protection
+
+Minimum protection for release branches:
+
+- require status checks before merge;
+- require the branch to be up to date before merge;
+- require `backend-verify`, `web-verify`, and `android-verify`;
+- disallow force push;
+- disallow branch deletion;
+- require all conversations to be resolved;
+- require pull request review before merge.
+
+## Normal promotion flow
+
+1. Work in the development branch.
+2. Open a pull request into the release branch.
+3. Wait for green `backend-verify`, `web-verify`, and `android-verify`.
+4. Merge only after checks and review pass.
+5. Push to the release branch creates backend/web artifacts, checksums, and a release manifest.
+6. Start `RocketFlow HexCore Prod Deploy` manually from the release branch with an approval ticket and `DEPLOY_ROCKETFLOW_PROD`.
+7. The manual deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, promotes the release, and runs post-deploy health checks.
+
+See also:
+
+- `docs/production/rocketflow-cicd-runbook.md`
+- `docs/production/rocketflow-live-status.md`
+- `docs/production/rocketflow-db-migrations.md`

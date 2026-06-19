@@ -1,0 +1,191 @@
+name: RocketFlow GHCR Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_image:
+        description: "Publish the backend image to GHCR"
+        required: true
+        default: false
+        type: boolean
+      approval_ticket:
+        description: "Approval ticket or change record required when publishing"
+        required: false
+        type: string
+      publish_confirmation:
+        description: "Type PUBLISH_ROCKETFLOW_GHCR to confirm GHCR publish"
+        required: false
+        type: string
+
+concurrency:
+  group: rocketflow-ghcr-package-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: package
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Build backend Docker image package
+        run: |
+          set -euo pipefail
+
+          release_id="sha-${GITHUB_SHA::12}"
+          image_name="rocketflow-backend-package:${release_id}"
+          archive_name="rocketflow-backend-image-${release_id}.tar.gz"
+          checksum_file="rocketflow-ghcr-package-${release_id}.sha256"
+          manifest_file="rocketflow-ghcr-package-manifest-${release_id}.json"
+
+          echo "RELEASE_ID=${release_id}" >> "${GITHUB_ENV}"
+          echo "IMAGE_NAME=${image_name}" >> "${GITHUB_ENV}"
+          echo "ARCHIVE_NAME=${archive_name}" >> "${GITHUB_ENV}"
+          echo "CHECKSUM_FILE=${checksum_file}" >> "${GITHUB_ENV}"
+          echo "MANIFEST_FILE=${manifest_file}" >> "${GITHUB_ENV}"
+
+          mkdir -p package
+          docker build -t "${image_name}" backend
+          docker save "${image_name}" | gzip -c > "package/${archive_name}"
+
+          (
+            cd package
+            sha256sum "${archive_name}" > "${checksum_file}"
+          )
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          package_dir = Path("package")
+          archive_name = os.environ["ARCHIVE_NAME"]
+          archive_path = package_dir / archive_name
+          digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+
+          manifest = {
+              "schema_version": 1,
+              "package_id": os.environ["RELEASE_ID"],
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "git_ref": os.environ["GITHUB_REF"],
+              "git_ref_name": os.environ["GITHUB_REF_NAME"],
+              "git_sha": os.environ["GITHUB_SHA"],
+              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "image_source": os.environ["IMAGE_NAME"],
+              "archive": {
+                  "file": archive_name,
+                  "sha256": digest,
+              },
+              "publish_contract": {
+                  "registry": "ghcr.io",
+                  "publish_requires_input": "publish_image=true",
+                  "publish_requires_confirmation": "PUBLISH_ROCKETFLOW_GHCR",
+                  "does_not_deploy": True,
+              },
+          }
+
+          (package_dir / os.environ["MANIFEST_FILE"]).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Verify package manifest
+        run: |
+          set -euo pipefail
+
+          (
+            cd package
+            sha256sum -c "${CHECKSUM_FILE}"
+          )
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          package_dir = Path("package")
+          manifest = json.loads((package_dir / os.environ["MANIFEST_FILE"]).read_text(encoding="utf-8"))
+          archive_path = package_dir / manifest["archive"]["file"]
+          digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+          if digest != manifest["archive"]["sha256"]:
+              raise SystemExit("Package checksum mismatch")
+          if manifest["publish_contract"]["does_not_deploy"] is not True:
+              raise SystemExit("Package manifest must declare no deploy side effect")
+          PY
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rocketflow-ghcr-package-${{ github.sha }}
+          path: package/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: publish
+    runs-on: ubuntu-24.04
+    needs: package
+    environment: production
+    if: ${{ inputs.publish_image == true }}
+    permissions:
+      contents: read
+      packages: write
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: rocketflow-ghcr-package-${{ github.sha }}
+          path: package
+
+      - name: Validate GHCR publish guardrails
+        env:
+          APPROVAL_TICKET: ${{ inputs.approval_ticket }}
+          PUBLISH_CONFIRMATION: ${{ inputs.publish_confirmation }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${APPROVAL_TICKET}" ]; then
+            echo "::error::approval_ticket is required when publish_image=true."
+            exit 1
+          fi
+
+          if [ "${PUBLISH_CONFIRMATION}" != "PUBLISH_ROCKETFLOW_GHCR" ]; then
+            echo "::error::publish_confirmation must be PUBLISH_ROCKETFLOW_GHCR when publish_image=true."
+            exit 1
+          fi
+
+      - name: Load and publish image to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          release_id="sha-${GITHUB_SHA::12}"
+          archive_name="rocketflow-backend-image-${release_id}.tar.gz"
+          image_name="$(echo "ghcr.io/${GITHUB_REPOSITORY_OWNER}/rocketflow-backend" | tr '[:upper:]' '[:lower:]')"
+
+          gzip -dc "package/${archive_name}" | docker load
+          docker tag "rocketflow-backend-package:${release_id}" "${image_name}:${release_id}"
+          docker tag "rocketflow-backend-package:${release_id}" "${image_name}:${GITHUB_SHA}"
+
+          printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker push "${image_name}:${release_id}"
+          docker push "${image_name}:${GITHUB_SHA}"
+
+          echo "Published image tags:"
+          echo "  ${image_name}:${release_id}"
+          echo "  ${image_name}:${GITHUB_SHA}"

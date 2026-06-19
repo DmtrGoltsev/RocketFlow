@@ -1,161 +1,107 @@
-# HexCore Prod Runbook
+# HexCore Production Runbook
 
-Дата первичной настройки: 2026-05-16.
+Initial setup date: 2026-05-16.
+Last updated: 2026-06-14.
 
-## Сервер
+## Server role
 
-- Провайдер: HexCore.
-- Сервер: `rocketflow-prod-01`.
-- IPv4: `45.10.110.42`.
-- ОС: Ubuntu 26.04 LTS.
-- Ресурсы: 1 CPU, 2 GB RAM, 20 GB SSD.
-- Публичный health endpoint: `http://45.10.110.42/rocket-api/health`.
+HexCore hosts the RocketFlow production backend, web build, Nginx routes, and PostgreSQL database.
 
-## Что установлено
+Live routing contract:
 
-- Java 21.
-- PostgreSQL 18.
-- Nginx.
-- UFW firewall.
-- Swap 2 GB.
-- Systemd-сервис backend: `rocketflow-backend`.
-- Ежедневный backup PostgreSQL: `rocketflow-backup.timer`.
+- Web: `/rocket/ -> /var/www/rocketflow-web/current`.
+- API: `/rocket-api/ -> 127.0.0.1:8080/api/`.
+- Backend service: `rocketflow-backend.service`.
+- Backend current symlink: `/opt/rocketflow/current/rocketflow-backend.jar`.
+- Production database: `rocketflow_prod`.
+- Flyway history baseline: 18 rows.
 
-Backend слушает только `127.0.0.1:8080`. Снаружи API открыт через Nginx на `http://45.10.110.42/rocket-api/...`.
+## Runtime layout
 
-Web-приложение отдается Nginx с того же сервера:
+Backend release jars:
 
-`http://45.10.110.42/rocket/`
+`/opt/rocketflow/releases/rocketflow-backend-<release_id>.jar`
 
-## Текущий backend
-
-Первый ручной деплой выполнен из чистой committed-ветки `release_1`, commit `ec54c05`.
-
-На сервере jar лежит в:
-
-`/opt/rocketflow/releases/rocketflow-backend-release_1-ec54c05.jar`
-
-Текущий symlink:
+Backend current symlink:
 
 `/opt/rocketflow/current/rocketflow-backend.jar`
 
-Web-релизы загружаются в:
+Web release archives:
 
-`/opt/rocketflow/web-releases`
+`/opt/rocketflow/web-releases/rocketflow-web-<release_id>.tar.gz`
 
-Активная web-сборка:
+Active web root:
 
 `/var/www/rocketflow-web/current`
 
-## Проверка
+Release manifests and checksums:
 
-С локального компьютера:
+- `/opt/rocketflow/releases/rocketflow-release-manifest-<release_id>.json`
+- `/opt/rocketflow/releases/rocketflow-release-<release_id>.sha256`
+- `/opt/rocketflow/releases/rocketflow-release-<release_id>.remote.sha256`
+
+## CI/CD entrypoints
+
+Production deploy:
+
+`.github/workflows/backend-hexcore-prod-deploy.yml`
+
+GHCR package:
+
+`.github/workflows/rocketflow-ghcr-package.yml`
+
+Manual application rollback:
+
+`.github/workflows/rocketflow-prod-rollback.yml`
+
+## Required GitHub secret names
+
+Only these names should appear in repo files:
+
+- `HEXCORE_PROD_SSH_HOST`
+- `HEXCORE_PROD_SSH_USER`
+- `HEXCORE_PROD_SSH_PRIVATE_KEY`
+- `HEXCORE_PROD_SSH_KNOWN_HOSTS`
+
+Store values only in GitHub repository or environment secrets.
+
+## Deploy readiness evidence
+
+During an approved production deploy, the workflow records:
+
+- release id;
+- current backend symlink;
+- current web root symlink;
+- `rocketflow-backend.service` active state;
+- local backend health at `127.0.0.1:8080/api/health`;
+- local Nginx web marker at `/rocket/`;
+- Flyway history row count for `rocketflow_prod`;
+- local and remote SHA256 verification output.
+
+## Operator verification
+
+From an operator workstation, verify public endpoints with the documented public host for the environment:
 
 ```powershell
-Invoke-RestMethod -Uri http://45.10.110.42/rocket-api/health
+Invoke-RestMethod -Uri http://<production-host>/rocket-api/health
 ```
 
-На сервере:
+On the server, read-only checks are:
 
 ```bash
-systemctl status rocketflow-backend
-journalctl -u rocketflow-backend -n 100 --no-pager
+systemctl status rocketflow-backend.service
+journalctl -u rocketflow-backend.service -n 100 --no-pager
 curl http://127.0.0.1:8080/api/health
 curl http://127.0.0.1/rocket-api/health
 curl http://127.0.0.1/rocket/
 ```
 
-## Backup
+Service restart/reload commands are intentionally not part of this local runbook edit. Production changes should go through the approved workflows or an operator-approved emergency procedure.
 
-Backup-файлы:
+## Backup reference
 
-`/var/backups/rocketflow/rocketflow_prod_*.dump`
-
-Локальное скачивание production dump и guarded recovery-процедура описаны отдельно:
+Production database backup handling is documented separately:
 
 `docs/65-prod-db-backup-local-runbook.md`
 
-Ручной запуск:
-
-```bash
-/usr/local/sbin/rocketflow-backup.sh
-```
-
-Проверка timer:
-
-```bash
-systemctl list-timers --all | grep rocketflow-backup
-```
-
-## CI/CD
-
-Workflow:
-
-`.github/workflows/backend-hexcore-prod-deploy.yml`
-
-Запуск вручную через GitHub Actions:
-
-`Деплой backend в HexCore Prod`
-
-Нужные GitHub secrets для environment/repository:
-
-- `HEXCORE_PROD_SSH_HOST`: `45.10.110.42`
-- `HEXCORE_PROD_SSH_USER`: `rocketdeploy`
-- `HEXCORE_PROD_SSH_PRIVATE_KEY`: содержимое приватного ключа `C:\Users\style\.ssh\rocketflow_prod_deploy`
-
-Опционально можно передать `health_url` при ручном запуске workflow:
-
-`http://45.10.110.42/rocket-api/health`
-
-## SSH
-
-Root-вход по паролю отключен. Root-вход по SSH-ключу оставлен.
-
-Для CI/CD создан отдельный пользователь:
-
-`rocketdeploy`
-
-Он может:
-
-- писать jar в `/opt/rocketflow/releases`;
-- писать web-архивы в `/opt/rocketflow/web-releases`;
-- вызвать только `/usr/local/sbin/rocketflow-promote-latest`;
-- проверить статус `rocketflow-backend`.
-
-Он не должен использоваться для обычного администрирования сервера.
-
-## Важные команды
-
-Перезапуск backend:
-
-```bash
-systemctl restart rocketflow-backend
-```
-
-Проверка сервисов:
-
-```bash
-systemctl is-active rocketflow-backend postgresql nginx
-systemctl is-enabled rocketflow-backend postgresql nginx
-```
-
-Проверка ресурсов:
-
-```bash
-free -h
-df -h /
-```
-
-Проверка firewall:
-
-```bash
-ufw status
-```
-
-Открыты только:
-
-- SSH;
-- HTTP 80;
-- HTTPS 443.
-
-HTTPS еще не настроен, потому что домен пока не привязан.
+The application rollback workflow does not restore database backups and does not run Flyway migration or repair commands.

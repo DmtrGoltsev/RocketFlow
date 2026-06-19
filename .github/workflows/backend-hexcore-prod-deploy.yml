@@ -1,86 +1,275 @@
-name: Деплой backend в HexCore Prod
+name: RocketFlow HexCore Prod Deploy
 
 on:
   push:
-    branches:
-      - release_1
-      - MVP2
+    branches: ['**release**']
   workflow_dispatch:
     inputs:
-      health_url:
-        description: "Опциональный health URL, например http://45.10.110.42/rocket-api/health"
-        required: false
+      approval_ticket:
+        description: "Production approval ticket or change record"
+        required: true
+        type: string
+      production_confirmation:
+        description: "Type DEPLOY_ROCKETFLOW_PROD to confirm manual production deploy"
+        required: true
         type: string
 
 concurrency:
-  group: backend-hexcore-prod-deploy
+  group: rocketflow-hexcore-prod-deploy
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  deploy-backend:
-    name: deploy-backend
+  package:
+    name: package
     runs-on: ubuntu-24.04
-    environment: production
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/release_1' || github.ref == 'refs/heads/MVP2'
+    if: contains(github.ref_name, 'release')
 
     defaults:
       run:
         shell: bash
 
     steps:
-      - name: Получить код репозитория
+      - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
-      - name: Настроить Temurin JDK 21
+      - name: Set up Temurin JDK 21
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
 
-      - name: Собрать backend и пройти тесты
+      - name: Build backend and run tests
         working-directory: backend
         run: mvn --batch-mode --no-transfer-progress package
 
-      - name: Настроить Node.js 20
+      - name: Set up Node.js 20
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Собрать web для HexCore
+      - name: Build web for HexCore
         working-directory: web
         env:
           VITE_API_BASE_URL: /rocket-api
         run: |
+          set -euo pipefail
           npm ci
           npm run build
 
-      - name: Упаковать web build
+      - name: Create release package and manifest
         run: |
           set -euo pipefail
-          tar -czf "rocketflow-web-sha-${GITHUB_SHA::12}.tar.gz" -C web/dist .
 
-      - name: Подготовить SSH-доступ к HexCore
+          release_id="sha-${GITHUB_SHA::12}"
+          backend_artifact="rocketflow-backend-${release_id}.jar"
+          web_artifact="rocketflow-web-${release_id}.tar.gz"
+          checksum_file="rocketflow-release-${release_id}.sha256"
+          manifest_file="rocketflow-release-manifest-${release_id}.json"
+
+          echo "RELEASE_ID=${release_id}" >> "${GITHUB_ENV}"
+          echo "BACKEND_ARTIFACT=${backend_artifact}" >> "${GITHUB_ENV}"
+          echo "WEB_ARTIFACT=${web_artifact}" >> "${GITHUB_ENV}"
+          echo "CHECKSUM_FILE=${checksum_file}" >> "${GITHUB_ENV}"
+          echo "MANIFEST_FILE=${manifest_file}" >> "${GITHUB_ENV}"
+
+          mkdir -p release
+          jar_path="$(find backend/target -maxdepth 1 -type f -name 'rocketflow-backend-*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' | head -n 1)"
+          if [ -z "${jar_path}" ]; then
+            echo "::error::Backend jar was not found in backend/target."
+            exit 1
+          fi
+
+          cp "${jar_path}" "release/${backend_artifact}"
+          tar -czf "release/${web_artifact}" -C web/dist .
+
+          (
+            cd release
+            sha256sum "${backend_artifact}" "${web_artifact}" > "${checksum_file}"
+          )
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          release_dir = Path("release")
+          release_id = os.environ["RELEASE_ID"]
+          backend_artifact = os.environ["BACKEND_ARTIFACT"]
+          web_artifact = os.environ["WEB_ARTIFACT"]
+          checksum_file = os.environ["CHECKSUM_FILE"]
+          manifest_file = os.environ["MANIFEST_FILE"]
+
+          def sha256_for(name: str) -> str:
+              digest = hashlib.sha256()
+              with (release_dir / name).open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          manifest = {
+              "schema_version": 1,
+              "release_id": release_id,
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "git_ref": os.environ["GITHUB_REF"],
+              "git_ref_name": os.environ["GITHUB_REF_NAME"],
+              "git_sha": os.environ["GITHUB_SHA"],
+              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "github_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "artifacts": {
+                  "backend_jar": {
+                      "file": backend_artifact,
+                      "sha256": sha256_for(backend_artifact),
+                      "remote_path": f"/opt/rocketflow/releases/{backend_artifact}",
+                  },
+                  "web_archive": {
+                      "file": web_artifact,
+                      "sha256": sha256_for(web_artifact),
+                      "remote_path": f"/opt/rocketflow/web-releases/{web_artifact}",
+                  },
+              },
+              "checksums": {
+                  "file": checksum_file,
+                  "algorithm": "sha256",
+              },
+              "production_contract": {
+                  "backend_service": "rocketflow-backend.service",
+                  "backend_current_symlink": "/opt/rocketflow/current/rocketflow-backend.jar",
+                  "web_route": "/rocket/ -> /var/www/rocketflow-web/current",
+                  "api_route": "/rocket-api/ -> 127.0.0.1:8080/api/",
+                  "database": "rocketflow_prod",
+                  "flyway_history_min_rows": 18,
+              },
+          }
+
+          (release_dir / manifest_file).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+      - name: Verify local release manifest
+        run: |
+          set -euo pipefail
+
+          (
+            cd release
+            sha256sum -c "${CHECKSUM_FILE}"
+          )
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          release_dir = Path("release")
+          manifest = json.loads((release_dir / os.environ["MANIFEST_FILE"]).read_text(encoding="utf-8"))
+
+          assert manifest["release_id"] == os.environ["RELEASE_ID"]
+          assert manifest["production_contract"]["backend_service"] == "rocketflow-backend.service"
+          assert manifest["production_contract"]["database"] == "rocketflow_prod"
+          assert manifest["production_contract"]["flyway_history_min_rows"] >= 18
+
+          for artifact in manifest["artifacts"].values():
+              path = release_dir / artifact["file"]
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              if digest != artifact["sha256"]:
+                  raise SystemExit(f"Checksum mismatch for {path}")
+          PY
+
+      - name: Upload release artifact bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rocketflow-release-${{ github.sha }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy:
+    name: deploy
+    runs-on: ubuntu-24.04
+    needs: package
+    environment: production
+    if: ${{ github.event_name == 'workflow_dispatch' && contains(github.ref_name, 'release') }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Download release artifact bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: rocketflow-release-${{ github.sha }}
+          path: release
+
+      - name: Set release metadata
+        run: |
+          set -euo pipefail
+
+          release_id="sha-${GITHUB_SHA::12}"
+          echo "RELEASE_ID=${release_id}" >> "${GITHUB_ENV}"
+          echo "BACKEND_ARTIFACT=rocketflow-backend-${release_id}.jar" >> "${GITHUB_ENV}"
+          echo "WEB_ARTIFACT=rocketflow-web-${release_id}.tar.gz" >> "${GITHUB_ENV}"
+          echo "CHECKSUM_FILE=rocketflow-release-${release_id}.sha256" >> "${GITHUB_ENV}"
+          echo "MANIFEST_FILE=rocketflow-release-manifest-${release_id}.json" >> "${GITHUB_ENV}"
+
+      - name: Verify downloaded release bundle
+        run: |
+          set -euo pipefail
+
+          (
+            cd release
+            sha256sum -c "${CHECKSUM_FILE}"
+            test -r "${BACKEND_ARTIFACT}"
+            test -r "${WEB_ARTIFACT}"
+            test -r "${MANIFEST_FILE}"
+          )
+
+      - name: Validate production deploy guardrails
         env:
-          HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
-          HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
-          HEXCORE_PROD_SSH_PRIVATE_KEY: ${{ secrets.HEXCORE_PROD_SSH_PRIVATE_KEY }}
+          APPROVAL_TICKET: ${{ inputs.approval_ticket }}
+          PRODUCTION_CONFIRMATION: ${{ inputs.production_confirmation }}
         run: |
           set -euo pipefail
 
           echo "Deploy context:"
           echo "  event=${GITHUB_EVENT_NAME}"
           echo "  ref=${GITHUB_REF}"
+          echo "  ref_name=${GITHUB_REF_NAME}"
           echo "  sha=${GITHUB_SHA}"
-          echo "Push auto deploy is intentionally limited to refs/heads/release_1 and refs/heads/MVP2."
+          echo "  release_id=${RELEASE_ID}"
+          echo "Manual release deploy is enforced by workflow_dispatch and job-level contains(github.ref_name, 'release')."
+
+          if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]; then
+            echo "::error::Production deploy steps are workflow_dispatch-only."
+            exit 1
+          fi
+
+          if [ -z "${APPROVAL_TICKET}" ]; then
+            echo "::error::approval_ticket is required for manual production deploy."
+            exit 1
+          fi
+          if [ "${PRODUCTION_CONFIRMATION}" != "DEPLOY_ROCKETFLOW_PROD" ]; then
+            echo "::error::production_confirmation must be DEPLOY_ROCKETFLOW_PROD."
+            exit 1
+          fi
+
+      - name: Prepare SSH access to HexCore
+        env:
+          HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
+          HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
+          HEXCORE_PROD_SSH_PRIVATE_KEY: ${{ secrets.HEXCORE_PROD_SSH_PRIVATE_KEY }}
+          HEXCORE_PROD_SSH_KNOWN_HOSTS: ${{ secrets.HEXCORE_PROD_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
 
           missing=0
-          for secret_name in HEXCORE_PROD_SSH_HOST HEXCORE_PROD_SSH_USER HEXCORE_PROD_SSH_PRIVATE_KEY; do
+          for secret_name in HEXCORE_PROD_SSH_HOST HEXCORE_PROD_SSH_USER HEXCORE_PROD_SSH_PRIVATE_KEY HEXCORE_PROD_SSH_KNOWN_HOSTS; do
             if [ -z "${!secret_name}" ]; then
               echo "::error::Required secret ${secret_name} is not configured or is empty."
               missing=1
@@ -96,20 +285,19 @@ jobs:
           install -d -m 700 ~/.ssh
           printf '%s\n' "${HEXCORE_PROD_SSH_PRIVATE_KEY}" | tr -d '\r' > ~/.ssh/rocketflow_prod_deploy
           chmod 600 ~/.ssh/rocketflow_prod_deploy
-          ssh-keyscan -H "${HEXCORE_PROD_SSH_HOST}" >> ~/.ssh/known_hosts
+          printf '%s\n' "${HEXCORE_PROD_SSH_KNOWN_HOSTS}" | tr -d '\r' > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
+          if ! ssh-keygen -F "${HEXCORE_PROD_SSH_HOST}" -f ~/.ssh/known_hosts >/dev/null; then
+            echo "::error::HEXCORE_PROD_SSH_KNOWN_HOSTS does not contain a pinned host key for HEXCORE_PROD_SSH_HOST."
+            exit 1
+          fi
 
-      - name: Загрузить backend jar и web build на сервер
+      - name: Pre-deploy production inventory and readiness
         env:
           HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
           HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
         run: |
           set -euo pipefail
-
-          jar_path="$(ls backend/target/rocketflow-backend-*.jar | head -n 1)"
-          remote_jar_path="/opt/rocketflow/releases/rocketflow-backend-sha-${GITHUB_SHA::12}.jar"
-          web_archive="rocketflow-web-sha-${GITHUB_SHA::12}.tar.gz"
-          remote_web_path="/opt/rocketflow/web-releases/${web_archive}"
           ssh_opts=(
             -i ~/.ssh/rocketflow_prod_deploy
             -o BatchMode=yes
@@ -120,19 +308,121 @@ jobs:
           )
 
           ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
-            'set -euo pipefail; echo "SSH smoke: user=$(whoami) host=$(hostname)"; test -w /opt/rocketflow/releases; test -w /opt/rocketflow/web-releases'
+            "RELEASE_ID='${RELEASE_ID}' bash -s" <<'REMOTE'
+          set -euo pipefail
 
-          scp \
-            "${ssh_opts[@]}" \
-            "${jar_path}" \
-            "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}:${remote_jar_path}"
+          echo "release_id=${RELEASE_ID}"
+          echo "backend_current=$(readlink -f /opt/rocketflow/current/rocketflow-backend.jar 2>/dev/null || true)"
+          echo "web_current=$(readlink -f /var/www/rocketflow-web/current 2>/dev/null || true)"
 
-          scp \
-            "${ssh_opts[@]}" \
-            "${web_archive}" \
-            "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}:${remote_web_path}"
+          test -e /opt/rocketflow/current/rocketflow-backend.jar
+          test -d /var/www/rocketflow-web/current
+          test -r /var/www/rocketflow-web/current/index.html
 
-      - name: Переключить релиз и перезапустить приложение
+          systemctl is-active --quiet rocketflow-backend.service
+          systemctl show rocketflow-backend.service -p ActiveState -p SubState -p MainPID --no-pager
+
+          curl --fail --silent --show-error http://127.0.0.1/rocket/ | grep -qi '<div id="root"'
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/health | grep -q '"status":"UP"'
+
+          if flyway_count="$(sudo -n -u postgres psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null || psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null)"; then
+            flyway_count="$(printf '%s' "${flyway_count}" | tr -d '[:space:]')"
+            echo "flyway_history_rows=${flyway_count}"
+            test "${flyway_count}" -ge 18
+          else
+            echo "::error::Unable to read Flyway history for rocketflow_prod."
+            exit 1
+          fi
+          REMOTE
+
+      - name: Upload release package to HexCore staging
+        env:
+          HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
+          HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh_opts=(
+            -i ~/.ssh/rocketflow_prod_deploy
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=15
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile=~/.ssh/known_hosts
+          )
+          remote_stage="/tmp/rocketflow-deploy-${RELEASE_ID}"
+
+          ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
+            "set -euo pipefail; rm -rf '${remote_stage}'; mkdir -p '${remote_stage}'"
+
+          scp "${ssh_opts[@]}" \
+            "release/${BACKEND_ARTIFACT}" \
+            "release/${WEB_ARTIFACT}" \
+            "release/${CHECKSUM_FILE}" \
+            "release/${MANIFEST_FILE}" \
+            "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}:${remote_stage}/"
+
+      - name: Verify manifest and stage release before promotion
+        env:
+          HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
+          HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh_opts=(
+            -i ~/.ssh/rocketflow_prod_deploy
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=15
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile=~/.ssh/known_hosts
+          )
+
+          ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
+            "RELEASE_ID='${RELEASE_ID}' BACKEND_ARTIFACT='${BACKEND_ARTIFACT}' WEB_ARTIFACT='${WEB_ARTIFACT}' CHECKSUM_FILE='${CHECKSUM_FILE}' MANIFEST_FILE='${MANIFEST_FILE}' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          remote_stage="/tmp/rocketflow-deploy-${RELEASE_ID}"
+          backend_remote="/opt/rocketflow/releases/${BACKEND_ARTIFACT}"
+          web_remote="/opt/rocketflow/web-releases/${WEB_ARTIFACT}"
+          manifest_remote="/opt/rocketflow/releases/${MANIFEST_FILE}"
+          checksum_remote="/opt/rocketflow/releases/${CHECKSUM_FILE}"
+          remote_checksum="/opt/rocketflow/releases/rocketflow-release-${RELEASE_ID}.remote.sha256"
+
+          cd "${remote_stage}"
+          sha256sum -c "${CHECKSUM_FILE}"
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path(os.environ["MANIFEST_FILE"]).read_text(encoding="utf-8"))
+          if manifest["release_id"] != os.environ["RELEASE_ID"]:
+              raise SystemExit("Manifest release_id mismatch")
+          if manifest["artifacts"]["backend_jar"]["file"] != os.environ["BACKEND_ARTIFACT"]:
+              raise SystemExit("Manifest backend artifact mismatch")
+          if manifest["artifacts"]["web_archive"]["file"] != os.environ["WEB_ARTIFACT"]:
+              raise SystemExit("Manifest web artifact mismatch")
+          if manifest["production_contract"]["backend_current_symlink"] != "/opt/rocketflow/current/rocketflow-backend.jar":
+              raise SystemExit("Manifest backend symlink contract mismatch")
+          if manifest["production_contract"]["database"] != "rocketflow_prod":
+              raise SystemExit("Manifest database contract mismatch")
+          PY
+
+          install -m 0644 "${BACKEND_ARTIFACT}" "${backend_remote}"
+          install -m 0644 "${WEB_ARTIFACT}" "${web_remote}"
+          install -m 0644 "${MANIFEST_FILE}" "${manifest_remote}"
+          install -m 0644 "${CHECKSUM_FILE}" "${checksum_remote}"
+
+          backend_sha="$(awk -v file="${BACKEND_ARTIFACT}" '$2 == file { print $1 }' "${CHECKSUM_FILE}")"
+          web_sha="$(awk -v file="${WEB_ARTIFACT}" '$2 == file { print $1 }' "${CHECKSUM_FILE}")"
+          {
+            printf '%s  %s\n' "${backend_sha}" "${backend_remote}"
+            printf '%s  %s\n' "${web_sha}" "${web_remote}"
+          } > "${remote_checksum}"
+          sha256sum -c "${remote_checksum}"
+          REMOTE
+
+      - name: Promote verified release
         env:
           HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
           HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
@@ -151,14 +441,61 @@ jobs:
             "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
             "sudo -n /usr/local/sbin/rocketflow-promote-latest"
 
-      - name: Проверить production health
+      - name: Post-deploy production inventory and readiness
         env:
           HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
-          INPUT_HEALTH_URL: ${{ inputs.health_url }}
+          HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh_opts=(
+            -i ~/.ssh/rocketflow_prod_deploy
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=15
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile=~/.ssh/known_hosts
+          )
+
+          ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
+            "RELEASE_ID='${RELEASE_ID}' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          backend_current="$(readlink -f /opt/rocketflow/current/rocketflow-backend.jar)"
+          web_current="$(readlink -f /var/www/rocketflow-web/current)"
+          echo "backend_current=${backend_current}"
+          echo "web_current=${web_current}"
+
+          case "${backend_current}" in
+            *"${RELEASE_ID}"*) ;;
+            *)
+              echo "::error::Backend current symlink does not point at ${RELEASE_ID}."
+              exit 1
+              ;;
+          esac
+
+          systemctl is-active --quiet rocketflow-backend.service
+          systemctl show rocketflow-backend.service -p ActiveState -p SubState -p MainPID --no-pager
+
+          curl --fail --silent --show-error http://127.0.0.1/rocket/ | grep -qi '<div id="root"'
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/health | grep -q '"status":"UP"'
+
+          if flyway_count="$(sudo -n -u postgres psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null || psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null)"; then
+            flyway_count="$(printf '%s' "${flyway_count}" | tr -d '[:space:]')"
+            echo "flyway_history_rows=${flyway_count}"
+            test "${flyway_count}" -ge 18
+          else
+            echo "::error::Unable to read Flyway history for rocketflow_prod."
+            exit 1
+          fi
+          REMOTE
+
+      - name: Check production backend health
+        env:
+          HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
         run: |
           set -euo pipefail
 
-          health_url="${INPUT_HEALTH_URL:-http://${HEXCORE_PROD_SSH_HOST}/rocket-api/health}"
+          health_url="http://${HEXCORE_PROD_SSH_HOST}/rocket-api/health"
 
           for attempt in {1..40}; do
             if response="$(curl --fail --silent --show-error "${health_url}")" && grep -q '"status":"UP"' <<< "${response}"; then
@@ -166,21 +503,22 @@ jobs:
               exit 0
             fi
 
-            echo "Ждем production health backend, попытка ${attempt}/40..."
+            echo "Waiting for production backend health, attempt ${attempt}/40..."
             sleep 5
           done
 
-          echo "Production backend не вернул UP за отведенное время." >&2
+          echo "::error::Production backend did not return UP in the allotted time."
           exit 1
 
-      - name: Проверить production web
+      - name: Check production web root
         env:
           HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
         run: |
           set -euo pipefail
+
           if curl --fail --silent --show-error "http://${HEXCORE_PROD_SSH_HOST}/rocket/" | grep -qi '<div id="root"'; then
             echo "Production web root marker is present."
           else
-            echo "::error::Production web check failed: root marker was not found or the request failed." >&2
+            echo "::error::Production web check failed: root marker was not found or the request failed."
             exit 1
           fi
