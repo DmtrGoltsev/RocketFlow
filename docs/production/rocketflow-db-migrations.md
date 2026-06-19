@@ -1,6 +1,6 @@
 # RocketFlow Production DB Migrations
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-19.
 
 ## Live database contract
 
@@ -11,6 +11,11 @@ Last updated: 2026-06-14.
 ## CI/CD rule
 
 The production deploy workflow does not run standalone Flyway commands. It packages the backend, verifies artifacts, promotes the release, and checks the Flyway history table before and after promotion.
+
+On release branch pushes, the production deploy job now runs automatically
+through the same HexCore staging, promotion, and verification path used by
+guarded manual dispatches. Flyway migrations still occur through the backend
+application lifecycle when the promoted service starts.
 
 The expected production check is:
 

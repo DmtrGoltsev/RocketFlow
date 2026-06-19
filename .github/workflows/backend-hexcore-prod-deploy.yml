@@ -200,7 +200,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: package
     environment: production
-    if: ${{ github.event_name == 'workflow_dispatch' && contains(github.ref_name, 'release') }}
+    if: ${{ contains(github.ref_name, 'release') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
 
     defaults:
       run:
@@ -249,19 +249,26 @@ jobs:
           echo "  ref_name=${GITHUB_REF_NAME}"
           echo "  sha=${GITHUB_SHA}"
           echo "  release_id=${RELEASE_ID}"
-          echo "Manual release deploy is enforced by workflow_dispatch and job-level contains(github.ref_name, 'release')."
+          echo "Production deploy is enabled for release-branch push and guarded workflow_dispatch events."
 
-          if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]; then
-            echo "::error::Production deploy steps are workflow_dispatch-only."
+          if [[ "${GITHUB_REF_NAME}" != *release* ]]; then
+            echo "::error::Production deploy requires a branch name containing release."
             exit 1
           fi
 
-          if [ -z "${APPROVAL_TICKET}" ]; then
-            echo "::error::approval_ticket is required for manual production deploy."
-            exit 1
-          fi
-          if [ "${PRODUCTION_CONFIRMATION}" != "DEPLOY_ROCKETFLOW_PROD" ]; then
-            echo "::error::production_confirmation must be DEPLOY_ROCKETFLOW_PROD."
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ -z "${APPROVAL_TICKET}" ]; then
+              echo "::error::approval_ticket is required for manual production deploy."
+              exit 1
+            fi
+            if [ "${PRODUCTION_CONFIRMATION}" != "DEPLOY_ROCKETFLOW_PROD" ]; then
+              echo "::error::production_confirmation must be DEPLOY_ROCKETFLOW_PROD."
+              exit 1
+            fi
+          elif [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            echo "Release branch push deploy path selected; manual dispatch inputs are not required."
+          else
+            echo "::error::Unsupported deploy event ${GITHUB_EVENT_NAME}."
             exit 1
           fi
 

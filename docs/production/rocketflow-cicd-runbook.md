@@ -1,6 +1,6 @@
 # RocketFlow CI/CD Runbook
 
-Last updated: 2026-06-14.
+Last updated: 2026-06-19.
 
 ## Production contract
 
@@ -17,19 +17,19 @@ Last updated: 2026-06-14.
 
 File: `.github/workflows/backend-hexcore-prod-deploy.yml`.
 
-Purpose: build backend and web, create a release bundle, verify checksums and manifest, upload the bundle as a GitHub artifact, then manually stage verified files on HexCore and promote only after the remote manifest/checksum check passes.
+Purpose: build backend and web, create a release bundle, verify checksums and manifest, upload the bundle as a GitHub artifact, then stage verified files on HexCore and promote only after the remote manifest/checksum check passes.
 
 Triggers:
 
-- `push` to branch names containing `release` runs build/package/artifact upload only.
-- `workflow_dispatch` on branch names containing `release` is required for production SSH, staging, and promotion.
+- `push` to branch names containing `release` runs build/package/artifact upload, production SSH staging, server-side promotion, and health/Flyway verification.
+- `workflow_dispatch` on branch names containing `release` remains available for manual production deployment and requires the existing approval inputs.
 
 Protection:
 
 - Production deploy job environment: `production`.
 - Concurrency: one production deploy at a time.
 - Manual runs require `approval_ticket` and `production_confirmation=DEPLOY_ROCKETFLOW_PROD`.
-- Release branch pushes cannot run production SSH, staging, or promotion.
+- Release branch pushes do not require manual dispatch inputs, but still run through the `production` environment and pinned SSH host-key path.
 
 Release bundle contents:
 
@@ -46,6 +46,11 @@ Pre/post inventory checks during the approved deploy:
 - local Nginx web route marker at `/rocket/`;
 - local backend health at `127.0.0.1:8080/api/health`;
 - Flyway history count for `rocketflow_prod`, expected to be at least 18 rows.
+
+The workflow does not invoke standalone Flyway commands. Production schema
+migrations are handled by the backend application's Flyway lifecycle when the
+promoted backend release starts; the workflow verifies Flyway history before and
+after promotion.
 
 ### `RocketFlow GHCR Package`
 
@@ -93,7 +98,7 @@ Keep secret values only in GitHub Actions secrets or environment secrets. Reposi
 ## Operator checklist
 
 1. Confirm release branch policy and required CI checks are green.
-2. Confirm the `production` environment approval is intentional.
+2. Confirm the release branch push or manual `production` environment approval is intentional.
 3. Confirm the release artifact bundle exists and manifest verification passed.
 4. Check pre-deploy inventory output for current symlink, service status, web root, and Flyway row count.
 5. After promotion, check backend health and `/rocket/` web marker.

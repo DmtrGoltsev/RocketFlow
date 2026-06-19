@@ -26,14 +26,17 @@ Production deploys are handled by GitHub Actions through HexCore.
 
 Release triggers:
 
-- automatic `push` to branch names containing `release` runs build/package/artifact upload only;
-- manual `workflow_dispatch` on branch names containing `release` is required for any production SSH, staging, or promotion step.
+- automatic `push` to branch names containing `release` runs build/package/artifact upload, production SSH staging, server-side promotion, and health/Flyway verification;
+- manual `workflow_dispatch` on branch names containing `release` remains available for production SSH, staging, and promotion.
 
 Manual production deploys also require:
 
 - `approval_ticket`;
 - `production_confirmation=DEPLOY_ROCKETFLOW_PROD`;
 - `production` environment approval.
+
+Release branch push deploys do not require manual dispatch inputs, but still run
+through the `production` environment and pinned SSH host-key path.
 
 The deploy workflow builds backend and web artifacts, writes SHA256 checksums, writes a release manifest, uploads the release bundle with 30-day retention, verifies the manifest locally and remotely, and only then calls the server-side promotion helper.
 
@@ -95,8 +98,8 @@ Minimum protection for release branches:
 3. Wait for green `backend-verify`, `web-verify`, and `android-verify`.
 4. Merge only after checks and review pass.
 5. Push to the release branch creates backend/web artifacts, checksums, and a release manifest.
-6. Start `RocketFlow HexCore Prod Deploy` manually from the release branch with an approval ticket and `DEPLOY_ROCKETFLOW_PROD`.
-7. The manual deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, promotes the release, and runs post-deploy health checks.
+6. The release push deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, promotes the release, and runs post-deploy health checks.
+7. For an operator-driven redeploy, start `RocketFlow HexCore Prod Deploy` manually from the release branch with an approval ticket and `DEPLOY_ROCKETFLOW_PROD`; it uses the same promotion path.
 
 See also:
 
