@@ -38,7 +38,7 @@ Manual production deploys also require:
 Release branch push deploys do not require manual dispatch inputs, but still run
 through the `production` environment and pinned SSH host-key path.
 
-The deploy workflow builds backend and web artifacts, writes SHA256 checksums, writes a release manifest, uploads the release bundle with 30-day retention, verifies the manifest locally and remotely, and only then calls the server-side promotion helper.
+The deploy workflow builds backend and web artifacts, writes SHA256 checksums, writes a release manifest, uploads the release bundle with 30-day retention, verifies the manifest locally and remotely, and only then calls the server-side promotion helper. Post-promotion readiness waits/retries service activity, local backend health, local Nginx web routing, and public health/web checks before failing the run.
 
 `MVP2` must not deploy directly unless it is renamed or promoted through a branch whose name contains `release`.
 
@@ -98,7 +98,7 @@ Minimum protection for release branches:
 3. Wait for green `backend-verify`, `web-verify`, and `android-verify`.
 4. Merge only after checks and review pass.
 5. Push to the release branch creates backend/web artifacts, checksums, and a release manifest.
-6. The release push deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, promotes the release, and runs post-deploy health checks.
+6. The release push deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, promotes the release, and runs retrying post-deploy health checks.
 7. For an operator-driven redeploy, start `RocketFlow HexCore Prod Deploy` manually from the release branch with an approval ticket and `DEPLOY_ROCKETFLOW_PROD`; it uses the same promotion path.
 
 See also:

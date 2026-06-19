@@ -486,11 +486,53 @@ jobs:
               ;;
           esac
 
-          systemctl is-active --quiet rocketflow-backend.service
+          for attempt in {1..40}; do
+            if systemctl is-active --quiet rocketflow-backend.service; then
+              echo "rocketflow-backend.service is active."
+              break
+            fi
+
+            if [ "${attempt}" -eq 40 ]; then
+              echo "::error::rocketflow-backend.service did not become active in the allotted time."
+              systemctl show rocketflow-backend.service -p ActiveState -p SubState -p MainPID --no-pager || true
+              exit 1
+            fi
+
+            echo "Waiting for rocketflow-backend.service to become active, attempt ${attempt}/40..."
+            sleep 5
+          done
+
           systemctl show rocketflow-backend.service -p ActiveState -p SubState -p MainPID --no-pager
 
-          curl --fail --silent --show-error http://127.0.0.1/rocket/ | grep -qi '<div id="root"'
-          curl --fail --silent --show-error http://127.0.0.1:8080/api/health | grep -q '"status":"UP"'
+          for attempt in {1..40}; do
+            if curl --fail --silent --show-error http://127.0.0.1/rocket/ | grep -qi '<div id="root"'; then
+              echo "Local Nginx web route marker is present."
+              break
+            fi
+
+            if [ "${attempt}" -eq 40 ]; then
+              echo "::error::Local Nginx web route marker did not become ready in the allotted time."
+              exit 1
+            fi
+
+            echo "Waiting for local Nginx web route marker, attempt ${attempt}/40..."
+            sleep 5
+          done
+
+          for attempt in {1..40}; do
+            if response="$(curl --fail --silent --show-error http://127.0.0.1:8080/api/health)" && grep -q '"status":"UP"' <<< "${response}"; then
+              echo "Local backend health returned UP."
+              break
+            fi
+
+            if [ "${attempt}" -eq 40 ]; then
+              echo "::error::Local backend health did not return UP in the allotted time."
+              exit 1
+            fi
+
+            echo "Waiting for local backend health, attempt ${attempt}/40..."
+            sleep 5
+          done
 
           if flyway_count="$(sudo -n -u postgres psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null || psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null)"; then
             flyway_count="$(printf '%s' "${flyway_count}" | tr -d '[:space:]')"
@@ -529,9 +571,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          if curl --fail --silent --show-error "http://${HEXCORE_PROD_SSH_HOST}/rocket/" | grep -qi '<div id="root"'; then
-            echo "Production web root marker is present."
-          else
-            echo "::error::Production web check failed: root marker was not found or the request failed."
-            exit 1
-          fi
+          for attempt in {1..40}; do
+            if curl --fail --silent --show-error "http://${HEXCORE_PROD_SSH_HOST}/rocket/" | grep -qi '<div id="root"'; then
+              echo "Production web root marker is present."
+              exit 0
+            fi
+
+            echo "Waiting for production web root marker, attempt ${attempt}/40..."
+            sleep 5
+          done
+
+          echo "::error::Production web check failed: root marker was not found or the request failed."
+          exit 1

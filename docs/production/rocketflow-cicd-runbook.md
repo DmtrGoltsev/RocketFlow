@@ -47,6 +47,11 @@ Pre/post inventory checks during the approved deploy:
 - local backend health at `127.0.0.1:8080/api/health`;
 - Flyway history count for `rocketflow_prod`, expected to be at least 18 rows.
 
+After promotion, the deploy waits up to 40 attempts with 5-second sleeps for
+`rocketflow-backend.service`, the local Nginx `/rocket/` marker, and local
+backend health before failing the run. The public `/rocket-api/health` and
+`/rocket/` checks use the same retry window.
+
 The workflow does not invoke standalone Flyway commands. Production schema
 migrations are handled by the backend application's Flyway lifecycle when the
 promoted backend release starts; the workflow verifies Flyway history before and

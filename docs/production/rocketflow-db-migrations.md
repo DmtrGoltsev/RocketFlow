@@ -10,7 +10,7 @@ Last updated: 2026-06-19.
 
 ## CI/CD rule
 
-The production deploy workflow does not run standalone Flyway commands. It packages the backend, verifies artifacts, promotes the release, and checks the Flyway history table before and after promotion.
+The production deploy workflow does not run standalone Flyway commands. It packages the backend, verifies artifacts, promotes the release, waits for post-promotion readiness, and checks the Flyway history table before and after promotion.
 
 On release branch pushes, the production deploy job now runs automatically
 through the same HexCore staging, promotion, and verification path used by
