@@ -72,6 +72,12 @@ jobs:
           checksum_file="rocketflow-release-${release_id}.sha256"
           manifest_file="rocketflow-release-manifest-${release_id}.json"
 
+          export RELEASE_ID="${release_id}"
+          export BACKEND_ARTIFACT="${backend_artifact}"
+          export WEB_ARTIFACT="${web_artifact}"
+          export CHECKSUM_FILE="${checksum_file}"
+          export MANIFEST_FILE="${manifest_file}"
+
           echo "RELEASE_ID=${release_id}" >> "${GITHUB_ENV}"
           echo "BACKEND_ARTIFACT=${backend_artifact}" >> "${GITHUB_ENV}"
           echo "WEB_ARTIFACT=${web_artifact}" >> "${GITHUB_ENV}"
