@@ -45,11 +45,18 @@ No production FCM or Web Push delivery is claimed while these capabilities remai
 
 ## Android Artifact
 
-- Unsigned APK SHA-256: `1763de390dd587c686fe84152c521a2d92e65b747fb2689ec2076c0560c576d7`.
-- Signing state: unsigned.
-- Installability: not installable.
-- Firebase configuration: absent.
-- Production Android release: not performed.
+- Historical unsigned APK SHA-256: `1763de390dd587c686fe84152c521a2d92e65b747fb2689ec2076c0560c576d7`. Android reported this artifact as a damaged package; it was not installable and is superseded by the artifact below.
+- Current sideload artifact: `android/app/build/outputs/apk/release/RocketFlow-0.1.0-prod-debugcert.apk` (standard ignored build-output path; the APK is not committed).
+- Exact source SHA: `910c061de4af9395d9bb682624bd966b2977a738`.
+- Size: `3287664` bytes.
+- SHA-256: `2209f2b5e8ee8f01fa486d997f898d9fc08db98cf02e0b22d3182fa1026cc4d1`.
+- Signing state: APK Signature Scheme v2 and v3, using the existing debug certificate with SHA-256 fingerprint `b5675864b9cb8a046d889f54e58f5b0256d6937ecd448e69d7faa955e587aca0`; no new key was created.
+- Packaging checks: `zipalign` valid; release manifest has `debuggable=false`; production API configuration is embedded.
+- Device proof: `adb install -r` succeeded; the installed APK hash exactly matched the built artifact; app UID, first-install timestamp, and app data were preserved.
+- Runtime proof: cold launch, logcat review, and backend health check passed.
+- Build verification: Android `77` tests passed and lint reported `0` errors.
+- Firebase configuration: absent; no FCM delivery claim is made for this artifact.
+- Distribution status: installable direct-sideload artifact, not a Play Store production release. The debug certificate is not a Play production signing identity, and future sideload updates must use the same certificate to preserve update compatibility.
 
 ## Residual Evidence Gap
 

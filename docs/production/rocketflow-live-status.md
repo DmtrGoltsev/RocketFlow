@@ -19,7 +19,7 @@ Last updated: 2026-08-10.
 - Captured post-deploy errors / HTTP `5xx` / service restarts: `0 / 0 / 0`.
 - Focus cadence: disabled.
 - Web Push: disabled.
-- Android: not released; the recorded unsigned APK is not installable and has no Firebase configuration.
+- Android: installable sideload APK built from the deployed source is verified with the existing debug certificate; it has no Firebase configuration and is not a Play Store production release.
 - Authenticated production smoke: not completed.
 
 ## Release state model
@@ -49,6 +49,10 @@ Database rollback is outside the app rollback workflow. The rollback workflow ex
 Rollback workflow ID `330828165` is active. It was not used for release `sha-910c061de4af`.
 
 The current docs-only follow-up commit is not the deployed source. Canonical rollout evidence is in `docs/67-weekly-focus-production-rollout-evidence.md`.
+
+The current Android sideload artifact is `android/app/build/outputs/apk/release/RocketFlow-0.1.0-prod-debugcert.apk` (SHA-256 `2209f2b5e8ee8f01fa486d997f898d9fc08db98cf02e0b22d3182fa1026cc4d1`, `3287664` bytes). It is signed with the existing debug certificate, installs successfully with `adb install -r`, and passed cold-launch, logcat, health, `77` test, and lint (`0` errors) checks. The prior unsigned APK with SHA-256 `1763de390dd587c686fe84152c521a2d92e65b747fb2689ec2076c0560c576d7` is retained only as superseded historical evidence after Android rejected it as damaged/not installable. No APK or build output is committed.
+
+This debug-cert build is for direct sideloading, not Play Store production signing. Future sideload updates must retain the same certificate. FCM configuration remains absent, so no push-delivery claim is made.
 
 ## Readiness signals
 

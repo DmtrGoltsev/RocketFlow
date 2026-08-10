@@ -58,7 +58,7 @@ Weekly Focus production checkpoint (`2026-08-10`):
 - Production backend and web are deployed from source SHA `910c061de4af9395d9bb682624bd966b2977a738` as release `sha-910c061de4af`; this documentation follow-up is a separate commit and is not the deployed source.
 - GitHub Actions run [31357406631](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/31357406631) completed successfully, local and public health passed, and production Flyway is at `V20` (`20/20`).
 - Focus cadence and Web Push remain disabled. No rollback was used.
-- The recorded unsigned APK is not installable and has no Firebase configuration; Android was not released by this rollout.
+- An installable production-API sideload APK was built from source `910c061de4af9395d9bb682624bd966b2977a738`, signed with the existing debug certificate, and verified by reinstall, hash match, cold launch, logcat, and health checks. It has no FCM configuration and is not a Play Store production release.
 - Authenticated production smoke remains an explicit evidence gap.
 - Current branch evidence is backend 135 tests, web 54 tests, and Android 77 tests. Counts are evidence for this checkpoint, not permanent suite requirements.
 
@@ -94,7 +94,7 @@ Current notification/runtime status:
 Known readiness limits:
 - Android runtime path is now locally proven, but not yet formalized as CI or staging certification
 - production Focus cadence and Web Push are disabled; no production provider-delivery claim is made
-- the available unsigned APK is not installable and has no Firebase configuration, so it is not Android release evidence
+- the prior unsigned APK is superseded after Android rejected it as damaged/not installable; the current debug-cert APK is verified for direct sideloading, but is not Play Store production-signing evidence and has no FCM configuration
 - authenticated production smoke has not been completed even though local/public health checks passed
 - the default `localhost:8080` process should still not be trusted for notification verification unless its env wiring is explicitly proven
 - scheduler safety is improved, but notification rollout should still not be treated as horizontally hardened
