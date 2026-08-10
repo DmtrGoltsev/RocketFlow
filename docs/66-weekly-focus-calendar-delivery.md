@@ -2,11 +2,13 @@
 
 ## Status
 
-This document is the canonical delivery and rollout reference for `codex/weekly-focus-calendar-web-push` as verified on `2026-08-09`.
+This document is the canonical delivery and rollout reference for `codex/weekly-focus-calendar-web-push` as updated on `2026-08-10`.
 
 - Implemented and tested in the feature working tree: backend, web, and Android Calendar/Weekly Focus; server-owned Focus cadence; Android data-only FCM handling; full browser Web Push lifecycle.
-- Not deployed by this work: production database migrations, backend, web, APK, notification enablement, or provider smoke.
-- Production remains on the previously documented baseline. Do not infer deployment from code or test evidence.
+- Production backend and web are deployed from source SHA `910c061de4af9395d9bb682624bd966b2977a738` as release `sha-910c061de4af`; Flyway is at `V20` (`20/20`).
+- The docs-only follow-up commit that records this state is distinct from the deployed source SHA and must not be read as a second deployment.
+- Focus cadence and Web Push remain disabled. Android is not released: the recorded unsigned APK is not installable and has no Firebase configuration.
+- Local and public health passed, but authenticated production smoke remains an open evidence gap.
 
 ## Product Contract
 
@@ -51,6 +53,18 @@ Detailed DTO rules live in `docs/05-api-contracts.md`; domain invariants live in
 - Web runtime QA covered desktop/tablet/mobile routes, Calendar markers and deep links, Focus progress/history/picker/settings, reload behavior, console, and network behavior. The final release gate must include a clean responsive rerun after any UI fixes.
 
 These numbers are point-in-time evidence, not hard-coded future thresholds.
+
+## Production Rollout Evidence
+
+- Deploy: GitHub Actions run [31357406631](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/31357406631), conclusion `success`.
+- Runtime: local and public health passed; captured post-deploy evidence found zero application errors, HTTP `5xx` responses, and service restarts.
+- Database: Flyway `V20`, `20/20` migrations present.
+- Backup: `rocketflow_prod_20260810T045958Z.dump`, `223191` bytes, SHA-256 `783590b8fa26f6d2882aab0a5cf670b483be5895fd80b6a915cd4c9946841b39`; `pg_restore -l` listed `238` entries and passed.
+- Rollback: workflow ID `330828165` is active; it was not used.
+- Android artifact: unsigned APK SHA-256 `1763de390dd587c686fe84152c521a2d92e65b747fb2689ec2076c0560c576d7`; not installable, no Firebase configuration, not deployed.
+- Residual gap: authenticated production smoke was not completed. No production FCM or Web Push delivery is claimed.
+
+The canonical immutable record is `docs/67-weekly-focus-production-rollout-evidence.md`.
 
 ## CI and Local Verification
 
@@ -97,4 +111,4 @@ Disable Focus cadence and Web Push first; this stops new delivery without deleti
 
 ## Release Gate
 
-Release is blocked until real FCM and Web Push provider smoke passes with production-equivalent credentials, final responsive web QA is clean, Android notification/deep-link behavior is proven on a Play-services device, and production migration/deploy evidence is recorded. This feature branch currently satisfies implementation and automated-test readiness only.
+The backend/web and database rollout is complete for source SHA `910c061de4af9395d9bb682624bd966b2977a738`. Notification enablement remains blocked until real FCM and Web Push provider smoke passes with production-equivalent credentials. Android release remains blocked until an installable configured artifact and device smoke exist. Authenticated production smoke is still required; successful health checks do not close that gap.

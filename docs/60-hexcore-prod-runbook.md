@@ -1,7 +1,7 @@
 # HexCore Production Runbook
 
 Initial setup date: 2026-05-16.
-Last updated: 2026-06-14.
+Last updated: 2026-08-10.
 
 ## Server role
 
@@ -14,7 +14,9 @@ Live routing contract:
 - Backend service: `rocketflow-backend.service`.
 - Backend current symlink: `/opt/rocketflow/current/rocketflow-backend.jar`.
 - Production database: `rocketflow_prod`.
-- Flyway history baseline: 18 rows.
+- Flyway history baseline: `V20`, 20 rows (`20/20`).
+
+Current deployed source is `910c061de4af9395d9bb682624bd966b2977a738`, release id `sha-910c061de4af`. The docs-only follow-up commit is not deployed. Current rollout evidence is recorded in `docs/67-weekly-focus-production-rollout-evidence.md`.
 
 ## Runtime layout
 

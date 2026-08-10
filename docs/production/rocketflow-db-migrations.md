@@ -1,12 +1,13 @@
 # RocketFlow Production DB Migrations
 
-Last updated: 2026-06-19.
+Last updated: 2026-08-10.
 
 ## Live database contract
 
 - Production database: `rocketflow_prod`.
 - Migration tool: Flyway through the backend application lifecycle.
-- Current Flyway history baseline: 18 rows.
+- Current Flyway history baseline: `V20`, 20 rows (`20/20`).
+- Release `sha-910c061de4af` applied `V19__weekly_focus.sql` and `V20__focus_notifications.sql` through the backend application lifecycle.
 
 ## CI/CD rule
 
@@ -20,8 +21,10 @@ application lifecycle when the promoted service starts.
 The expected production check is:
 
 - read `flyway_schema_history` row count from `rocketflow_prod`;
-- require at least 18 rows;
+- require at least 20 rows after the V20 production release;
 - fail the approved deploy or rollback if the history table cannot be read or the count is below the baseline.
+
+For the first V20 promotion, the pre-promotion source baseline was 18 rows and the post-promotion target was 20 rows. GitHub Actions run [31357406631](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/31357406631) completed successfully with the final `20/20` state.
 
 ## Rollback rule
 
@@ -47,3 +50,5 @@ For every production deploy or rollback, keep:
 - checksum verification output;
 - pre/post Flyway history row count;
 - approval ticket or incident id.
+
+The immutable evidence record for the V20 rollout is `docs/67-weekly-focus-production-rollout-evidence.md`.

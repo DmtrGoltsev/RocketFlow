@@ -1,6 +1,6 @@
 # RocketFlow CI/CD Runbook
 
-Last updated: 2026-08-09.
+Last updated: 2026-08-10.
 
 ## Production contract
 
@@ -11,6 +11,19 @@ Last updated: 2026-08-09.
 - Production database: `rocketflow_prod`.
 - Pre-promotion Flyway source baseline for the first V20 deploy: at least 18 rows.
 - Release/post-promotion Flyway target: at least 20 rows.
+
+## Current recorded rollout
+
+- Deployed source SHA: `910c061de4af9395d9bb682624bd966b2977a738`.
+- Release id: `sha-910c061de4af`.
+- Successful deploy: GitHub Actions run [31357406631](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/31357406631).
+- Post-promotion Flyway state: `V20` (`20/20`).
+- Local and public health checks passed; captured post-deploy evidence reported zero application errors, HTTP `5xx` responses, or service restarts.
+- Rollback workflow ID `330828165` is active and was not used.
+- Focus cadence and Web Push are disabled.
+- Authenticated production smoke remains an evidence gap.
+
+The docs-only commit recording these facts is not a deployed release. Full checksums and backup evidence are in `docs/67-weekly-focus-production-rollout-evidence.md`.
 
 ## Workflows
 
@@ -113,4 +126,4 @@ Keep secret values only in GitHub Actions secrets or environment secrets. Reposi
 3. Confirm the release artifact bundle exists and manifest verification passed.
 4. Check pre-deploy inventory output for current symlink, service status, web root, and Flyway row count.
 5. After promotion, check backend health and `/rocket/` web marker.
-6. Record the promoted `release_id` and workflow run id in the production change record.
+6. Record the deployed source SHA, promoted `release_id`, workflow run id, and any later docs-only commit separately in the production change record.

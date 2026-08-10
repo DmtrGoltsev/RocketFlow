@@ -16,15 +16,22 @@ Use this together with:
 
 ## Project Status
 
-Feature branch checkpoint (`2026-08-09`):
+Weekly Focus production checkpoint (`2026-08-10`):
 
 - branch: `codex/weekly-focus-calendar-web-push`
 - Calendar, Weekly Focus, server Focus cadence, Android FCM handling, and full Web Push lifecycle are implemented and tested in the feature working tree
 - schema additions are Flyway `V19__weekly_focus.sql` and `V20__focus_notifications.sql`
 - current evidence: backend 135 tests, web 54 tests, Android 77 tests, including final mobile accessibility, deep-link, tenant-scoping, and terminal-auth regression fixes; these are checkpoint counts, not permanent suite requirements
 - web requires Node `>=22.12 <23`; CI runs tests, low-threshold dependency audit, and production build
-- production is untouched by this feature checkpoint: no `V19`/`V20` production migration, backend/web deploy, notification enablement, or production smoke is claimed
+- production backend and web are deployed from source SHA `910c061de4af9395d9bb682624bd966b2977a738` as release `sha-910c061de4af`; the later documentation commit is not the deployed source
+- GitHub Actions run [31357406631](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/31357406631) completed successfully; Flyway reached `V20` (`20/20`), local/public health passed, and the captured post-deploy evidence reported zero application errors, HTTP `5xx` responses, or service restarts
+- backup `rocketflow_prod_20260810T045958Z.dump` was verified at `223191` bytes with SHA-256 `783590b8fa26f6d2882aab0a5cf670b483be5895fd80b6a915cd4c9946841b39`; `pg_restore -l` listed `238` entries and passed
+- rollback workflow ID `330828165` is active and was not used for this rollout
+- Focus cadence and Web Push remain disabled
+- unsigned APK SHA-256 `1763de390dd587c686fe84152c521a2d92e65b747fb2689ec2076c0560c576d7` is not installable and has no Firebase configuration; Android is not deployed by this rollout
+- authenticated production smoke remains an open evidence gap; health success is not a substitute for auth verification
 - canonical feature delivery and rollout notes: `docs/66-weekly-focus-calendar-delivery.md`
+- canonical rollout evidence: `docs/67-weekly-focus-production-rollout-evidence.md`
 
 The older `MVP3` facts below remain historical production/baseline context and must not be read as the feature branch deployment state.
 
@@ -183,8 +190,9 @@ Wave C:
 - repo-backed owned-runtime startup now has a canonical entrypoint in `scripts/Start-NotificationSmokeBackend.ps1`
 - repo-backed smoke-task provisioning and backend delivery evidence capture now have a canonical helper in `scripts/Invoke-NotificationSmokeTask.ps1`, and its repo-owned blocker is closed
 - the historical `failed_backend_send` and apparent Firebase auth blockers were closed by the dependency-alignment fix documented in `docs/50-notification-runtime-clean-pass.md`
-- the next active notification gate is now staging notification certification
-- the Docker/GHCR delivery lane remains open until a real publish workflow or replacement decision is added
+- production backend/web rollout is recorded at release `sha-910c061de4af`, while Focus cadence and Web Push remain disabled
+- production notification certification is still open; no provider delivery is claimed
+- authenticated production smoke is still missing
 - no active subagents need to be resumed
 
 Known non-blocking note:
@@ -194,10 +202,11 @@ Known non-blocking note:
 
 ## Recommended Next Step
 
-The local notification gate is closed. The next active gates are:
+The backend/web production deploy is complete. The next active gates are:
 
-- settle the open Docker/GHCR delivery gate, either by adding a real publish workflow or by documenting the jar/systemd HexCore lane as the intended production path
-- then staging deployment/runtime wiring plus the notification certification path from `docs/45-notification-staging-smoke-runbook.md`
+- complete authenticated production smoke and attach sanitized evidence
+- prepare an installable, correctly configured Android release artifact before claiming Android production delivery
+- keep Focus cadence and Web Push disabled until controlled production provider smoke and notification certification pass
 - keep `docs/51-agent-notification-runtime-playbook.md` as the fallback local re-verification path for future regressions, not as the active gate
 
 If orchestration discipline is needed again, use:

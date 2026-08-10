@@ -49,14 +49,18 @@ Core documents:
 - `docs/50-notification-runtime-clean-pass.md` - passing end-to-end notification runtime proof on the owned local backend + emulator path
 - `docs/51-agent-notification-runtime-playbook.md` - short autonomous verification playbook for repeating the notification smoke without user intervention
 - `docs/66-weekly-focus-calendar-delivery.md` - Calendar, Weekly Focus, Web Push delivery status and rollout runbook
+- `docs/67-weekly-focus-production-rollout-evidence.md` - immutable production rollout evidence for deployed source `910c061de4af9395d9bb682624bd966b2977a738`
 
-Feature-branch checkpoint (`codex/weekly-focus-calendar-web-push`):
+Weekly Focus production checkpoint (`2026-08-10`):
 
 - Calendar and Weekly Focus are implemented for backend, web, and Android.
 - Focus notification cadence is server-owned and supports FCM and Web Push.
-- Flyway migrations `V19__weekly_focus.sql` and `V20__focus_notifications.sql` belong to this feature branch.
+- Production backend and web are deployed from source SHA `910c061de4af9395d9bb682624bd966b2977a738` as release `sha-910c061de4af`; this documentation follow-up is a separate commit and is not the deployed source.
+- GitHub Actions run [31357406631](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/31357406631) completed successfully, local and public health passed, and production Flyway is at `V20` (`20/20`).
+- Focus cadence and Web Push remain disabled. No rollback was used.
+- The recorded unsigned APK is not installable and has no Firebase configuration; Android was not released by this rollout.
+- Authenticated production smoke remains an explicit evidence gap.
 - Current branch evidence is backend 135 tests, web 54 tests, and Android 77 tests. Counts are evidence for this checkpoint, not permanent suite requirements.
-- These changes are not deployed to production. Production remains on the previously documented baseline until an explicit migration, deploy, and smoke run succeeds.
 
 Current verification status:
 - backend `mvn test` is green in the current documented state
@@ -89,11 +93,12 @@ Current notification/runtime status:
 
 Known readiness limits:
 - Android runtime path is now locally proven, but not yet formalized as CI or staging certification
-- backend notification rollout still depends on correctly provisioned Firebase credentials and environment wiring outside version control
+- production Focus cadence and Web Push are disabled; no production provider-delivery claim is made
+- the available unsigned APK is not installable and has no Firebase configuration, so it is not Android release evidence
+- authenticated production smoke has not been completed even though local/public health checks passed
 - the default `localhost:8080` process should still not be trusted for notification verification unless its env wiring is explicitly proven
 - scheduler safety is improved, but notification rollout should still not be treated as horizontally hardened
 - web and Android CI lanes are build-only and should not be read as runtime or release verification
-- staging/release readiness still needs executable, repo-backed verification assets and smoke procedures
 - web scheduling authoring is more honest about partial-save failures, but the save path is still not transactional
 
 Project structure:
