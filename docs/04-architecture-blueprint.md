@@ -723,3 +723,17 @@ The next recommended documents are:
 - `docs/06-qa-strategy.md`
 
 The next implementation-facing step after this blueprint is to turn architecture into stable API and DTO contracts.
+
+## 23. Implemented Calendar, Focus, and Push Architecture
+
+This section describes the implementation on `codex/weekly-focus-calendar-web-push`; it is not a production-deployment statement.
+
+- `calendar` exposes a date-only, user-timezone projection and performs recurrence expansion server-side. Web and Android render the same marker contract.
+- `focus` owns one active ISO-week period per user, ordered item snapshots, weighted progress, history, explicit rollover, candidates, optimistic versions, and idempotency.
+- Android stores Focus state and pending mutations in SQLite for offline use. The server remains authoritative after reconnect and conflict rebase.
+- `focusnotifications` owns cadence selection, quiet-hours evaluation, FCM/Web Push fan-out, and the durable delivery outbox. Android intentionally has no local cadence.
+- Delivery claims use leases and heartbeat renewal. Provider calls run outside database transactions; stable event ids, cadence buckets, bounded retries, exponential backoff with jitter, stale-lease recovery, and retry fairness provide duplicate suppression and recovery.
+- FCM failures are classified as retryable, stale-token, configuration, or permanent outcomes and transport timeouts are bounded.
+- Web Push registration is account-scoped. An endpoint cannot move across accounts, each user has at most 10 active subscriptions by default, and logout attempts server deactivation before browser unsubscribe and local auth cleanup.
+- Web Push endpoints must use HTTPS on port 443, pass private/special-address SSRF rejection, and match a configured strict allowlist of known provider DNS suffixes.
+- Flyway `V19` adds Weekly Focus and task soft-delete state; `V20` adds Web Push subscriptions and Focus delivery outbox state.

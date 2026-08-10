@@ -324,3 +324,13 @@ Android Firebase config note for local or staging device validation:
 ## 14. Handoff Note
 
 This document is intentionally enough to let a DevOps lead turn the MVP baseline into executable pipeline tasks without redefining architecture or changing product scope.
+
+## 15. Calendar, Focus, and Web Push Delivery Addendum
+
+- Web tooling requires Node `>=22.12 <23`. `web-verify` uses Node 22 and runs `npm test`, `npm audit --audit-level=low`, and `npm run build`.
+- `backend-verify` runs the Maven test/migration gate, image build, and PostgreSQL-backed container health smoke. `android-verify` runs unit tests, debug assembly, and lint.
+- Focus cadence and Web Push are disabled by default. Production enablement requires `V19` and `V20`, VAPID material, an HTTPS VAPID subject, strict known provider suffix configuration, and explicitly verified FCM credentials/timeouts.
+- Default Web Push provider suffixes are `fcm.googleapis.com`, `push.services.mozilla.com`, `notify.windows.com`, and `push.apple.com`; deployments may configure a different known-provider allowlist but must not use wildcards or a general public-host policy.
+- Web Push registration is limited to 10 active subscriptions per user by default and rejects cross-account endpoint takeover. Endpoints require HTTPS/443 and SSRF-safe public resolution.
+- Outbox leases, heartbeat, idempotent cadence buckets/event ids, bounded attempts, backoff with jitter, and retry fairness are required operational invariants. Alert on persistent retry/permanent/configuration outcomes and stale leases.
+- Production has not received this feature branch. Do not enable cadence before migrations, environment validation, a rollback plan, and real FCM/Web Push smoke complete.

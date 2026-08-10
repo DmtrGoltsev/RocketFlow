@@ -523,3 +523,15 @@ Recommended next implementation steps:
 - database migration setup
 - auth and settings foundation
 - web shell and localization foundation in parallel
+
+## 21. Calendar, Focus, and Push Regression Gate
+
+Required coverage for this feature includes:
+
+- Calendar date-only ranges, user timezone/DST boundaries, planned/deadline/dual markers, recurring instances, shared descendants, and task navigation.
+- one active ISO-week Focus, effort fallback `null/0 -> 1`, completed-weight math, reorder, explicit rollover, history snapshots, archive/delete/access-loss lifecycle, tenant-scoped candidate processing above 5,000 rows, pagination, optimistic conflicts, and idempotent offline retries.
+- cadence presets and quiet hours, regular non-overdue notifications, suppression for empty/completed Focus, stable event ids, outbox lease/heartbeat recovery, bounded backoff, retry fairness, FCM typed outcomes/timeouts, stale subscription removal, and Web Push endpoint security.
+- Web logout/account switching, service-worker deep links, stale-response guards, keyboard/focus behavior, and responsive layouts.
+- Android cold Focus deep link, event deduplication, offline cache/rebase, rotation restoration, terminal `401` handling without session resurrection, and proof that no local repeating Focus alarm is scheduled.
+
+Current feature-branch evidence is 135 backend tests, 54 web tests, and 77 Android tests, plus successful backend packaging, web production build/audit, Android debug build, and lint. The updated client evidence includes the final mobile accessibility, deep-link, and security regression fixes. These counts describe this checkpoint only. Real-provider FCM and Web Push smoke remains a release-environment gate.

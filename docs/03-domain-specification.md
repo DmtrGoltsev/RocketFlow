@@ -732,7 +732,33 @@ To keep the MVP simple and predictable, the following recommendations are propos
 - shared-task reminder delivery remains owner-only in MVP
 - optimistic locking should reject stale updates instead of silently overwriting them
 
-## 12. Next Document
+## 12. Calendar and Weekly Focus Addendum
+
+### Calendar Projection
+
+- Calendar day boundaries are evaluated in the requesting user's IANA timezone.
+- A task contributes a `planned` marker for its planned work date and a `deadline` marker for its due date; both markers may exist on one day.
+- UI semantics are green for `planned` and red for `deadline`.
+- Recurring occurrences are expanded by the server in timezone-aware date ranges. Clients do not independently invent recurrence instances.
+- Owned tasks and accessible shared descendants are visible. Loss of access removes future visibility on the next authorized read.
+
+### Weekly Focus
+
+- A user has at most one active Focus period.
+- Periods follow ISO weeks in the user's timezone. The period stores timezone and task snapshots so history remains interpretable after later changes.
+- Progress is weighted by task effort. Missing or zero effort has effective weight `1`; only `done` contributes completed weight.
+- Completed items remain in the current period until week end. Incomplete items require explicit rollover into the new week.
+- Completed periods remain available as history.
+- A deleted task is removed from active Focus. An archived task becomes history-only. An accessible shared task may participate while access remains valid and is removed from active Focus when access is lost.
+- Focus mutations use optimistic versions and idempotency keys so offline clients can safely rebase and retry.
+
+### Focus Notification Policy
+
+- Cadence presets are off, 30 minutes, 1 hour, 2 hours, or 4 hours, with an optional paired quiet-hours interval.
+- The server owns cadence and delivers regular reminders while an active period is non-empty and unfinished; reminders are not limited to overdue tasks.
+- Android receives Focus pushes but does not create local repeating Focus alarms.
+
+## 13. Next Document
 
 The next document after this one should be:
 - `docs/04-architecture-blueprint.md`

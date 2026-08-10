@@ -16,6 +16,18 @@ Use this together with:
 
 ## Project Status
 
+Feature branch checkpoint (`2026-08-09`):
+
+- branch: `codex/weekly-focus-calendar-web-push`
+- Calendar, Weekly Focus, server Focus cadence, Android FCM handling, and full Web Push lifecycle are implemented and tested in the feature working tree
+- schema additions are Flyway `V19__weekly_focus.sql` and `V20__focus_notifications.sql`
+- current evidence: backend 135 tests, web 54 tests, Android 77 tests, including final mobile accessibility, deep-link, tenant-scoping, and terminal-auth regression fixes; these are checkpoint counts, not permanent suite requirements
+- web requires Node `>=22.12 <23`; CI runs tests, low-threshold dependency audit, and production build
+- production is untouched by this feature checkpoint: no `V19`/`V20` production migration, backend/web deploy, notification enablement, or production smoke is claimed
+- canonical feature delivery and rollout notes: `docs/66-weekly-focus-calendar-delivery.md`
+
+The older `MVP3` facts below remain historical production/baseline context and must not be read as the feature branch deployment state.
+
 Project root:
 
 - `C:\Users\style\Documents\Codex\RocketFlow`

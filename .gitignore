@@ -39,3 +39,20 @@ crash.*.log
 *.dump.sha256
 scripts/Set-ProdBackupDownloadEnv.ps1
 scripts/Set-ProdBackupDownloadEnv.local.ps1
+
+# Local environment and IDE files
+.env
+.env.*
+!.env.example
+.idea/
+*.iml
+
+# Generated reports and signing credentials
+coverage/
+*.jks
+*.keystore
+firebase-admin*.json
+service-account*.json
+*vapid*private*
+*.pem
+*.p12

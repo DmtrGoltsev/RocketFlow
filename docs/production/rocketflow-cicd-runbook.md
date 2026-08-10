@@ -1,6 +1,6 @@
 # RocketFlow CI/CD Runbook
 
-Last updated: 2026-06-19.
+Last updated: 2026-08-09.
 
 ## Production contract
 
@@ -9,7 +9,8 @@ Last updated: 2026-06-19.
 - Web route: `/rocket/ -> /var/www/rocketflow-web/current`.
 - API route: `/rocket-api/ -> 127.0.0.1:8080/api/`.
 - Production database: `rocketflow_prod`.
-- Current Flyway history baseline: 18 rows.
+- Pre-promotion Flyway source baseline for the first V20 deploy: at least 18 rows.
+- Release/post-promotion Flyway target: at least 20 rows.
 
 ## Workflows
 
@@ -38,24 +39,28 @@ Release bundle contents:
 - `rocketflow-release-sha-<12>.sha256`.
 - `rocketflow-release-manifest-sha-<12>.json`.
 
-Pre/post inventory checks during the approved deploy:
+Inventory checks during the approved deploy:
 
 - current backend symlink;
 - active `rocketflow-backend.service` status;
 - active web root under `/var/www/rocketflow-web/current`;
 - local Nginx web route marker at `/rocket/`;
 - local backend health at `127.0.0.1:8080/api/health`;
-- Flyway history count for `rocketflow_prod`, expected to be at least 18 rows.
+- pre-promotion Flyway history count for `rocketflow_prod`, required to be at least 18 rows so the existing V18 production baseline can start the V20 release;
+- release manifest Flyway contract, required to be at least 20 rows locally and again during remote staging;
+- post-promotion Flyway history count, required to be at least 20 rows after the promoted JAR starts and applies `V19` and `V20` through its Flyway lifecycle.
 
 After promotion, the deploy waits up to 40 attempts with 5-second sleeps for
 `rocketflow-backend.service`, the local Nginx `/rocket/` marker, and local
 backend health before failing the run. The public `/rocket-api/health` and
 `/rocket/` checks use the same retry window.
 
-The workflow does not invoke standalone Flyway commands. Production schema
-migrations are handled by the backend application's Flyway lifecycle when the
-promoted backend release starts; the workflow verifies Flyway history before and
-after promotion.
+The workflow does not invoke standalone Flyway commands. The order is fixed:
+verify the existing V18-or-newer source state, verify and stage an artifact whose
+manifest requires V20, promote the release, let the backend startup lifecycle
+apply `V19` and `V20`, then require the V20-or-newer state in post-deploy
+readiness. The pre-promotion gate must not require V20 because the old production
+JAR has not applied those migrations yet.
 
 ### `RocketFlow GHCR Package`
 
@@ -86,10 +91,11 @@ Required inputs:
 
 Rollback approach:
 
-1. Verify current backend symlink and target release files.
-2. Verify target remote checksum when available.
-3. Touch target backend/web artifacts so the existing server-side `rocketflow-promote-latest` helper promotes that target.
-4. Run post-rollback health and web checks.
+1. Require at least 20 Flyway history rows; application rollback does not change or reverse the database after the V20 release.
+2. Verify current backend symlink and target release files.
+3. Verify target remote checksum when available.
+4. Touch target backend/web artifacts so the existing server-side `rocketflow-promote-latest` helper promotes that target.
+5. Run post-rollback health and web checks.
 
 ## Required secret names
 

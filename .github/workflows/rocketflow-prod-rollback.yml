@@ -158,7 +158,7 @@ jobs:
           if flyway_count="$(sudo -n -u postgres psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null || psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null)"; then
             flyway_count="$(printf '%s' "${flyway_count}" | tr -d '[:space:]')"
             echo "flyway_history_rows=${flyway_count}"
-            test "${flyway_count}" -ge 18
+            test "${flyway_count}" -ge 20
           else
             echo "::error::Unable to read Flyway history for rocketflow_prod."
             exit 1

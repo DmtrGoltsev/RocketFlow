@@ -1,6 +1,6 @@
 # RocketFlow
 
-Project documentation lives in [`docs/`](C:/Users/hp/Documents/Codex/RocketFlow/docs).
+Project documentation lives in [`docs/`](docs/).
 
 Core documents:
 - `docs/01-primary-mvp-plan.md` - primary product, MVP, and architecture plan
@@ -48,6 +48,15 @@ Core documents:
 - `docs/49-notification-smoke-firebase-auth-blocker.md` - historical note for the later-narrowed Firebase auth symptom before the dependency root cause was proven
 - `docs/50-notification-runtime-clean-pass.md` - passing end-to-end notification runtime proof on the owned local backend + emulator path
 - `docs/51-agent-notification-runtime-playbook.md` - short autonomous verification playbook for repeating the notification smoke without user intervention
+- `docs/66-weekly-focus-calendar-delivery.md` - Calendar, Weekly Focus, Web Push delivery status and rollout runbook
+
+Feature-branch checkpoint (`codex/weekly-focus-calendar-web-push`):
+
+- Calendar and Weekly Focus are implemented for backend, web, and Android.
+- Focus notification cadence is server-owned and supports FCM and Web Push.
+- Flyway migrations `V19__weekly_focus.sql` and `V20__focus_notifications.sql` belong to this feature branch.
+- Current branch evidence is backend 135 tests, web 54 tests, and Android 77 tests. Counts are evidence for this checkpoint, not permanent suite requirements.
+- These changes are not deployed to production. Production remains on the previously documented baseline until an explicit migration, deploy, and smoke run succeeds.
 
 Current verification status:
 - backend `mvn test` is green in the current documented state

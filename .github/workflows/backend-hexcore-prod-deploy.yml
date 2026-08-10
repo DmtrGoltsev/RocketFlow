@@ -46,10 +46,10 @@ jobs:
         working-directory: backend
         run: mvn --batch-mode --no-transfer-progress package
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -60,6 +60,8 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
+          npm test
+          npm audit --audit-level=low
           npm run build
 
       - name: Create release package and manifest
@@ -150,7 +152,7 @@ jobs:
                   "web_route": "/rocket/ -> /var/www/rocketflow-web/current",
                   "api_route": "/rocket-api/ -> 127.0.0.1:8080/api/",
                   "database": "rocketflow_prod",
-                  "flyway_history_min_rows": 18,
+                  "flyway_history_min_rows": 20,
               },
           }
 
@@ -178,7 +180,7 @@ jobs:
           assert manifest["release_id"] == os.environ["RELEASE_ID"]
           assert manifest["production_contract"]["backend_service"] == "rocketflow-backend.service"
           assert manifest["production_contract"]["database"] == "rocketflow_prod"
-          assert manifest["production_contract"]["flyway_history_min_rows"] >= 18
+          assert manifest["production_contract"]["flyway_history_min_rows"] >= 20
 
           for artifact in manifest["artifacts"].values():
               path = release_dir / artifact["file"]
@@ -419,6 +421,8 @@ jobs:
               raise SystemExit("Manifest backend symlink contract mismatch")
           if manifest["production_contract"]["database"] != "rocketflow_prod":
               raise SystemExit("Manifest database contract mismatch")
+          if manifest["production_contract"]["flyway_history_min_rows"] < 20:
+              raise SystemExit("Manifest Flyway contract must require V20")
           PY
 
           install -m 0644 "${BACKEND_ARTIFACT}" "${backend_remote}"
@@ -537,7 +541,7 @@ jobs:
           if flyway_count="$(sudo -n -u postgres psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null || psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null)"; then
             flyway_count="$(printf '%s' "${flyway_count}" | tr -d '[:space:]')"
             echo "flyway_history_rows=${flyway_count}"
-            test "${flyway_count}" -ge 18
+            test "${flyway_count}" -ge 20
           else
             echo "::error::Unable to read Flyway history for rocketflow_prod."
             exit 1

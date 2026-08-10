@@ -1558,3 +1558,32 @@ The next recommended document is:
 After that, implementation can start with:
 - backend foundation
 - web shell and localization foundation
+
+## 23. Calendar Marker Contract
+
+`GET /api/calendar?from=YYYY-MM-DD&toExclusive=YYYY-MM-DD`
+
+The response contains `timezone`, `from`, `toExclusive`, and `markers`. Each marker includes stable `markerId` and `occurrenceId`, `taskId`, `goalId`, task metadata, `kind` (`planned` or `deadline`), UTC `at`, user-local `localDate`, and `recurring`. The range is half-open and recurrence is expanded by the server in timezone-aware boundaries. The legacy instant-range form remains compatible.
+
+## 24. Weekly Focus Contract
+
+- `GET /api/focus/current`
+- `GET /api/focus/candidates?q=&folderId=&goalId=&cursor=&limit=`
+- `PUT /api/focus/current/items/{taskId}`
+- `DELETE /api/focus/current/items/{taskId}`
+- `PATCH /api/focus/current/items/order`
+- `POST /api/focus/rollovers/{sourcePeriodId}/resolve`
+- `GET /api/focus/history`
+- `GET /api/focus/history/{periodId}`
+- `GET /api/focus/notification-settings`
+- `PATCH /api/focus/notification-settings`
+
+Period DTOs include ISO-week dates, absolute boundaries, timezone snapshot, optimistic `version`, weighted progress, ordered items, and an optional rollover offer. Mutations accept `periodVersion` and an optional idempotency key. Candidate pagination uses an opaque cursor. Settings accept `intervalMinutes` as `null`, `30`, `60`, `120`, or `240`; quiet start/end must be supplied together as `HH:mm`, with optimistic `version`.
+
+## 25. Web Push Contract
+
+- `GET /api/notifications/web-push/config`
+- `POST /api/notifications/web-push/subscriptions`
+- `DELETE /api/notifications/web-push/subscriptions/{subscriptionId}`
+
+Registration carries the browser endpoint, optional ISO-8601 `expirationTime`, `p256dh`, `auth`, and a stable installation id. The backend enforces endpoint ownership and the configured active-subscription cap. Logout must attempt authenticated server deletion before browser unsubscribe and local credential removal. Focus push payloads route to `/rocket/app/focus`; Android data-only FCM payloads route to `rocketflow://focus` and share stable event-id deduplication semantics.
