@@ -32,6 +32,10 @@ class HttpJsonClient(private val baseUrl: String) {
         return requestJson("DELETE", path, null, accessToken)
     }
 
+    suspend fun delete(path: String, body: JSONObject, accessToken: String? = null): JSONObject {
+        return requestJson("DELETE", path, body, accessToken)
+    }
+
     private suspend fun requestJson(
         method: String,
         path: String,

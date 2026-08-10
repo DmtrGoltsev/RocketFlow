@@ -230,10 +230,22 @@ class AuthRepository(
         }
     }
 
-    suspend fun authorizedDelete(session: AuthSession, path: String): AuthSession {
+    suspend fun authorizedDelete(session: AuthSession, path: String, body: JSONObject? = null): AuthSession {
+        return authorizedDeleteResult(session, path, body).session
+    }
+
+    suspend fun authorizedDeleteResult(
+        session: AuthSession,
+        path: String,
+        body: JSONObject? = null
+    ): SessionBoundResult<JSONObject> {
         return try {
-            httpJsonClient.delete(path = path, accessToken = session.tokens.accessToken)
-            session
+            val value = if (body == null) {
+                httpJsonClient.delete(path = path, accessToken = session.tokens.accessToken)
+            } else {
+                httpJsonClient.delete(path = path, body = body, accessToken = session.tokens.accessToken)
+            }
+            SessionBoundResult(session, value)
         } catch (error: ApiException) {
             if (error.status != 401) {
                 throw error
@@ -241,8 +253,12 @@ class AuthRepository(
 
             try {
                 val refreshed = refreshStoredSession(session, notifyListener = true)
-                httpJsonClient.delete(path = path, accessToken = refreshed.tokens.accessToken)
-                refreshed
+                val value = if (body == null) {
+                    httpJsonClient.delete(path = path, accessToken = refreshed.tokens.accessToken)
+                } else {
+                    httpJsonClient.delete(path = path, body = body, accessToken = refreshed.tokens.accessToken)
+                }
+                SessionBoundResult(refreshed, value)
             } catch (refreshError: ApiException) {
                 throw refreshError
             }

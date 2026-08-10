@@ -50,6 +50,18 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.view.ViewCompat
+import com.rocketflow.companion.calendar.CalendarMarkerKind
+import com.rocketflow.companion.calendar.CalendarMonth
+import com.rocketflow.companion.focus.FocusCandidate
+import com.rocketflow.companion.focus.FocusDeepLinkCoordinator
+import com.rocketflow.companion.focus.FocusHistorySummary
+import com.rocketflow.companion.focus.FocusItem
+import com.rocketflow.companion.focus.FocusLoadResult
+import com.rocketflow.companion.focus.FocusNotificationSettings
+import com.rocketflow.companion.focus.FocusPeriod
+import com.rocketflow.companion.focus.QuietHoursValidationError
+import com.rocketflow.companion.focus.quietHoursValidationError
 import com.rocketflow.companion.auth.AuthTokens
 import com.rocketflow.companion.auth.CurrentUser
 import com.rocketflow.companion.auth.AuthSession
@@ -104,6 +116,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
@@ -136,6 +149,8 @@ class MainActivity : Activity() {
     private enum class Screen {
         Auth,
         Planner,
+        Calendar,
+        Focus,
         Detail,
         GoalDetail,
         IdeaDetail,
@@ -406,6 +421,8 @@ class MainActivity : Activity() {
     private val authRepository by lazy { appContainer.authRepository }
     private val languageStore by lazy { appContainer.languageStore }
     private val planningRepository by lazy { appContainer.planningRepository }
+    private val focusRepository by lazy { appContainer.focusRepository }
+    private val calendarRepository by lazy { appContainer.calendarRepository }
     private val folderActivityOrdering by lazy { FolderActivityOrdering(this) }
     private val userSettingsRepository by lazy { appContainer.userSettingsRepository }
     private val sharingRepository by lazy { appContainer.sharingRepository }
@@ -422,7 +439,10 @@ class MainActivity : Activity() {
             runOnUiThread {
                 if (currentSession != null) {
                     planningSyncScheduler.enqueuePlanningSync(PlanningSyncReason.NetworkRestore)
+                    appContainer.focusSyncScheduler.enqueueFocusSync()
                     reloadPlanner(showBusy = false)
+                    if (currentScreen == Screen.Calendar) loadCalendarMonth()
+                    if (currentScreen == Screen.Focus) loadFocus()
                 }
             }
         }
@@ -468,6 +488,21 @@ class MainActivity : Activity() {
     private var selectedNoteId: String? = null
     private var selectedNoteDetail: PlanningNote? = null
     private var pendingTaskOpenId: String? = null
+    private val focusDeepLinkCoordinator = FocusDeepLinkCoordinator()
+    private var detailReturnScreen = Screen.Planner
+    private var restoredScreen: Screen? = null
+    private var navigationStateRestored = false
+    private var calendarYearMonth: YearMonth = YearMonth.now()
+    private var calendarSelectedDate: LocalDate = LocalDate.now()
+    private var calendarMonth: CalendarMonth? = null
+    private var calendarLoading = false
+    private var calendarRequestGeneration = 0
+    private var focusPeriod: FocusPeriod? = null
+    private var focusSettings: FocusNotificationSettings = FocusNotificationSettings.DEFAULT
+    private var focusOffline = false
+    private var focusPendingCount = 0
+    private var focusLoading = false
+    private var focusSyncError: String? = null
 
     private val collapsedFolderIds = mutableSetOf<String>()
     private val collapsedGoalIds = mutableSetOf<String>()
@@ -511,6 +546,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         currentLanguage = languageStore.readLanguage()
+        restoreNavigationState(savedInstanceState)
         seedAcceptanceScenarioIfRequested(intent)
         authRepository.setOnSessionClearedListener(::handleTerminalSessionFailure)
         currentDeviceRegistration = notificationsRepository.readStoredRegistration()
@@ -523,6 +559,57 @@ class MainActivity : Activity() {
         refreshPushToken(showProgress = false)
         bootstrapSession()
     }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_SCREEN, currentScreen.name)
+        outState.putString(STATE_DETAIL_RETURN_SCREEN, detailReturnScreen.name)
+        outState.putString(STATE_CALENDAR_MONTH, calendarYearMonth.toString())
+        outState.putString(STATE_CALENDAR_DATE, calendarSelectedDate.toString())
+        outState.putString(STATE_SELECTED_TASK_ID, selectedTaskId)
+    }
+
+    private fun restoreNavigationState(state: Bundle?) {
+        if (state == null) return
+        restoredScreen = state.getString(STATE_SCREEN)?.let { name ->
+            runCatching { Screen.valueOf(name) }.getOrNull()
+        }
+        detailReturnScreen = state.getString(STATE_DETAIL_RETURN_SCREEN)?.let { name ->
+            runCatching { Screen.valueOf(name) }.getOrNull()
+        }?.takeIf { it == Screen.Planner || it == Screen.Calendar || it == Screen.Focus } ?: Screen.Planner
+        calendarYearMonth = state.getString(STATE_CALENDAR_MONTH)?.let { value ->
+            runCatching { YearMonth.parse(value) }.getOrNull()
+        } ?: calendarYearMonth
+        calendarSelectedDate = state.getString(STATE_CALENDAR_DATE)?.let { value ->
+            runCatching { LocalDate.parse(value) }.getOrNull()
+        } ?: calendarSelectedDate
+        selectedTaskId = state.getString(STATE_SELECTED_TASK_ID)?.takeIf { it.isNotBlank() }
+        navigationStateRestored = restoredScreen != null
+    }
+
+    private fun applyRestoredNavigationState() {
+        val target = restoredScreen ?: return
+        currentScreen = when (target) {
+            Screen.Planner, Screen.Calendar, Screen.Focus -> target
+            Screen.Detail -> if (selectedTaskDetail != null) Screen.Detail else detailReturnScreen
+            else -> Screen.Planner
+        }
+        restoredScreen = null
+        navigationStateRestored = false
+    }
+
+    private fun initializeCalendarForSession(reset: Boolean) {
+        if (!reset) return
+        val today = LocalDate.now(accountZone())
+        calendarSelectedDate = today
+        calendarYearMonth = YearMonth.from(today)
+        calendarMonth = null
+        calendarRequestGeneration += 1
+    }
+
+    private fun accountZone(): ZoneId = currentSession?.user?.timezone
+        ?.let { value -> runCatching { ZoneId.of(value) }.getOrNull() }
+        ?: zone
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -548,7 +635,11 @@ class MainActivity : Activity() {
 
     override fun onBackPressed() {
         when (currentScreen) {
-            Screen.Detail, Screen.GoalDetail, Screen.IdeaDetail, Screen.NoteDetail, Screen.Settings -> {
+            Screen.Detail -> {
+                currentScreen = detailReturnScreen
+                render()
+            }
+            Screen.GoalDetail, Screen.IdeaDetail, Screen.NoteDetail, Screen.Settings -> {
                 currentScreen = Screen.Planner
                 render()
             }
@@ -578,10 +669,17 @@ class MainActivity : Activity() {
                 currentSession = authRepository.bootstrapSession()
                 if (currentSession != null) {
                     currentScreen = Screen.Planner
+                    initializeCalendarForSession(reset = !navigationStateRestored)
                     loadPlannerData()
+                    applyRestoredNavigationState()
                     startPlannerRefresh()
                     syncRegisteredDeviceIfPossible(currentSession ?: return@launch)
-                    maybeOpenPendingTask()
+                    val focusLoadStarted = maybeOpenPendingTask()
+                    when (currentScreen) {
+                        Screen.Calendar -> loadCalendarMonth()
+                        Screen.Focus -> if (!focusLoadStarted) loadFocus()
+                        else -> Unit
+                    }
                 }
             } catch (error: Exception) {
                 currentSession = null
@@ -609,6 +707,7 @@ class MainActivity : Activity() {
                 currentSession = authRepository.login(emailDraft, passwordDraft)
                 passwordDraft = ""
                 currentScreen = Screen.Planner
+                initializeCalendarForSession(reset = true)
                 loadPlannerData()
                 startPlannerRefresh()
                 syncRegisteredDeviceIfPossible(currentSession ?: return@launch)
@@ -672,9 +771,11 @@ class MainActivity : Activity() {
                     language = currentLanguage
                 )
                 currentScreen = Screen.Planner
+                initializeCalendarForSession(reset = true)
                 loadPlannerData()
                 startPlannerRefresh()
                 syncRegisteredDeviceIfPossible(currentSession ?: return@launch)
+                maybeOpenPendingTask()
             } catch (error: Exception) {
                 message = humanError(error)
             } finally {
@@ -720,7 +821,7 @@ class MainActivity : Activity() {
         selectedTaskId = selectedTaskId?.takeIf { id -> allTasks().any { it.id == id } }
         selectedTaskDetail = selectedTaskId?.let(::findTask)
         if (currentScreen == Screen.Detail && selectedTaskDetail == null) {
-            currentScreen = Screen.Planner
+            currentScreen = detailReturnScreen
         }
         selectedIdeaId = selectedIdeaId?.takeIf { id -> allIdeas().any { it.id == id } }
         selectedIdeaDetail = selectedIdeaId?.let(::findIdea)
@@ -762,6 +863,13 @@ class MainActivity : Activity() {
         selectedIdeaDetail = null
         selectedNoteId = null
         selectedNoteDetail = null
+        calendarMonth = null
+        calendarRequestGeneration += 1
+        focusPeriod = null
+        focusOffline = false
+        focusPendingCount = 0
+        focusSyncError = null
+        focusSettings = FocusNotificationSettings.DEFAULT
         collapsedFolderIds.clear()
         collapsedGoalIds.clear()
         searchQuery = ""
@@ -831,6 +939,8 @@ class MainActivity : Activity() {
 
         when (currentScreen) {
             Screen.Auth, Screen.Planner -> renderPlanner()
+            Screen.Calendar -> renderCalendar()
+            Screen.Focus -> renderFocus()
             Screen.Detail -> renderDetail()
             Screen.GoalDetail -> renderGoalDetail()
             Screen.IdeaDetail -> renderIdeaDetail()
@@ -1042,6 +1152,7 @@ class MainActivity : Activity() {
             )
         }
         shell.addView(scrollView)
+        shell.addView(bottomNavigation(Screen.Planner))
         frame.addView(
             shell,
             FrameLayout.LayoutParams(
@@ -1060,7 +1171,7 @@ class MainActivity : Activity() {
                     setOnClickListener { showCreateDialog() }
                     addButtonParams = FrameLayout.LayoutParams(dp(56), dp(56), Gravity.BOTTOM or Gravity.END).apply {
                         marginEnd = dp(16)
-                        bottomMargin = dp(16) + currentSystemBottomInset()
+                        bottomMargin = dp(76) + currentSystemBottomInset()
                     }
                     layoutParams = addButtonParams
                 }
@@ -1068,7 +1179,7 @@ class MainActivity : Activity() {
             frame.setOnApplyWindowInsetsListener { _, insets ->
                 val bottom = systemBottomInset(insets)
                 list.setPadding(0, dp(6), 0, dp(160) + bottom)
-                addButtonParams.bottomMargin = dp(16) + bottom
+                addButtonParams.bottomMargin = dp(76) + bottom
                 insets
             }
         } else {
@@ -1080,6 +1191,392 @@ class MainActivity : Activity() {
 
         setContentView(frame)
     }
+
+    private fun renderCalendar() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(Ui.CANVAS))
+        }
+        root.addView(appBar(if (currentLanguage == "en") "Calendar" else "\u041a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u044c", false, Screen.Calendar))
+        messageLine(inset = true)?.let(root::addView)
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(24))
+        }
+        content.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(iconButton(R.drawable.ic_chevron_right, "Previous month") {
+                    calendarYearMonth = calendarYearMonth.minusMonths(1)
+                    calendarSelectedDate = calendarYearMonth.atDay(1)
+                    loadCalendarMonth()
+                }.apply { rotation = 180f })
+                addView(TextView(this@MainActivity).apply {
+                    text = calendarYearMonth.format(DateTimeFormatter.ofPattern("LLLL yyyy", activeLocale()))
+                        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(activeLocale()) else it.toString() }
+                    textSize = 18f
+                    gravity = Gravity.CENTER
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(color(Ui.TEXT))
+                    layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f)
+                })
+                addView(iconButton(R.drawable.ic_chevron_right, "Next month") {
+                    calendarYearMonth = calendarYearMonth.plusMonths(1)
+                    calendarSelectedDate = calendarYearMonth.atDay(1)
+                    loadCalendarMonth()
+                })
+            }
+        )
+        content.addView(calendarWeekHeader())
+        content.addView(calendarGrid())
+        if (calendarLoading) {
+            content.addView(ProgressBar(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(32), dp(32)).apply { gravity = Gravity.CENTER_HORIZONTAL }
+            })
+        }
+        val month = calendarMonth
+        if (month?.offline == true) {
+            content.addView(statusText(if (currentLanguage == "en") "Offline copy" else "\u041e\u0444\u043b\u0430\u0439\u043d-\u043a\u043e\u043f\u0438\u044f", Ui.AMBER))
+        }
+        content.addView(sectionLabel(calendarSelectedDate.format(DateTimeFormatter.ofPattern("d MMMM", activeLocale()))))
+        val selected = month?.on(calendarSelectedDate).orEmpty().groupBy { it.taskId }.values
+        if (selected.isEmpty()) {
+            content.addView(statusText(if (currentLanguage == "en") "No tasks" else "\u041d\u0430 \u044d\u0442\u043e\u0442 \u0434\u0435\u043d\u044c \u0437\u0430\u0434\u0430\u0447 \u043d\u0435\u0442", Ui.MUTED))
+        } else {
+            selected.forEach { markers ->
+                val marker = markers.first()
+                content.addView(
+                    LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(8), dp(4), dp(4), dp(4))
+                        minimumHeight = dp(52)
+                        if (markers.any { it.kind == CalendarMarkerKind.Planned }) addView(markerDot(Ui.TASK_STATUS_GREEN, CalendarMarkerKind.Planned.name))
+                        if (markers.any { it.kind == CalendarMarkerKind.Deadline }) addView(markerDot(Ui.DANGER, CalendarMarkerKind.Deadline.name))
+                        addView(rowText(marker.title, markers.joinToString(" \u00b7 ") { calendarMarkerSubtitle(it) }, 1f, 15f, Typeface.NORMAL).apply {
+                            setOnClickListener { openTaskDetail(marker.taskId) }
+                        })
+                    }
+                )
+                content.addView(divider())
+            }
+        }
+        root.addView(ScrollView(this).apply {
+            isFillViewport = true
+            addView(content)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        })
+        root.addView(bottomNavigation(Screen.Calendar))
+        setContentView(root)
+    }
+
+    private fun calendarWeekHeader(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        val labels = if (currentLanguage == "en") listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
+        else listOf("\u041f\u043d", "\u0412\u0442", "\u0421\u0440", "\u0427\u0442", "\u041f\u0442", "\u0421\u0431", "\u0412\u0441")
+        labels.forEach { label ->
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                gravity = Gravity.CENTER
+                textSize = 12f
+                setTextColor(color(Ui.MUTED))
+                layoutParams = LinearLayout.LayoutParams(0, dp(28), 1f)
+            })
+        }
+    }
+
+    private fun calendarGrid(): LinearLayout {
+        val (from, _) = calendarRange(calendarYearMonth)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            repeat(6) { week ->
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    repeat(7) { day ->
+                        val date = from.plusDays((week * 7 + day).toLong())
+                        addView(calendarDayCell(date))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(54))
+                })
+            }
+        }
+    }
+
+    private fun calendarDayCell(date: LocalDate): View {
+        val markers = calendarMonth?.on(date).orEmpty()
+        val selected = date == calendarSelectedDate
+        val plannedCount = markers.count { it.kind == CalendarMarkerKind.Planned }
+        val deadlineCount = markers.count { it.kind == CalendarMarkerKind.Deadline }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = when {
+                selected -> roundedDrawable(Ui.ACCENT_SOFT, strokeColorHex = Ui.ACCENT, radiusDp = 6)
+                else -> roundedDrawable(Ui.CANVAS, strokeColorHex = Ui.HAIRLINE, radiusDp = 0)
+            }
+            addView(TextView(this@MainActivity).apply {
+                text = date.dayOfMonth.toString()
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setTextColor(color(if (date.month == calendarYearMonth.month) Ui.TEXT else Ui.LOW))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(28))
+            })
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                if (plannedCount > 0) addView(calendarTinyDot(Ui.TASK_STATUS_GREEN, calendarMarkerAccessibilityLabel(CalendarMarkerKind.Planned, plannedCount)))
+                if (deadlineCount > 0) addView(calendarTinyDot(Ui.DANGER, calendarMarkerAccessibilityLabel(CalendarMarkerKind.Deadline, deadlineCount)))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(14))
+            })
+            isSelected = selected
+            isFocusable = true
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            contentDescription = buildList {
+                add(date.format(DateTimeFormatter.ofPattern("d MMMM yyyy", activeLocale())))
+                if (plannedCount > 0) add(calendarMarkerAccessibilityLabel(CalendarMarkerKind.Planned, plannedCount))
+                if (deadlineCount > 0) add(calendarMarkerAccessibilityLabel(CalendarMarkerKind.Deadline, deadlineCount))
+            }.joinToString(". ")
+            ViewCompat.setStateDescription(
+                this,
+                if (selected) {
+                    if (currentLanguage == "en") "Selected" else "\u0412\u044b\u0431\u0440\u0430\u043d\u043e"
+                } else null
+            )
+            setOnClickListener {
+                calendarSelectedDate = date
+                if (date.month != calendarYearMonth.month) {
+                    calendarYearMonth = YearMonth.from(date)
+                    loadCalendarMonth()
+                } else render()
+            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f).apply {
+                setMargins(dp(1), dp(1), dp(1), dp(1))
+            }
+        }
+    }
+
+    private fun calendarTinyDot(hex: String, description: String): View = View(this).apply {
+        background = roundedDrawable(hex, radiusDp = 4)
+        contentDescription = description
+        layoutParams = LinearLayout.LayoutParams(dp(7), dp(7)).apply { setMargins(dp(2), 0, dp(2), 0) }
+    }
+
+    private fun calendarMarkerAccessibilityLabel(kind: CalendarMarkerKind, count: Int): String {
+        return when (kind) {
+            CalendarMarkerKind.Planned -> if (currentLanguage == "en") "$count planned" else "\u041f\u043b\u0430\u043d: $count"
+            CalendarMarkerKind.Deadline -> if (currentLanguage == "en") "$count deadlines" else "\u0414\u0435\u0434\u043b\u0430\u0439\u043d: $count"
+        }
+    }
+
+    private fun calendarMarkerSubtitle(marker: com.rocketflow.companion.calendar.CalendarMarker): String {
+        val kind = if (marker.kind == CalendarMarkerKind.Deadline) {
+            if (currentLanguage == "en") "Deadline" else "\u0414\u0435\u0434\u043b\u0430\u0439\u043d"
+        } else if (currentLanguage == "en") "Planned" else "\u041f\u043b\u0430\u043d"
+        val markerZone = calendarMonth?.timezone
+            ?.let { value -> runCatching { ZoneId.of(value) }.getOrNull() }
+            ?: accountZone()
+        val time = runCatching { Instant.parse(marker.at).atZone(markerZone).toLocalTime().toString() }.getOrNull()
+        return listOfNotNull(kind, time).joinToString(" \u00b7 ")
+    }
+
+    private fun renderFocus() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(color(Ui.CANVAS))
+        }
+        root.addView(appBar(if (currentLanguage == "en") "Focus" else "\u0424\u043e\u043a\u0443\u0441", false, Screen.Focus))
+        messageLine(inset = true)?.let(root::addView)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(24))
+        }
+        content.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(iconButton(R.drawable.ic_add, if (currentLanguage == "en") "Add task" else "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0437\u0430\u0434\u0430\u0447\u0443") { showFocusPicker() })
+                addView(TextView(this@MainActivity).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
+                addView(iconButton(R.drawable.ic_unfold_more, if (currentLanguage == "en") "History" else "\u0418\u0441\u0442\u043e\u0440\u0438\u044f") { showFocusHistory() })
+                addView(iconButton(R.drawable.ic_settings, if (currentLanguage == "en") "Focus reminders" else "\u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f \u0444\u043e\u043a\u0443\u0441\u0430") { showFocusSettingsDialog() })
+            }
+        )
+        if (focusLoading) content.addView(ProgressBar(this))
+        val period = focusPeriod
+        if (period == null) {
+            content.addView(statusText(if (currentLanguage == "en") "This week's focus is empty" else "\u0424\u043e\u043a\u0443\u0441 \u044d\u0442\u043e\u0439 \u043d\u0435\u0434\u0435\u043b\u0438 \u043f\u0443\u0441\u0442", Ui.MUTED))
+        } else {
+            val progress = period.progress
+            content.addView(TextView(this).apply {
+                text = if (currentLanguage == "en") "${progress.percent}% completed" else "\u0412\u044b\u043f\u043e\u043b\u043d\u0435\u043d\u043e ${progress.percent}%"
+                textSize = 18f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(color(Ui.TEXT))
+                setPadding(dp(4), dp(8), dp(4), dp(4))
+            })
+            content.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                this.progress = progress.percent
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12)).apply { setMargins(dp(4), 0, dp(4), dp(8)) }
+            })
+            content.addView(statusText("${progress.completedWeight}/${progress.totalWeight}", Ui.MUTED))
+            period.rolloverOffer?.let { offer ->
+                content.addView(textButton(if (currentLanguage == "en") "Carry unfinished tasks" else "\u041f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u043d\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u043d\u044b\u0435", primary = true) {
+                    showRolloverDialog(offer.sourcePeriodId, offer.taskIds)
+                })
+            }
+            if (period.items.isEmpty()) {
+                content.addView(statusText(if (currentLanguage == "en") "Add tasks from any goal" else "\u0414\u043e\u0431\u0430\u0432\u044c\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0438\u0437 \u043b\u044e\u0431\u044b\u0445 \u0446\u0435\u043b\u0435\u0439", Ui.MUTED))
+            }
+            period.items.forEachIndexed { index, item ->
+                content.addView(focusItemRow(item, index, period.items.size))
+                content.addView(divider())
+            }
+        }
+        if (focusOffline || focusPendingCount > 0) {
+            val text = if (currentLanguage == "en") "Offline changes: $focusPendingCount" else "\u041e\u0444\u043b\u0430\u0439\u043d-\u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f: $focusPendingCount"
+            content.addView(statusText(text, Ui.AMBER))
+        }
+        focusSyncError?.let { content.addView(statusText(syncErrorText(it), Ui.DANGER)) }
+        root.addView(ScrollView(this).apply {
+            isFillViewport = true
+            addView(content)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        })
+        root.addView(bottomNavigation(Screen.Focus))
+        setContentView(root)
+    }
+
+    private fun focusItemRow(item: FocusItem, index: Int, count: Int): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(4), dp(3), dp(2), dp(3))
+        minimumHeight = dp(58)
+        addView(iconView(if (item.done) R.drawable.ic_check_circle else R.drawable.ic_radio_button_unchecked, tint = if (item.done) Ui.TASK_STATUS_GREEN else Ui.MUTED))
+        addView(rowText(item.title, listOf(item.path, "${if (currentLanguage == "en") "Effort" else "\u0422\u0440\u0443\u0434\u043e\u0435\u043c\u043a\u043e\u0441\u0442\u044c"}: ${item.effectiveWeight}").filter { it.isNotBlank() }.joinToString(" \u00b7 "), 1f, 15f, Typeface.NORMAL).apply {
+            setOnClickListener { openTaskDetail(item.taskId) }
+        })
+        addView(iconButton(R.drawable.ic_chevron_right, "Up") { moveFocusItem(index, -1) }.apply {
+            rotation = -90f
+            isEnabled = index > 0
+            alpha = if (isEnabled) 1f else 0.3f
+        })
+        addView(iconButton(R.drawable.ic_chevron_right, "Down") { moveFocusItem(index, 1) }.apply {
+            rotation = 90f
+            isEnabled = index < count - 1
+            alpha = if (isEnabled) 1f else 0.3f
+        })
+        addView(iconButton(R.drawable.ic_close, if (currentLanguage == "en") "Remove" else "\u0423\u0431\u0440\u0430\u0442\u044c", Ui.DANGER) { removeFromFocus(item.taskId) })
+    }
+
+    private fun bottomNavigation(selected: Screen): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        setPadding(dp(4), 0, dp(4), currentSystemBottomInset())
+        background = bottomBorderDrawable(Ui.SURFACE)
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(60) + currentSystemBottomInset())
+        addView(bottomTab(if (currentLanguage == "en") "Home" else "\u0413\u043b\u0430\u0432\u043d\u0430\u044f", Screen.Planner, selected))
+        addView(bottomTab(if (currentLanguage == "en") "Calendar" else "\u041a\u0430\u043b\u0435\u043d\u0434\u0430\u0440\u044c", Screen.Calendar, selected))
+        addView(bottomTab(if (currentLanguage == "en") "Focus" else "\u0424\u043e\u043a\u0443\u0441", Screen.Focus, selected))
+    }
+
+    private fun bottomTab(label: String, target: Screen, selected: Screen): TextView = TextView(this).apply {
+        text = label
+        gravity = Gravity.CENTER
+        textSize = 13f
+        setTypeface(typeface, if (target == selected) Typeface.BOLD else Typeface.NORMAL)
+        setTextColor(color(if (target == selected) Ui.ACCENT else Ui.MUTED))
+        background = if (target == selected) roundedDrawable(Ui.ACCENT_SOFT, radiusDp = 6) else null
+        layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(dp(3), dp(4), dp(3), dp(4)) }
+        setOnClickListener { switchTopLevel(target) }
+    }
+
+    private fun switchTopLevel(target: Screen) {
+        currentScreen = target
+        message = null
+        render()
+        when (target) {
+            Screen.Calendar -> loadCalendarMonth()
+            Screen.Focus -> loadFocus()
+            else -> Unit
+        }
+    }
+
+    private fun loadCalendarMonth() {
+        val session = currentSession ?: return
+        val (from, toExclusive) = calendarRange(calendarYearMonth)
+        val requestGeneration = ++calendarRequestGeneration
+        calendarLoading = true
+        render()
+        scope.launch {
+            try {
+                val result = calendarRepository.load(session, from, toExclusive)
+                if (requestGeneration == calendarRequestGeneration) {
+                    currentSession = result.first
+                    calendarMonth = result.second
+                }
+            } catch (error: Exception) {
+                if (!isTerminalSessionFailure(error)) {
+                    message = humanError(error)
+                }
+            } finally {
+                if (requestGeneration == calendarRequestGeneration) {
+                    calendarLoading = false
+                    if (currentScreen == Screen.Calendar) render()
+                }
+            }
+        }
+    }
+
+    private fun calendarRange(month: YearMonth): Pair<LocalDate, LocalDate> {
+        val first = month.atDay(1)
+        val from = first.minusDays((first.dayOfWeek.value - 1).toLong())
+        return from to from.plusDays(42)
+    }
+
+    private fun loadFocus() {
+        val session = currentSession ?: return
+        focusLoading = true
+        focusPeriod = focusRepository.cachedCurrent(session.user.id)
+        focusSettings = focusRepository.cachedSettings(session.user.id)
+        focusSyncError = focusRepository.latestSyncError(session.user.id)
+        render()
+        scope.launch {
+            try {
+                val result = focusRepository.loadCurrent(session)
+                currentSession = result.first
+                applyFocusResult(result.second)
+                val settingsResult = focusRepository.loadSettings(currentSession ?: result.first)
+                currentSession = settingsResult.first
+                focusSettings = settingsResult.second
+            } catch (error: Exception) {
+                if (!isTerminalSessionFailure(error)) {
+                    message = humanError(error)
+                }
+            } finally {
+                focusLoading = false
+                if (currentScreen == Screen.Focus) render()
+            }
+        }
+    }
+
+    private fun applyFocusResult(result: FocusLoadResult) {
+        focusPeriod = result.period
+        focusOffline = result.offline
+        focusPendingCount = result.pendingCount
+        focusSyncError = result.error
+        result.error?.let { message = syncErrorText(it) }
+    }
+
+    private fun statusText(value: String, tint: String): TextView = TextView(this).apply {
+        text = value
+        textSize = 13f
+        setTextColor(color(tint))
+        setPadding(dp(8), dp(8), dp(8), dp(8))
+    }
+
+    private fun activeLocale(): Locale = if (currentLanguage == "en") Locale.ENGLISH else Locale("ru")
 
     private fun renderFolder(parent: LinearLayout, folder: PlanningFolder, indentLevel: Int) {
         parent.addView(folderRow(folder, indentLevel))
@@ -1569,7 +2066,7 @@ class MainActivity : Activity() {
 
             if (showBack) {
                 addView(iconButton(R.drawable.ic_arrow_back, if (currentLanguage == "en") "Back" else "\u041d\u0430\u0437\u0430\u0434") {
-                    currentScreen = Screen.Planner
+                    currentScreen = if (mode == Screen.Detail) detailReturnScreen else Screen.Planner
                     render()
                 })
             } else {
@@ -1613,13 +2110,14 @@ class MainActivity : Activity() {
                 }
                 Screen.Detail -> {
                     selectedTaskDetail?.let { task ->
+                        addView(iconButton(R.drawable.ic_target, if (currentLanguage == "en") "Add to focus" else "\u0412 \u0444\u043e\u043a\u0443\u0441") { addToFocus(task) })
                         if (canWrite(task)) {
                             addView(iconButton(R.drawable.ic_share, c.share) { showShareDialog(task.toShareTarget()) })
                             addView(iconButton(R.drawable.ic_link_nodes, c.addLink) { showCreateLinkDialog("task", task.id) })
                             addView(iconButton(R.drawable.ic_edit, c.edit) { showTaskDialog(task) })
                             addView(deleteIconButton(c.delete) { confirmDelete(task.title, deleteEntityMessage("task", task.id, task.title)) { deleteTask(task) } })
-                            addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                         }
+                        addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                     }
                 }
                 Screen.GoalDetail -> {
@@ -1663,6 +2161,8 @@ class MainActivity : Activity() {
                     }
                 }
                 Screen.Settings -> Unit
+                Screen.Calendar -> Unit
+                Screen.Focus -> Unit
                 Screen.Auth -> Unit
             }
         }
@@ -1768,8 +2268,8 @@ class MainActivity : Activity() {
                 })
             }
             addView(counterText(task.priority.toString()))
+            addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
             if (canWrite(task)) {
-                addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
                 enableEntityDragSource(dragPayload)
             }
         }
@@ -2910,17 +3410,414 @@ class MainActivity : Activity() {
     private fun showTaskActions(task: PlanningTask) {
         val c = copy()
         val actions = buildList<Pair<String, () -> Unit>> {
-            add(c.share to { showShareDialog(task.toShareTarget()) })
-            add(c.reschedule to { showRescheduleDialog(task) })
-            add(c.move to { showMoveTaskDialog(task) })
-            add(c.clone to { showCloneTaskDialog(task) })
-            add(c.delete to { confirmDelete(task.title, deleteEntityMessage("task", task.id, task.title)) { deleteTask(task) } })
+            add((if (currentLanguage == "en") "Add to focus" else "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0432 \u0444\u043e\u043a\u0443\u0441") to { addToFocus(task) })
+            if (canWrite(task)) {
+                add(c.share to { showShareDialog(task.toShareTarget()) })
+                add(c.reschedule to { showRescheduleDialog(task) })
+                add(c.move to { showMoveTaskDialog(task) })
+                add(c.clone to { showCloneTaskDialog(task) })
+                add(c.delete to { confirmDelete(task.title, deleteEntityMessage("task", task.id, task.title)) { deleteTask(task) } })
+            }
         }
         AlertDialog.Builder(this)
             .setTitle(task.title)
             .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
                 actions[which].second()
             }
+            .show()
+    }
+
+    private fun addToFocus(task: PlanningTask) {
+        val session = currentSession ?: return
+        if (focusPeriod?.items?.any { it.taskId == task.id } == true) {
+            message = if (currentLanguage == "en") "Already in focus" else "\u0423\u0436\u0435 \u0432 \u0444\u043e\u043a\u0443\u0441\u0435"
+            render()
+            return
+        }
+        scope.launch {
+            try {
+                val result = focusRepository.addTask(session, task, taskPath(task))
+                currentSession = result.first
+                applyFocusResult(result.second)
+                message = if (result.second.offline) {
+                    if (currentLanguage == "en") "Saved offline" else "\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e \u043e\u0444\u043b\u0430\u0439\u043d"
+                } else if (currentLanguage == "en") "Added to focus" else "\u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e \u0432 \u0444\u043e\u043a\u0443\u0441"
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                render()
+            }
+        }
+    }
+
+    private fun addCandidateToFocus(candidate: FocusCandidate) {
+        val session = currentSession ?: return
+        if (focusPeriod?.items?.any { it.taskId == candidate.taskId } == true) return
+        scope.launch {
+            try {
+                val result = focusRepository.addCandidate(session, candidate)
+                currentSession = result.first
+                applyFocusResult(result.second)
+                message = if (result.second.offline) {
+                    if (currentLanguage == "en") "Saved offline" else "\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e \u043e\u0444\u043b\u0430\u0439\u043d"
+                } else if (currentLanguage == "en") "Added to focus" else "\u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e \u0432 \u0444\u043e\u043a\u0443\u0441"
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                render()
+            }
+        }
+    }
+
+    private fun removeFromFocus(taskId: String) {
+        val session = currentSession ?: return
+        scope.launch {
+            try {
+                val result = focusRepository.removeTask(session, taskId)
+                currentSession = result.first
+                applyFocusResult(result.second)
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                if (currentScreen == Screen.Focus) render()
+            }
+        }
+    }
+
+    private fun moveFocusItem(index: Int, delta: Int) {
+        val session = currentSession ?: return
+        val items = focusPeriod?.items.orEmpty().toMutableList()
+        val target = index + delta
+        if (index !in items.indices || target !in items.indices) return
+        val moved = items.removeAt(index)
+        items.add(target, moved)
+        focusPeriod = focusPeriod?.copy(items = items.mapIndexed { order, item -> item.copy(displayOrder = order) })
+        render()
+        scope.launch {
+            try {
+                val result = focusRepository.reorder(session, items.map { it.taskId })
+                currentSession = result.first
+                applyFocusResult(result.second)
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                if (currentScreen == Screen.Focus) render()
+            }
+        }
+    }
+
+    private fun showFocusPicker() {
+        val session = currentSession ?: return
+        val input = EditText(this).apply {
+            hint = if (currentLanguage == "en") "Folder, goal or task" else "\u041f\u0430\u043f\u043a\u0430, \u0446\u0435\u043b\u044c \u0438\u043b\u0438 \u0437\u0430\u0434\u0430\u0447\u0430"
+            styleInput()
+            inputType = searchInputType()
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+        }
+        val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val expandedFolders = mutableSetOf<String>()
+        val expandedGoals = mutableSetOf<String>()
+        var serverCandidates: List<FocusCandidate> = emptyList()
+        var nextCursor: String? = null
+        var loading = false
+        var searchSerial = 0
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(4), dp(12), dp(8))
+            addView(input)
+            addView(ScrollView(this@MainActivity).apply {
+                addView(rows)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(470))
+            })
+        }
+        lateinit var dialog: AlertDialog
+        lateinit var rebuild: () -> Unit
+        lateinit var loadPage: (Boolean) -> Unit
+        rebuild = {
+            rows.removeAllViews()
+            val query = input.text.toString().trim().lowercase(activeLocale())
+            val existing = focusPeriod?.items?.map { it.taskId }.orEmpty().toSet()
+            val available = serverCandidates.distinctBy { it.taskId }.filterNot { it.taskId in existing }
+            val folderGroups = available.filter { it.folderId != null || it.folderName != null }
+                .groupBy { it.folderId ?: "name:${it.folderName}" }
+                .toList()
+                .sortedBy { (_, candidates) -> candidates.first().folderName.orEmpty().lowercase(activeLocale()) }
+            folderGroups.forEach { (folderKey, folderCandidates) ->
+                val folderName = folderCandidates.first().folderName.orEmpty().ifBlank {
+                    if (currentLanguage == "en") "Folder" else "\u041f\u0430\u043f\u043a\u0430"
+                }
+                val folderExpanded = query.isNotBlank() || folderKey in expandedFolders
+                rows.addView(selectionOption(R.drawable.ic_folder, folderName, "${folderCandidates.size}") {
+                    if (folderExpanded) expandedFolders.remove(folderKey) else expandedFolders.add(folderKey)
+                    rebuild()
+                })
+                if (folderExpanded) {
+                    val goalGroups = folderCandidates.filter { it.goalId != null || it.goalName != null }
+                        .groupBy { it.goalId ?: "name:${it.goalName}" }
+                        .toList()
+                        .sortedBy { (_, candidates) -> candidates.first().goalName.orEmpty().lowercase(activeLocale()) }
+                    goalGroups.forEach { (goalKey, goalCandidates) ->
+                            val goalName = goalCandidates.first().goalName.orEmpty().ifBlank {
+                                if (currentLanguage == "en") "Goal" else "\u0426\u0435\u043b\u044c"
+                            }
+                            val goalExpanded = query.isNotBlank() || goalKey in expandedGoals
+                            rows.addView(selectionOption(R.drawable.ic_target, "  $goalName", folderName) {
+                                if (goalExpanded) expandedGoals.remove(goalKey) else expandedGoals.add(goalKey)
+                                rebuild()
+                            })
+                            if (goalExpanded) {
+                                goalCandidates.sortedBy { it.title.lowercase(activeLocale()) }.forEach { candidate ->
+                                    rows.addView(selectionOption(R.drawable.ic_radio_button_unchecked, "    ${candidate.title}", candidate.path) {
+                                        dialog.dismiss()
+                                        addCandidateToFocus(candidate)
+                                    })
+                                }
+                            }
+                        }
+                    folderCandidates.filter { it.goalId == null && it.goalName == null }.forEach { candidate ->
+                        rows.addView(selectionOption(R.drawable.ic_radio_button_unchecked, "  ${candidate.title}", candidate.path) {
+                            dialog.dismiss()
+                            addCandidateToFocus(candidate)
+                        })
+                    }
+                }
+            }
+            val ungrouped = available.filter { it.folderId == null && it.folderName == null }
+            ungrouped.forEach { candidate ->
+                rows.addView(selectionOption(R.drawable.ic_radio_button_unchecked, candidate.title, candidate.path) {
+                    dialog.dismiss()
+                    addCandidateToFocus(candidate)
+                })
+            }
+            if (loading) {
+                rows.addView(ProgressBar(this))
+            } else if (nextCursor != null) {
+                rows.addView(textButton(if (currentLanguage == "en") "Show more" else "\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c \u0435\u0449\u0451", primary = false) { loadPage(false) })
+            } else if (available.isEmpty()) {
+                rows.addView(statusText(if (currentLanguage == "en") "Nothing found" else "\u041d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e", Ui.MUTED))
+            }
+        }
+        dialog = AlertDialog.Builder(this)
+            .setTitle(if (currentLanguage == "en") "Add to focus" else "\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u0432 \u0444\u043e\u043a\u0443\u0441")
+            .setView(content)
+            .setNegativeButton(copy().cancel, null)
+            .create()
+        loadPage = { reset ->
+            if (!loading) {
+                val serial = searchSerial
+                val query = input.text.toString().trim()
+                val cursor = if (reset) null else nextCursor
+                loading = true
+                if (reset) {
+                    serverCandidates = emptyList()
+                    nextCursor = null
+                }
+                rebuild()
+                scope.launch {
+                    try {
+                        val result = focusRepository.searchCandidates(currentSession ?: session, query, cursor)
+                        if (serial == searchSerial && dialog.isShowing) {
+                            currentSession = result.first
+                            serverCandidates = if (reset) result.second.items else (serverCandidates + result.second.items).distinctBy { it.taskId }
+                            nextCursor = result.second.nextCursor
+                        }
+                    } catch (error: Exception) {
+                        if (serial == searchSerial) message = humanError(error)
+                    } finally {
+                        if (serial == searchSerial && dialog.isShowing) {
+                            loading = false
+                            rebuild()
+                        }
+                    }
+                }
+            }
+        }
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                rebuild()
+                val serial = ++searchSerial
+                scope.launch {
+                    delay(250)
+                    if (serial != searchSerial || !dialog.isShowing) return@launch
+                    loading = false
+                    loadPage(true)
+                }
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        rebuild()
+        dialog.show()
+        loadPage(true)
+        focusDialogInput(dialog, input)
+    }
+
+    private fun showFocusSettingsDialog() {
+        val intervals = FocusNotificationSettings.ALLOWED_INTERVALS
+        val labels = if (currentLanguage == "en") arrayOf("Off", "Every 30 min", "Every hour", "Every 2 hours", "Every 4 hours")
+        else arrayOf("\u0412\u044b\u043a\u043b", "\u041a\u0430\u0436\u0434\u044b\u0435 30 \u043c\u0438\u043d", "\u041a\u0430\u0436\u0434\u044b\u0439 \u0447\u0430\u0441", "\u041a\u0430\u0436\u0434\u044b\u0435 2 \u0447\u0430\u0441\u0430", "\u041a\u0430\u0436\u0434\u044b\u0435 4 \u0447\u0430\u0441\u0430")
+        val group = RadioGroup(this)
+        intervals.forEachIndexed { index, value ->
+            group.addView(RadioButton(this).apply {
+                id = View.generateViewId()
+                tag = index
+                text = labels[index]
+                isChecked = value == focusSettings.intervalMinutes
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(48)
+                layoutParams = RadioGroup.LayoutParams(
+                    RadioGroup.LayoutParams.MATCH_PARENT,
+                    dp(48)
+                )
+            })
+        }
+        val quietStart = EditText(this).apply { hint = "22:00"; setText(focusSettings.quietStart.orEmpty()); styleInput() }
+        val quietEnd = EditText(this).apply { hint = "08:00"; setText(focusSettings.quietEnd.orEmpty()); styleInput() }
+        val form = dialogForm(
+            group,
+            dialogContextLine(if (currentLanguage == "en") "Quiet hours start" else "\u041d\u0430\u0447\u0430\u043b\u043e \u0442\u0438\u0445\u0438\u0445 \u0447\u0430\u0441\u043e\u0432", "HH:mm"),
+            quietStart,
+            dialogContextLine(if (currentLanguage == "en") "Quiet hours end" else "\u041a\u043e\u043d\u0435\u0446 \u0442\u0438\u0445\u0438\u0445 \u0447\u0430\u0441\u043e\u0432", "HH:mm"),
+            quietEnd
+        )
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (currentLanguage == "en") "Focus reminders" else "\u041d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f \u0444\u043e\u043a\u0443\u0441\u0430")
+            .setView(scrollableDialogContent(form))
+            .setNegativeButton(copy().cancel, null)
+            .setPositiveButton(if (currentLanguage == "en") "Save" else "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val start = quietStart.text.toString().trim().takeIf { it.isNotBlank() }
+                val end = quietEnd.text.toString().trim().takeIf { it.isNotBlank() }
+                val checked = group.findViewById<RadioButton>(group.checkedRadioButtonId)
+                val interval = intervals[checked?.tag as? Int ?: 0]
+                val settings = FocusNotificationSettings(interval, start, end, focusSettings.version)
+                val validationMessage = when (settings.quietHoursValidationError()) {
+                    QuietHoursValidationError.PAIR_REQUIRED -> if (currentLanguage == "en") {
+                        "Set both quiet-hours fields or leave both empty."
+                    } else {
+                        "Заполните оба поля тихих часов или оставьте оба пустыми."
+                    }
+                    QuietHoursValidationError.INVALID_FORMAT -> if (currentLanguage == "en") {
+                        "Use HH:mm for both quiet-hours fields."
+                    } else {
+                        "Укажите оба значения тихих часов в формате HH:mm."
+                    }
+                    null -> null
+                }
+                if (validationMessage != null) {
+                    Toast.makeText(this, validationMessage, Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                if (interval != null) notificationRuntime.requestNotificationPermission(this)
+                dialog.dismiss()
+                updateFocusSettings(settings)
+            }
+        }
+        dialog.show()
+    }
+
+    private fun updateFocusSettings(settings: FocusNotificationSettings) {
+        val session = currentSession ?: return
+        focusSettings = settings
+        focusSyncError = null
+        scope.launch {
+            try {
+                val result = focusRepository.updateSettings(session, settings)
+                currentSession = result.first
+                focusSettings = result.second
+                focusSyncError = focusRepository.latestSyncError(result.first.user.id)
+                focusSyncError?.let { message = syncErrorText(it) }
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                if (currentScreen == Screen.Focus) render()
+            }
+        }
+    }
+
+    private fun showRolloverDialog(sourcePeriodId: String, taskIds: List<String>) {
+        val labels = taskIds.map { id -> findTask(id)?.title ?: focusPeriod?.items?.firstOrNull { it.taskId == id }?.title ?: id }
+        val checked = BooleanArray(taskIds.size) { true }
+        AlertDialog.Builder(this)
+            .setTitle(if (currentLanguage == "en") "Carry into this week" else "\u041f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u043d\u0430 \u044d\u0442\u0443 \u043d\u0435\u0434\u0435\u043b\u044e")
+            .setMultiChoiceItems(labels.toTypedArray(), checked) { _, which, value -> checked[which] = value }
+            .setNegativeButton(copy().cancel, null)
+            .setPositiveButton(if (currentLanguage == "en") "Carry" else "\u041f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438") { _, _ ->
+                val selected = taskIds.filterIndexed { index, _ -> checked[index] }
+                resolveRollover(sourcePeriodId, selected)
+            }
+            .show()
+    }
+
+    private fun resolveRollover(sourcePeriodId: String, taskIds: List<String>) {
+        val session = currentSession ?: return
+        scope.launch {
+            try {
+                val result = focusRepository.resolveRollover(session, sourcePeriodId, taskIds)
+                currentSession = result.first
+                applyFocusResult(result.second)
+            } catch (error: Exception) {
+                message = humanError(error)
+            } finally {
+                if (currentScreen == Screen.Focus) render()
+            }
+        }
+    }
+
+    private fun showFocusHistory() {
+        val session = currentSession ?: return
+        scope.launch {
+            val result = focusRepository.loadHistory(session)
+            currentSession = result.first
+            val periods = result.second
+            if (periods.isEmpty()) {
+                Toast.makeText(this@MainActivity, if (currentLanguage == "en") "No history yet" else "\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u043f\u043e\u043a\u0430 \u043f\u0443\u0441\u0442\u0430", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle(if (currentLanguage == "en") "Focus history" else "\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u0444\u043e\u043a\u0443\u0441\u0430")
+                .setItems(periods.map { "${it.weekStart}  \u00b7  ${it.progress.percent}%" }.toTypedArray()) { _, which ->
+                    loadAndShowFocusHistoryPeriod(periods[which])
+                }
+                .show()
+        }
+    }
+
+    private fun loadAndShowFocusHistoryPeriod(summary: FocusHistorySummary) {
+        val session = currentSession ?: return
+        scope.launch {
+            val result = focusRepository.loadHistoryPeriod(session, summary.id)
+            currentSession = result.first
+            val period = result.second
+            if (period == null) {
+                Toast.makeText(
+                    this@MainActivity,
+                    if (currentLanguage == "en") "History is unavailable offline" else "\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u043e\u0444\u043b\u0430\u0439\u043d",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            showFocusHistoryPeriod(period)
+        }
+    }
+
+    private fun showFocusHistoryPeriod(period: FocusPeriod) {
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            addView(statusText("${period.progress.percent}%", Ui.ACCENT))
+            period.items.forEach { item ->
+                addView(rowText(item.title, item.path, 1f, 14f, Typeface.NORMAL).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52))
+                })
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle("${period.weekStart} - ${period.weekEndExclusive}")
+            .setView(scrollableDialogContent(body))
+            .setPositiveButton("OK", null)
             .show()
     }
 
@@ -5238,7 +6135,7 @@ class MainActivity : Activity() {
                 if (selectedTaskId == task.id) {
                     selectedTaskId = null
                     selectedTaskDetail = null
-                    currentScreen = Screen.Planner
+                    currentScreen = detailReturnScreen
                 }
             } catch (error: Exception) {
                 message = humanError(error)
@@ -5461,6 +6358,9 @@ class MainActivity : Activity() {
 
     private fun openTaskDetail(taskId: String, consumePendingOnSuccess: Boolean = false) {
         val session = currentSession ?: return
+        if (currentScreen == Screen.Planner || currentScreen == Screen.Calendar || currentScreen == Screen.Focus) {
+            detailReturnScreen = currentScreen
+        }
         if (selectedTaskId != taskId) {
             taskDetailScrollY = 0
         }
@@ -5501,6 +6401,10 @@ class MainActivity : Activity() {
     }
 
     private fun handleIncomingIntent(intent: Intent?) {
+        if (NotificationIntents.isFocusIntent(intent)) {
+            focusDeepLinkCoordinator.markPending()
+            return
+        }
         val taskId = NotificationIntents.extractTaskId(intent) ?: return
         pendingTaskOpenId = taskId
         message = copy().openingTask
@@ -5619,10 +6523,12 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun maybeOpenPendingTask() {
-        val taskId = pendingTaskOpenId ?: return
-        if (currentSession == null) return
+    private fun maybeOpenPendingTask(): Boolean {
+        if (focusDeepLinkCoordinator.openIfReady(currentSession != null) { switchTopLevel(Screen.Focus) }) return true
+        val taskId = pendingTaskOpenId ?: return false
+        if (currentSession == null) return false
         openTaskDetail(taskId, consumePendingOnSuccess = true)
+        return false
     }
 
     private fun showSearchDialog() {
@@ -8602,5 +9508,10 @@ class MainActivity : Activity() {
         private const val EXTRA_ACCEPTANCE_EMPTY = "rocketflow_acceptance_empty"
         private const val EXTRA_ACCEPTANCE_LANGUAGE = "rocketflow_acceptance_language"
         private const val MAX_PENDING_ACTIONS_IN_SETTINGS = 5
+        private const val STATE_SCREEN = "state.screen"
+        private const val STATE_DETAIL_RETURN_SCREEN = "state.detailReturnScreen"
+        private const val STATE_CALENDAR_MONTH = "state.calendarMonth"
+        private const val STATE_CALENDAR_DATE = "state.calendarDate"
+        private const val STATE_SELECTED_TASK_ID = "state.selectedTaskId"
     }
 }

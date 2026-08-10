@@ -6,7 +6,8 @@ import android.net.Uri
 object NotificationIntents {
 
     private const val SCHEME = "rocketflow"
-    private const val HOST = "task"
+    private const val TASK_HOST = "task"
+    private const val FOCUS_HOST = "focus"
     private const val EXTRA_TASK_ID = "taskId"
     private const val EXTRA_TYPE = "type"
     private const val TASK_REMINDER_TYPE = "task_reminder"
@@ -26,7 +27,7 @@ object NotificationIntents {
             return null
         }
 
-        if (data.host == HOST) {
+        if (data.host == TASK_HOST) {
             data.lastPathSegment?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         }
 
@@ -43,6 +44,17 @@ object NotificationIntents {
     }
 
     fun taskDeepLink(taskId: String): Uri {
-        return Uri.parse("$SCHEME://$HOST/$taskId")
+        return Uri.parse("$SCHEME://$TASK_HOST/$taskId")
     }
+
+    fun isFocusIntent(intent: Intent?): Boolean {
+        if (intent == null) return false
+        if (intent.getStringExtra(EXTRA_TYPE)?.equals(FOCUS_REMINDER_TYPE, ignoreCase = true) == true) return true
+        val data = intent.data ?: return false
+        return data.scheme == SCHEME && data.host == FOCUS_HOST
+    }
+
+    fun focusDeepLink(): Uri = Uri.parse("$SCHEME://$FOCUS_HOST")
+
+    private const val FOCUS_REMINDER_TYPE = "focus_reminder"
 }

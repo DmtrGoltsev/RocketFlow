@@ -104,6 +104,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         createIdeaNotesTable(db)
         createNotesTable(db)
         createEntityLinksTable(db)
+        createFocusAndCalendarTables(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -157,6 +158,9 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             if (oldVersion < 15) {
                 createTaskChecklistItemsTable(db)
             }
+            if (oldVersion < 16) {
+                createFocusAndCalendarTables(db)
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -182,7 +186,121 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             addEntityLinkPendingColumns(db)
             addEntityLinkRedactionColumns(db)
             addPendingBlockedColumns(db)
+            createFocusAndCalendarTables(db)
         }
+    }
+
+    private fun createFocusAndCalendarTables(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS focus_periods (
+                user_id TEXT NOT NULL,
+                id TEXT NOT NULL,
+                week_start TEXT NOT NULL,
+                week_end_exclusive TEXT NOT NULL,
+                timezone TEXT NOT NULL,
+                status TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                completed_weight INTEGER NOT NULL DEFAULT 0,
+                total_weight INTEGER NOT NULL DEFAULT 0,
+                progress_percent INTEGER NOT NULL DEFAULT 0,
+                rollover_json TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, id)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS focus_items (
+                user_id TEXT NOT NULL,
+                period_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                effort INTEGER NOT NULL DEFAULT 0,
+                path TEXT NOT NULL DEFAULT '',
+                display_order INTEGER NOT NULL DEFAULT 0,
+                history_only INTEGER NOT NULL DEFAULT 0,
+                planned_time TEXT,
+                due_time TEXT,
+                PRIMARY KEY (user_id, period_id, task_id)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS focus_notification_settings (
+                user_id TEXT PRIMARY KEY,
+                interval_minutes INTEGER,
+                quiet_start TEXT,
+                quiet_end TEXT,
+                version INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS focus_pending_actions (
+                user_id TEXT NOT NULL,
+                id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                task_id TEXT,
+                period_id TEXT,
+                expected_version INTEGER,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_error TEXT,
+                conflict_attempts INTEGER NOT NULL DEFAULT 0,
+                terminal INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, id)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS calendar_markers (
+                user_id TEXT NOT NULL,
+                marker_id TEXT NOT NULL,
+                occurrence_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                goal_id TEXT,
+                kind TEXT NOT NULL,
+                at_time TEXT NOT NULL,
+                local_date TEXT NOT NULL,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                effort INTEGER NOT NULL DEFAULT 0,
+                recurring INTEGER NOT NULL DEFAULT 0,
+                timezone TEXT NOT NULL,
+                range_from TEXT NOT NULL,
+                range_to_exclusive TEXT NOT NULL,
+                PRIMARY KEY (user_id, marker_id)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS calendar_cache_ranges (
+                user_id TEXT NOT NULL,
+                range_from TEXT NOT NULL,
+                range_to_exclusive TEXT NOT NULL,
+                timezone TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, range_from, range_to_exclusive)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_focus_period_user_week ON focus_periods(user_id, week_start)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_focus_pending_user_created ON focus_pending_actions(user_id, created_at)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_calendar_user_date ON calendar_markers(user_id, local_date)")
+        addColumnIfMissing(db, TABLE_FOCUS_PERIODS, "completed_weight", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_FOCUS_PERIODS, "total_weight", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_FOCUS_PERIODS, "progress_percent", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_FOCUS_NOTIFICATION_SETTINGS, "version", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_FOCUS_PENDING_ACTIONS, "conflict_attempts", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(db, TABLE_FOCUS_PENDING_ACTIONS, "terminal", "INTEGER NOT NULL DEFAULT 0")
     }
 
     fun snapshot(userId: String, offline: Boolean, lastSyncError: String?): PlanningSnapshot {
@@ -2591,7 +2709,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
 
     companion object {
         private const val DATABASE_NAME = "rocketflow_planning.db"
-        private const val DATABASE_VERSION = 15
+        private const val DATABASE_VERSION = 16
 
         const val TABLE_FOLDERS = "folders"
         const val TABLE_GOALS = "goals"
@@ -2602,6 +2720,12 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         const val TABLE_IDEA_NOTES = "idea_notes"
         const val TABLE_NOTES = "notes"
         const val TABLE_ENTITY_LINKS = "entity_links"
+        const val TABLE_FOCUS_PERIODS = "focus_periods"
+        const val TABLE_FOCUS_ITEMS = "focus_items"
+        const val TABLE_FOCUS_PENDING_ACTIONS = "focus_pending_actions"
+        const val TABLE_FOCUS_NOTIFICATION_SETTINGS = "focus_notification_settings"
+        const val TABLE_CALENDAR_MARKERS = "calendar_markers"
+        const val TABLE_CALENDAR_CACHE_RANGES = "calendar_cache_ranges"
 
         private val pendingTables = listOf(
             TABLE_FOLDERS,

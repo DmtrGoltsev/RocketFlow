@@ -26,22 +26,32 @@ class NotificationRuntime(private val context: Context) {
         }
 
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) {
-            return
+        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "RocketFlow task reminders",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Reminder notifications for RocketFlow companion tasks."
+                setSound(alarmSoundUri(), alarmAudioAttributes())
+                enableVibration(true)
+                vibrationPattern = ALARM_VIBRATION_PATTERN
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            manager.createNotificationChannel(channel)
         }
-
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "RocketFlow task reminders",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Reminder notifications for RocketFlow companion tasks."
-            setSound(alarmSoundUri(), alarmAudioAttributes())
-            enableVibration(true)
-            vibrationPattern = ALARM_VIBRATION_PATTERN
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        if (manager.getNotificationChannel(FOCUS_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    FOCUS_CHANNEL_ID,
+                    "RocketFlow focus",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "Regular reminders for the active weekly focus."
+                    lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+                }
+            )
         }
-        manager.createNotificationChannel(channel)
     }
 
     fun hasNotificationPermission(): Boolean {
@@ -130,6 +140,36 @@ class NotificationRuntime(private val context: Context) {
         manager.notify(taskId.hashCode(), builder.build())
     }
 
+    fun showFocusReminderNotification(periodId: String, title: String, body: String) {
+        ensureChannel()
+        if (!hasNotificationPermission()) return
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("type", "focus_reminder")
+            putExtra("periodId", periodId)
+            data = NotificationIntents.focusDeepLink()
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            periodId.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(context, FOCUS_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setAutoCancel(true)
+            .build()
+        ContextCompat.getSystemService(context, NotificationManager::class.java)
+            ?.notify("focus:$periodId", FOCUS_NOTIFICATION_ID, notification)
+    }
+
     private fun alarmSoundUri(): Uri {
         return RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
@@ -146,6 +186,8 @@ class NotificationRuntime(private val context: Context) {
         private const val TAG = "NotificationRuntime"
         const val REQUEST_CODE = 4312
         const val CHANNEL_ID = "rocketflow.task.alarms.v2"
+        const val FOCUS_CHANNEL_ID = "rocketflow.focus.v1"
+        private const val FOCUS_NOTIFICATION_ID = 4401
         const val EXTRA_TASK_ID = "taskId"
         const val EXTRA_TITLE = "title"
         const val EXTRA_BODY = "body"
