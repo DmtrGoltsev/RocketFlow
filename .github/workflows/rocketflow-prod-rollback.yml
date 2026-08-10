@@ -1,0 +1,242 @@
+name: RocketFlow Prod Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_release_id:
+        description: "Target release id to promote, for example sha-0123456789ab"
+        required: true
+        type: string
+      current_release_confirmation:
+        description: "Current release id observed before rollback"
+        required: true
+        type: string
+      approval_ticket:
+        description: "Production rollback approval ticket or incident id"
+        required: true
+        type: string
+      include_db_rollback:
+        description: "Must stay false; database rollback is not implemented by this workflow"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: rocketflow-prod-rollback
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    name: rollback
+    runs-on: ubuntu-24.04
+    environment: production
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Validate rollback inputs
+        env:
+          TARGET_RELEASE_ID: ${{ inputs.target_release_id }}
+          CURRENT_RELEASE_CONFIRMATION: ${{ inputs.current_release_confirmation }}
+          APPROVAL_TICKET: ${{ inputs.approval_ticket }}
+          INCLUDE_DB_ROLLBACK: ${{ inputs.include_db_rollback }}
+        run: |
+          set -euo pipefail
+
+          release_id_pattern='^[A-Za-z0-9._-]+$'
+
+          if ! [[ "${TARGET_RELEASE_ID}" =~ ${release_id_pattern} ]]; then
+            echo "::error::target_release_id may only contain letters, numbers, dot, underscore, and dash."
+            exit 1
+          fi
+
+          if ! [[ "${CURRENT_RELEASE_CONFIRMATION}" =~ ${release_id_pattern} ]]; then
+            echo "::error::current_release_confirmation may only contain letters, numbers, dot, underscore, and dash."
+            exit 1
+          fi
+
+          if [ -z "${APPROVAL_TICKET}" ]; then
+            echo "::error::approval_ticket is required."
+            exit 1
+          fi
+
+          if [ "${INCLUDE_DB_ROLLBACK}" != "false" ]; then
+            echo "::error::Database rollback is intentionally not implemented by this workflow."
+            exit 1
+          fi
+
+          echo "TARGET_RELEASE_ID=${TARGET_RELEASE_ID}" >> "${GITHUB_ENV}"
+          echo "CURRENT_RELEASE_CONFIRMATION=${CURRENT_RELEASE_CONFIRMATION}" >> "${GITHUB_ENV}"
+
+      - name: Prepare SSH access to HexCore
+        env:
+          HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
+          HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
+          HEXCORE_PROD_SSH_PRIVATE_KEY: ${{ secrets.HEXCORE_PROD_SSH_PRIVATE_KEY }}
+          HEXCORE_PROD_SSH_KNOWN_HOSTS: ${{ secrets.HEXCORE_PROD_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for secret_name in HEXCORE_PROD_SSH_HOST HEXCORE_PROD_SSH_USER HEXCORE_PROD_SSH_PRIVATE_KEY HEXCORE_PROD_SSH_KNOWN_HOSTS; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::error::Required secret ${secret_name} is not configured or is empty."
+              missing=1
+            else
+              echo "Secret ${secret_name}: present"
+            fi
+          done
+
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${HEXCORE_PROD_SSH_PRIVATE_KEY}" | tr -d '\r' > ~/.ssh/rocketflow_prod_deploy
+          chmod 600 ~/.ssh/rocketflow_prod_deploy
+          printf '%s\n' "${HEXCORE_PROD_SSH_KNOWN_HOSTS}" | tr -d '\r' > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if ! ssh-keygen -F "${HEXCORE_PROD_SSH_HOST}" -f ~/.ssh/known_hosts >/dev/null; then
+            echo "::error::HEXCORE_PROD_SSH_KNOWN_HOSTS does not contain a pinned host key for HEXCORE_PROD_SSH_HOST."
+            exit 1
+          fi
+
+      - name: Verify current and target release inventory
+        env:
+          HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
+          HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh_opts=(
+            -i ~/.ssh/rocketflow_prod_deploy
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=15
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile=~/.ssh/known_hosts
+          )
+
+          ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
+            "TARGET_RELEASE_ID='${TARGET_RELEASE_ID}' CURRENT_RELEASE_CONFIRMATION='${CURRENT_RELEASE_CONFIRMATION}' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          current_backend="$(readlink -f /opt/rocketflow/current/rocketflow-backend.jar)"
+          current_base="$(basename "${current_backend}")"
+          current_release="${current_base#rocketflow-backend-}"
+          current_release="${current_release%.jar}"
+          target_backend="/opt/rocketflow/releases/rocketflow-backend-${TARGET_RELEASE_ID}.jar"
+          target_web="/opt/rocketflow/web-releases/rocketflow-web-${TARGET_RELEASE_ID}.tar.gz"
+          target_remote_checksum="/opt/rocketflow/releases/rocketflow-release-${TARGET_RELEASE_ID}.remote.sha256"
+
+          echo "current_backend=${current_backend}"
+          echo "current_release=${current_release}"
+          echo "target_backend=${target_backend}"
+          echo "target_web=${target_web}"
+
+          if [ "${current_release}" != "${CURRENT_RELEASE_CONFIRMATION}" ]; then
+            echo "::error::Current release confirmation does not match server inventory."
+            exit 1
+          fi
+
+          test -r "${target_backend}"
+          test -r "${target_web}"
+
+          if [ -r "${target_remote_checksum}" ]; then
+            sha256sum -c "${target_remote_checksum}"
+          else
+            echo "::warning::No remote checksum file found for ${TARGET_RELEASE_ID}; relying on release file presence only."
+          fi
+
+          systemctl is-active --quiet rocketflow-backend.service
+          systemctl show rocketflow-backend.service -p ActiveState -p SubState -p MainPID --no-pager
+
+          if flyway_count="$(sudo -n -u postgres psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null || psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null)"; then
+            flyway_count="$(printf '%s' "${flyway_count}" | tr -d '[:space:]')"
+            echo "flyway_history_rows=${flyway_count}"
+            test "${flyway_count}" -ge 20
+          else
+            echo "::error::Unable to read Flyway history for rocketflow_prod."
+            exit 1
+          fi
+          REMOTE
+
+      - name: Promote target release without database rollback
+        env:
+          HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
+          HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh_opts=(
+            -i ~/.ssh/rocketflow_prod_deploy
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=15
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile=~/.ssh/known_hosts
+          )
+
+          ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
+            "TARGET_RELEASE_ID='${TARGET_RELEASE_ID}' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          target_backend="/opt/rocketflow/releases/rocketflow-backend-${TARGET_RELEASE_ID}.jar"
+          target_web="/opt/rocketflow/web-releases/rocketflow-web-${TARGET_RELEASE_ID}.tar.gz"
+
+          test -r "${target_backend}"
+          test -r "${target_web}"
+          touch "${target_backend}" "${target_web}"
+          sudo -n /usr/local/sbin/rocketflow-promote-latest
+          REMOTE
+
+      - name: Verify rollback health and inventory
+        env:
+          HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
+          HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh_opts=(
+            -i ~/.ssh/rocketflow_prod_deploy
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o ConnectTimeout=15
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile=~/.ssh/known_hosts
+          )
+
+          ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
+            "TARGET_RELEASE_ID='${TARGET_RELEASE_ID}' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          backend_current="$(readlink -f /opt/rocketflow/current/rocketflow-backend.jar)"
+          echo "backend_current=${backend_current}"
+          case "${backend_current}" in
+            *"${TARGET_RELEASE_ID}"*) ;;
+            *)
+              echo "::error::Backend current symlink does not point at ${TARGET_RELEASE_ID}."
+              exit 1
+              ;;
+          esac
+
+          systemctl is-active --quiet rocketflow-backend.service
+          curl --fail --silent --show-error http://127.0.0.1:8080/api/health | grep -q '"status":"UP"'
+          curl --fail --silent --show-error http://127.0.0.1/rocket/ | grep -qi '<div id="root"'
+          REMOTE
+
+          health_url="http://${HEXCORE_PROD_SSH_HOST}/rocket-api/health"
+          for attempt in {1..40}; do
+            if response="$(curl --fail --silent --show-error "${health_url}")" && grep -q '"status":"UP"' <<< "${response}"; then
+              echo "Production backend health returned UP after rollback."
+              exit 0
+            fi
+
+            echo "Waiting for production backend health after rollback, attempt ${attempt}/40..."
+            sleep 5
+          done
+
+          echo "::error::Production backend did not return UP after rollback in the allotted time."
+          exit 1
