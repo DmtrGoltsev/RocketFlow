@@ -23,11 +23,12 @@ public class FirebaseMessagingConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = "rocketflow.notifications.fcm", name = "enabled", havingValue = "true")
     FirebaseMessaging firebaseMessaging(NotificationProperties properties) throws IOException {
+        properties.getFcm().validateTransportTimeouts();
         String credentialsJson = properties.getFcm().getCredentialsJson();
         GoogleCredentials credentials;
         if (credentialsJson != null && !credentialsJson.trim().isEmpty()) {
             try (InputStream inputStream = new ByteArrayInputStream(credentialsJson.getBytes(StandardCharsets.UTF_8))) {
-                credentials = GoogleCredentials.fromStream(inputStream)
+                credentials = loadCredentials(inputStream)
                         .createScoped("https://www.googleapis.com/auth/firebase.messaging");
             }
         } else {
@@ -38,12 +39,12 @@ public class FirebaseMessagingConfiguration {
                 );
             }
             try (InputStream inputStream = Files.newInputStream(Path.of(credentialsPath.trim()))) {
-                credentials = GoogleCredentials.fromStream(inputStream)
+                credentials = loadCredentials(inputStream)
                         .createScoped("https://www.googleapis.com/auth/firebase.messaging");
             }
         }
 
-        FirebaseOptions.Builder options = FirebaseOptions.builder().setCredentials(credentials);
+        FirebaseOptions.Builder options = firebaseOptions(credentials, properties);
         String projectId = properties.getFcm().getProjectId();
         if (projectId != null && !projectId.trim().isEmpty()) {
             options.setProjectId(projectId.trim());
@@ -52,6 +53,23 @@ public class FirebaseMessagingConfiguration {
         FirebaseApp app = findExistingApp("rocketflow-fcm")
                 .orElseGet(() -> FirebaseApp.initializeApp(options.build(), "rocketflow-fcm"));
         return FirebaseMessaging.getInstance(app);
+    }
+
+    private GoogleCredentials loadCredentials(InputStream inputStream) throws IOException {
+        // google-auth-library 1.29 builds token-refresh requests without a request initializer.
+        // FirebaseOptions timeouts therefore bound Firebase calls, not every credential refresh path;
+        // the Focus delivery heartbeat is the lease-correctness guard for either transport.
+        return GoogleCredentials.fromStream(inputStream);
+    }
+
+    FirebaseOptions.Builder firebaseOptions(GoogleCredentials credentials, NotificationProperties properties) {
+        NotificationProperties.Fcm fcm = properties.getFcm();
+        fcm.validateTransportTimeouts();
+        return FirebaseOptions.builder()
+                .setCredentials(credentials)
+                .setConnectTimeout(fcm.getConnectTimeoutMs())
+                .setReadTimeout(fcm.getReadTimeoutMs())
+                .setWriteTimeout(fcm.getWriteTimeoutMs());
     }
 
     private Optional<FirebaseApp> findExistingApp(String name) {

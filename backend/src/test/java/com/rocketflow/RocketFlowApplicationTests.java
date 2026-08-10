@@ -2,6 +2,8 @@ package com.rocketflow;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.rocketflow.accounts.UserRepository;
@@ -9,6 +11,7 @@ import com.rocketflow.auth.AuthSessionRepository;
 import com.rocketflow.auth.UserCredentialRepository;
 import com.rocketflow.calendar.TaskRescheduleEventRepository;
 import com.rocketflow.folders.FolderRepository;
+import com.rocketflow.focus.FocusNoJpaTestConfiguration;
 import com.rocketflow.goals.GoalRepository;
 import com.rocketflow.ideas.IdeaNoteRepository;
 import com.rocketflow.ideas.IdeaRepository;
@@ -37,6 +40,7 @@ import com.rocketflow.tasks.TaskTagRepository;
                 + "org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,"
                 + "org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration"
 })
+@Import(FocusNoJpaTestConfiguration.class)
 class RocketFlowApplicationTests {
 
     @MockitoBean
@@ -116,6 +120,9 @@ class RocketFlowApplicationTests {
 
     @MockitoBean
     private TaskTagLinkRepository taskTagLinkRepository;
+
+    @MockitoBean
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void contextLoads() {

@@ -24,6 +24,36 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
 
     Optional<Task> findByIdAndOwnerUserIdAndArchivedFalse(UUID id, UUID ownerUserId);
 
+    @Query(value = """
+            select task.*
+            from tasks task
+            where task.owner_user_id = :ownerUserId
+              and task.archived = false
+              and task.deleted_at is null
+              and (task.planned_time is not null or task.due_time is not null)
+            """, nativeQuery = true)
+    List<Task> findCalendarCandidatesForOwner(@Param("ownerUserId") UUID ownerUserId);
+
+    @Query(value = """
+            select task.*
+            from tasks task
+            where task.goal_id in (:goalIds)
+              and task.archived = false
+              and task.deleted_at is null
+              and (task.planned_time is not null or task.due_time is not null)
+            """, nativeQuery = true)
+    List<Task> findCalendarCandidatesByGoalIds(@Param("goalIds") Collection<UUID> goalIds);
+
+    @Query(value = """
+            select task.*
+            from tasks task
+            where task.id in (:taskIds)
+              and task.archived = false
+              and task.deleted_at is null
+              and (task.planned_time is not null or task.due_time is not null)
+            """, nativeQuery = true)
+    List<Task> findCalendarCandidatesByIds(@Param("taskIds") Collection<UUID> taskIds);
+
     @Query("""
             select task
             from Task task

@@ -194,6 +194,16 @@ public class SharingAccessService {
     }
 
     @Transactional(readOnly = true)
+    public boolean canAccessTask(UUID taskId, UUID actorUserId) {
+        try {
+            requireTaskAccess(taskId, actorUserId);
+            return true;
+        } catch (ApiException exception) {
+            return false;
+        }
+    }
+
+    @Transactional(readOnly = true)
     public TaskAccess requireTaskOwner(UUID taskId, UUID actorUserId) {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> notFound("Task"));
@@ -384,7 +394,7 @@ public class SharingAccessService {
     }
 
     private void ensureTaskVisible(Task task, Goal goal) {
-        if (task.isArchived() || !isGoalVisible(goal)) {
+        if (task.isArchived() || task.getDeletedAt() != null || !isGoalVisible(goal)) {
             throw notFound("Task");
         }
     }

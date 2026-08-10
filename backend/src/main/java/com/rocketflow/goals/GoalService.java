@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.common.ApiException;
 import com.rocketflow.folders.FolderService;
+import com.rocketflow.focus.FocusLifecycleService;
 import com.rocketflow.links.EntityLinkCleanupService;
 import com.rocketflow.links.EntityLinkService;
 import com.rocketflow.sharing.SharingAccessService;
@@ -32,19 +33,22 @@ public class GoalService {
     private final SharingAccessService sharingAccessService;
     private final EntityLinkCleanupService entityLinkCleanupService;
     private final TaskRepository taskRepository;
+    private final FocusLifecycleService focusLifecycleService;
 
     public GoalService(
             GoalRepository goalRepository,
             FolderService folderService,
             SharingAccessService sharingAccessService,
             EntityLinkCleanupService entityLinkCleanupService,
-            TaskRepository taskRepository
+            TaskRepository taskRepository,
+            FocusLifecycleService focusLifecycleService
     ) {
         this.goalRepository = goalRepository;
         this.folderService = folderService;
         this.sharingAccessService = sharingAccessService;
         this.entityLinkCleanupService = entityLinkCleanupService;
         this.taskRepository = taskRepository;
+        this.focusLifecycleService = focusLifecycleService;
     }
 
     @Transactional(readOnly = true)
@@ -98,7 +102,8 @@ public class GoalService {
         goal.setUpdatedAt(now);
         Goal saved = goalRepository.save(goal);
         if (archiveRequested) {
-            archiveTasks(saved, now);
+            List<Task> archivedTasks = archiveTasks(saved, now);
+            focusLifecycleService.archiveTasks(archivedTasks.stream().map(Task::getId).toList());
         }
         return toDto(saved, access.shared(), access.fullAccess());
     }
@@ -146,10 +151,11 @@ public class GoalService {
         goal.setArchived(true);
         goal.setUpdatedAt(now);
         goalRepository.save(goal);
-        List<UUID> taskIds = archiveTasks(goal, now)
+        List<UUID> taskIds = deleteTasks(goal, now)
                 .stream()
                 .map(Task::getId)
                 .toList();
+        focusLifecycleService.deleteTasks(taskIds);
         entityLinkCleanupService.archiveLinksForEntities(Map.of(
                 EntityLinkService.TYPE_GOAL, List.of(goal.getId()),
                 EntityLinkService.TYPE_TASK, taskIds
@@ -189,6 +195,16 @@ public class GoalService {
         List<Task> tasks = taskRepository.findByGoalIdInAndArchivedFalse(List.of(goal.getId()));
         for (Task task : tasks) {
             task.setArchived(true);
+            task.setUpdatedAt(now);
+        }
+        return taskRepository.saveAll(tasks);
+    }
+
+    private List<Task> deleteTasks(Goal goal, Instant now) {
+        List<Task> tasks = taskRepository.findByGoalIdIn(List.of(goal.getId()));
+        for (Task task : tasks) {
+            task.setArchived(true);
+            task.setDeletedAt(now);
             task.setUpdatedAt(now);
         }
         return taskRepository.saveAll(tasks);

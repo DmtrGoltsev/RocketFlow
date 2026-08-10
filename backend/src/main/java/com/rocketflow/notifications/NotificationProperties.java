@@ -59,11 +59,13 @@ public class NotificationProperties {
     }
 
     public static class Fcm {
-
         private boolean enabled;
         private String projectId;
         private String credentialsJson;
         private String credentialsPath;
+        private int connectTimeoutMs = 5_000;
+        private int readTimeoutMs = 10_000;
+        private int writeTimeoutMs = 5_000;
 
         public boolean isEnabled() {
             return enabled;
@@ -95,6 +97,44 @@ public class NotificationProperties {
 
         public void setCredentialsPath(String credentialsPath) {
             this.credentialsPath = credentialsPath;
+        }
+
+        public int getConnectTimeoutMs() {
+            return connectTimeoutMs;
+        }
+
+        public void setConnectTimeoutMs(int connectTimeoutMs) {
+            this.connectTimeoutMs = connectTimeoutMs;
+        }
+
+        public int getReadTimeoutMs() {
+            return readTimeoutMs;
+        }
+
+        public void setReadTimeoutMs(int readTimeoutMs) {
+            this.readTimeoutMs = readTimeoutMs;
+        }
+
+        public int getWriteTimeoutMs() {
+            return writeTimeoutMs;
+        }
+
+        public void setWriteTimeoutMs(int writeTimeoutMs) {
+            this.writeTimeoutMs = writeTimeoutMs;
+        }
+
+        public void validateTransportTimeouts() {
+            validateTimeout(connectTimeoutMs, "connect-timeout-ms");
+            validateTimeout(readTimeoutMs, "read-timeout-ms");
+            validateTimeout(writeTimeoutMs, "write-timeout-ms");
+        }
+
+        private void validateTimeout(int value, String property) {
+            if (value < 1 || value > Duration.ofMinutes(1).toMillis()) {
+                throw new IllegalStateException(
+                        "rocketflow.notifications.fcm." + property + " must be between 1 and 60000."
+                );
+            }
         }
     }
 }

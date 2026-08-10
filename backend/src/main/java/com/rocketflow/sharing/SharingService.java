@@ -28,6 +28,7 @@ import com.rocketflow.auth.TokenHasher;
 import com.rocketflow.common.ApiException;
 import com.rocketflow.folders.Folder;
 import com.rocketflow.folders.FolderRepository;
+import com.rocketflow.focus.FocusService;
 import com.rocketflow.goals.Goal;
 import com.rocketflow.goals.GoalRepository;
 import com.rocketflow.ideas.Idea;
@@ -71,6 +72,7 @@ public class SharingService {
     private final RecurrenceService recurrenceService;
     private final ReminderService reminderService;
     private final TokenHasher tokenHasher;
+    private final FocusService focusService;
 
     public SharingService(
             ShareInvitationRepository shareInvitationRepository,
@@ -90,7 +92,8 @@ public class SharingService {
             TaskTagLinkRepository taskTagLinkRepository,
             RecurrenceService recurrenceService,
             ReminderService reminderService,
-            TokenHasher tokenHasher
+            TokenHasher tokenHasher,
+            FocusService focusService
     ) {
         this.shareInvitationRepository = shareInvitationRepository;
         this.shareLinkRepository = shareLinkRepository;
@@ -110,6 +113,7 @@ public class SharingService {
         this.recurrenceService = recurrenceService;
         this.reminderService = reminderService;
         this.tokenHasher = tokenHasher;
+        this.focusService = focusService;
     }
 
     @Transactional
@@ -773,7 +777,8 @@ public class SharingService {
             share.setStatus(SHARE_REVOKED);
             share.setUpdatedAt(now);
             share.setRevokedAt(now);
-            folderShareRepository.save(share);
+            folderShareRepository.saveAndFlush(share);
+            focusService.removeInaccessibleSharedItems(share.getCollaboratorUserId());
         }
     }
 
@@ -782,7 +787,8 @@ public class SharingService {
             share.setStatus(SHARE_REVOKED);
             share.setUpdatedAt(now);
             share.setRevokedAt(now);
-            goalShareRepository.save(share);
+            goalShareRepository.saveAndFlush(share);
+            focusService.removeInaccessibleSharedItems(share.getCollaboratorUserId());
         }
     }
 
@@ -791,7 +797,8 @@ public class SharingService {
             share.setStatus(SHARE_REVOKED);
             share.setUpdatedAt(now);
             share.setRevokedAt(now);
-            taskShareRepository.save(share);
+            taskShareRepository.saveAndFlush(share);
+            focusService.removeInaccessibleSharedItems(share.getCollaboratorUserId());
         }
     }
 

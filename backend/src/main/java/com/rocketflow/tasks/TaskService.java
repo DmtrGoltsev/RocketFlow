@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.common.ApiException;
+import com.rocketflow.focus.FocusLifecycleService;
 import com.rocketflow.links.EntityLinkCleanupService;
 import com.rocketflow.links.EntityLinkService;
 import com.rocketflow.recurrence.RecurrenceService;
@@ -40,6 +41,7 @@ public class TaskService {
     private final ReminderService reminderService;
     private final EntityLinkService entityLinkService;
     private final EntityLinkCleanupService entityLinkCleanupService;
+    private final FocusLifecycleService focusLifecycleService;
 
     public TaskService(
             TaskRepository taskRepository,
@@ -51,7 +53,8 @@ public class TaskService {
             RecurrenceService recurrenceService,
             ReminderService reminderService,
             EntityLinkService entityLinkService,
-            EntityLinkCleanupService entityLinkCleanupService
+            EntityLinkCleanupService entityLinkCleanupService,
+            FocusLifecycleService focusLifecycleService
     ) {
         this.taskRepository = taskRepository;
         this.userRepository = userRepository;
@@ -63,6 +66,7 @@ public class TaskService {
         this.reminderService = reminderService;
         this.entityLinkService = entityLinkService;
         this.entityLinkCleanupService = entityLinkCleanupService;
+        this.focusLifecycleService = focusLifecycleService;
     }
 
     @Transactional(readOnly = true)
@@ -165,9 +169,13 @@ public class TaskService {
         task.setPlannedTime(request.plannedTime());
         task.setDueTime(request.dueTime());
         task.setCompletedAt(resolveCompletedAt(request.status(), task.getCompletedAt()));
+        boolean archiveRequested = request.archived() && !task.isArchived();
         task.setArchived(request.archived());
         task.setUpdatedAt(Instant.now());
         Task saved = taskRepository.save(task);
+        if (archiveRequested) {
+            focusLifecycleService.archiveTask(saved.getId());
+        }
         if (request.tagIds() != null) {
             replaceTags(saved.getId(), saved.getOwnerUserId(), request.tagIds());
         }
@@ -268,9 +276,12 @@ public class TaskService {
     @Transactional
     public void softDelete(UUID actorUserId, UUID taskId) {
         Task task = sharingAccessService.requireTaskFullAccess(taskId, actorUserId).task();
+        Instant now = Instant.now();
         task.setArchived(true);
-        task.setUpdatedAt(Instant.now());
+        task.setDeletedAt(now);
+        task.setUpdatedAt(now);
         taskRepository.save(task);
+        focusLifecycleService.deleteTask(task.getId());
         entityLinkCleanupService.archiveLinksForEntity(EntityLinkService.TYPE_TASK, task.getId());
     }
 

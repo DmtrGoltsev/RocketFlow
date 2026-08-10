@@ -32,6 +32,23 @@ rocketflow:
       allowed-origins: ${ROCKETFLOW_ALLOWED_ORIGINS:http://45.10.110.42}
       allowed-origin-patterns: ${ROCKETFLOW_ALLOWED_ORIGIN_PATTERNS:http://localhost:[*],http://127.0.0.1:[*]}
   notifications:
+    focus:
+      enabled: ${ROCKETFLOW_NOTIFICATIONS_FOCUS_ENABLED:false}
+      fixed-delay-ms: ${ROCKETFLOW_NOTIFICATIONS_FOCUS_FIXED_DELAY_MS:15000}
+      max-delivery-attempts: ${ROCKETFLOW_NOTIFICATIONS_FOCUS_MAX_DELIVERY_ATTEMPTS:3}
+      max-retries-per-poll: ${ROCKETFLOW_NOTIFICATIONS_FOCUS_MAX_RETRIES_PER_POLL:10}
+      claim-lease-ms: ${ROCKETFLOW_NOTIFICATIONS_FOCUS_CLAIM_LEASE_MS:420000}
+      heartbeat-interval-ms: ${ROCKETFLOW_NOTIFICATIONS_FOCUS_HEARTBEAT_INTERVAL_MS:15000}
+      retry-initial-delay-ms: ${ROCKETFLOW_NOTIFICATIONS_FOCUS_RETRY_INITIAL_DELAY_MS:60000}
+      retry-max-delay-ms: ${ROCKETFLOW_NOTIFICATIONS_FOCUS_RETRY_MAX_DELAY_MS:1800000}
+      retry-jitter-ratio: ${ROCKETFLOW_NOTIFICATIONS_FOCUS_RETRY_JITTER_RATIO:0.5}
+    web-push:
+      enabled: ${ROCKETFLOW_NOTIFICATIONS_WEB_PUSH_ENABLED:false}
+      vapid-public-key: ${ROCKETFLOW_NOTIFICATIONS_WEB_PUSH_VAPID_PUBLIC_KEY:}
+      vapid-private-key: ${ROCKETFLOW_NOTIFICATIONS_WEB_PUSH_VAPID_PRIVATE_KEY:}
+      vapid-subject: ${ROCKETFLOW_NOTIFICATIONS_WEB_PUSH_VAPID_SUBJECT:}
+      max-active-subscriptions-per-user: ${ROCKETFLOW_NOTIFICATIONS_WEB_PUSH_MAX_ACTIVE_SUBSCRIPTIONS_PER_USER:10}
+      allowed-host-suffixes: ${ROCKETFLOW_NOTIFICATIONS_WEB_PUSH_ALLOWED_HOST_SUFFIXES:fcm.googleapis.com,push.services.mozilla.com,notify.windows.com,push.apple.com}
     scheduler:
       enabled: ${ROCKETFLOW_NOTIFICATIONS_SCHEDULER_ENABLED:false}
       fixed-delay: ${ROCKETFLOW_NOTIFICATIONS_SCHEDULER_FIXED_DELAY:PT1M}
@@ -42,6 +59,9 @@ rocketflow:
       project-id: ${ROCKETFLOW_NOTIFICATIONS_FCM_PROJECT_ID:}
       credentials-json: ${ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_JSON:}
       credentials-path: ${ROCKETFLOW_NOTIFICATIONS_FCM_CREDENTIALS_PATH:}
+      connect-timeout-ms: ${ROCKETFLOW_NOTIFICATIONS_FCM_CONNECT_TIMEOUT_MS:5000}
+      read-timeout-ms: ${ROCKETFLOW_NOTIFICATIONS_FCM_READ_TIMEOUT_MS:10000}
+      write-timeout-ms: ${ROCKETFLOW_NOTIFICATIONS_FCM_WRITE_TIMEOUT_MS:5000}
 
 server:
   error:

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.rocketflow.common.ApiException;
+import com.rocketflow.focus.FocusLifecycleService;
 import com.rocketflow.goals.Goal;
 import com.rocketflow.goals.GoalRepository;
 import com.rocketflow.ideas.Idea;
@@ -40,6 +41,7 @@ public class FolderService {
     private final IdeaRepository ideaRepository;
     private final NoteRepository noteRepository;
     private final EntityLinkCleanupService entityLinkCleanupService;
+    private final FocusLifecycleService focusLifecycleService;
 
     public FolderService(
             FolderRepository folderRepository,
@@ -48,7 +50,8 @@ public class FolderService {
             TaskRepository taskRepository,
             IdeaRepository ideaRepository,
             NoteRepository noteRepository,
-            EntityLinkCleanupService entityLinkCleanupService
+            EntityLinkCleanupService entityLinkCleanupService,
+            FocusLifecycleService focusLifecycleService
     ) {
         this.folderRepository = folderRepository;
         this.sharingAccessService = sharingAccessService;
@@ -57,6 +60,7 @@ public class FolderService {
         this.ideaRepository = ideaRepository;
         this.noteRepository = noteRepository;
         this.entityLinkCleanupService = entityLinkCleanupService;
+        this.focusLifecycleService = focusLifecycleService;
     }
 
     @Transactional(readOnly = true)
@@ -129,6 +133,7 @@ public class FolderService {
         Folder saved = folderRepository.save(folder);
         if (archiveRequested) {
             archiveDescendants(saved, now);
+            focusLifecycleService.archiveTasks(descendantTaskIds(saved));
             archiveDescendantEntityLinks(saved);
         }
         return toDto(saved, access.shared(), access.fullAccess());
@@ -184,6 +189,8 @@ public class FolderService {
         folder.setUpdatedAt(now);
         folderRepository.save(folder);
         archiveDescendants(folder, now);
+        List<UUID> taskIds = deleteDescendantTasks(folder, now);
+        focusLifecycleService.deleteTasks(taskIds);
         archiveDescendantEntityLinks(folder);
     }
 
@@ -314,6 +321,33 @@ public class FolderService {
             note.setUpdatedAt(now);
         }
         noteRepository.saveAll(notes);
+    }
+
+    private List<UUID> descendantTaskIds(Folder folder) {
+        List<UUID> goalIds = goalRepository.findByFolderIdIn(descendantFolderIds(folder)).stream()
+                .map(Goal::getId)
+                .toList();
+        if (goalIds.isEmpty()) {
+            return List.of();
+        }
+        return taskRepository.findByGoalIdIn(goalIds).stream().map(Task::getId).toList();
+    }
+
+    private List<UUID> deleteDescendantTasks(Folder folder, Instant now) {
+        List<UUID> goalIds = goalRepository.findByFolderIdIn(descendantFolderIds(folder)).stream()
+                .map(Goal::getId)
+                .toList();
+        if (goalIds.isEmpty()) {
+            return List.of();
+        }
+        List<Task> tasks = taskRepository.findByGoalIdIn(goalIds);
+        for (Task task : tasks) {
+            task.setArchived(true);
+            task.setDeletedAt(now);
+            task.setUpdatedAt(now);
+        }
+        taskRepository.saveAll(tasks);
+        return tasks.stream().map(Task::getId).toList();
     }
 
     private List<UUID> descendantFolderIds(Folder root) {
