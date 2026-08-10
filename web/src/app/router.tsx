@@ -2,6 +2,7 @@ import { createBrowserRouter } from 'react-router-dom';
 
 import { CalendarRoute, SettingsRoute, SharingRoute } from '../features/advanced';
 import { LoginRoute, LogoutRoute, RegisterRoute } from '../features/auth';
+import { FocusRoute } from '../features/focus';
 import { TasksRoute } from '../features/planning';
 import { ProtectedBoundary } from './guards/ProtectedBoundary';
 import { ProtectedLayout } from './layouts/ProtectedLayout';
@@ -51,6 +52,10 @@ export const appRouter = createBrowserRouter(
         {
           path: 'calendar',
           element: <CalendarRoute />
+        },
+        {
+          path: 'focus',
+          element: <FocusRoute />
         },
         {
           path: 'sharing',

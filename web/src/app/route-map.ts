@@ -1,5 +1,5 @@
 export type RouteAudience = 'public' | 'protected';
-export type RouteArea = 'workspace' | 'auth' | 'planning' | 'calendar' | 'sharing' | 'settings';
+export type RouteArea = 'workspace' | 'auth' | 'planning' | 'calendar' | 'focus' | 'sharing' | 'settings';
 export type FutureOwner = 'Product' | 'Planning' | 'Advanced';
 
 export interface RouteInventoryItem {
@@ -60,7 +60,7 @@ export const routeInventory: RouteInventoryItem[] = [
     audience: 'protected',
     area: 'planning',
     nav: false,
-    label: { ru: 'План', en: 'Plan' },
+    label: { ru: 'Главная', en: 'Home' },
     summary: { ru: 'Папки, цели и задачи.', en: 'Folders, goals, and tasks.' },
     owner: 'Planning',
     readyState: 'ready'
@@ -71,7 +71,7 @@ export const routeInventory: RouteInventoryItem[] = [
     audience: 'protected',
     area: 'planning',
     nav: true,
-    label: { ru: 'План', en: 'Plan' },
+    label: { ru: 'Главная', en: 'Home' },
     summary: { ru: 'Папки, цели и задачи.', en: 'Folders, goals, and tasks.' },
     owner: 'Planning',
     readyState: 'ready'
@@ -84,6 +84,17 @@ export const routeInventory: RouteInventoryItem[] = [
     nav: true,
     label: { ru: 'Календарь', en: 'Calendar' },
     summary: { ru: 'План задач по времени.', en: 'Time-based task plan.' },
+    owner: 'Advanced',
+    readyState: 'ready'
+  },
+  {
+    id: 'focus',
+    path: '/app/focus',
+    audience: 'protected',
+    area: 'focus',
+    nav: true,
+    label: { ru: 'Фокус', en: 'Focus' },
+    summary: { ru: 'Главные задачи недели.', en: 'The most important tasks this week.' },
     owner: 'Advanced',
     readyState: 'ready'
   },

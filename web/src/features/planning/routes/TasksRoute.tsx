@@ -8,6 +8,7 @@ import {
   Circle,
   Cloud,
   Copy,
+  Crosshair,
   Flame,
   Folder,
   GitBranch,
@@ -27,8 +28,10 @@ import {
   Waypoints,
   X,
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '../../auth';
+import { addCurrentFocusItem } from '../../focus';
 import { useI18n } from '../../../i18n';
 import {
   archiveFolder,
@@ -756,6 +759,7 @@ function usePlanCopy() {
 
 export function TasksRoute() {
   const { authorizedFetch, session } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { locale } = useI18n();
   const planningCopy = usePlanningCopy();
   const copy = usePlanCopy();
@@ -789,6 +793,7 @@ export function TasksRoute() {
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
   const [detailAddOpen, setDetailAddOpen] = useState(false);
   const [detailMenuOpen, setDetailMenuOpen] = useState(false);
+  const [focusRowMenuTaskId, setFocusRowMenuTaskId] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -1391,8 +1396,19 @@ export function TasksRoute() {
   }
 
   useEffect(() => {
-    void loadPlan();
+    const taskId = searchParams.get('taskId');
+    if (taskId) setIsPanelOpen(true);
+    void loadPlan(taskId ? { taskId } : {});
   }, []);
+
+  function closeDetailPanel() {
+    setIsPanelOpen(false);
+    if (searchParams.has('taskId')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('taskId');
+      setSearchParams(next, { replace: true });
+    }
+  }
 
   function selectFolder(folderId: string) {
     clearCreation();
@@ -1418,6 +1434,25 @@ export function TasksRoute() {
     resetTransientState();
     setSelection({ folderId: goal.folderId, goalId: goal.id, taskId: task.id, ideaId: null, noteId: null });
     setIsPanelOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.set('taskId', task.id);
+    setSearchParams(next, { replace: true });
+  }
+
+  async function handleAddTaskToFocus(task: TaskDto) {
+    setSaving(true);
+    setActionError(null);
+    setNotice(null);
+    try {
+      await addCurrentFocusItem(authorizedFetch, task.id);
+      setNotice(locale === 'ru' ? 'Задача добавлена в фокус.' : 'Task added to Focus.');
+      setDetailMenuOpen(false);
+      setFocusRowMenuTaskId(null);
+    } catch (focusError) {
+      setActionError(focusError instanceof Error ? focusError.message : (locale === 'ru' ? 'Не удалось добавить задачу в фокус.' : 'Could not add task to Focus.'));
+    } finally {
+      setSaving(false);
+    }
   }
 
   function selectIdea(idea: IdeaDto) {
@@ -2882,7 +2917,7 @@ export function TasksRoute() {
           type="button"
           aria-label={copy.collapse}
           title={copy.collapse}
-          onClick={() => setIsPanelOpen(false)}
+          onClick={closeDetailPanel}
         >
           {copy.cancel}
         </button>
@@ -3105,6 +3140,12 @@ export function TasksRoute() {
         </button>
         {detailMenuOpen ? (
           <div className="create-menu__panel" role="menu">
+            {entity.type === 'task' && selectedTask ? (
+              <button type="button" role="menuitem" disabled={saving} onClick={() => void handleAddTaskToFocus(selectedTask)}>
+                <Crosshair aria-hidden="true" size={16} strokeWidth={1.75} />
+                <span>{locale === 'ru' ? 'Добавить в фокус' : 'Add to Focus'}</span>
+              </button>
+            ) : null}
             <button type="button" role="menuitem" onClick={() => startOperation('move', entity)}>
               <Move aria-hidden="true" size={16} strokeWidth={1.75} />
               <span>{copy.move}</span>
@@ -3643,7 +3684,11 @@ export function TasksRoute() {
                     ) : null}
                   </button>
                   {dueChip ? <span className={`due-chip due-chip--${dueTone(task.dueTime)}`} title={formatDateTime(task.dueTime, locale)}>{dueChip}</span> : null}
-                  <span className="plan-row__actions">
+                  <span className="plan-row__actions create-menu">
+                    <button type="button" className="plan-row__icon plan-row__focus" aria-label={copy.more} title={copy.more} aria-haspopup="menu" aria-expanded={focusRowMenuTaskId === task.id} disabled={saving} onClick={() => setFocusRowMenuTaskId((current) => current === task.id ? null : task.id)}>
+                      <MoreHorizontal size={14} strokeWidth={1.75} />
+                    </button>
+                    {focusRowMenuTaskId === task.id ? <span className="create-menu__panel plan-row__menu" role="menu"><button type="button" role="menuitem" onClick={() => void handleAddTaskToFocus(task)}><Crosshair size={15} /><span>{locale === 'ru' ? 'Добавить в фокус' : 'Add to Focus'}</span></button></span> : null}
                     <button type="button" className="plan-row__icon" aria-label={rowCopy.editTask} title={rowCopy.editTask} onClick={() => selectTask(task)}>
                       <Pencil size={14} strokeWidth={1.75} />
                     </button>
@@ -4102,6 +4147,7 @@ export function TasksRoute() {
                   {selectedTask.dueTime ? <span className={`meta-chip meta-chip--${dueTone(selectedTask.dueTime)}`} title={copy.due}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.dueTime, locale)}</span> : null}
                   {selectedTask.plannedTime ? <span className="meta-chip" title={copy.planned}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.plannedTime, locale)}</span> : null}
                   {selectedTask.recurrence?.active ? <span className="meta-chip" title={planningCopy.tasks.recurrenceLabel}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{describeRecurrence(selectedTask.recurrence, locale)}</span> : null}
+                  <button className="button button--ghost" type="button" disabled={saving} onClick={() => void handleAddTaskToFocus(selectedTask)}><Crosshair aria-hidden="true" size={15} /><span>{locale === 'ru' ? 'В фокус' : 'Focus'}</span></button>
                 </div>
               ) : null}
               <div className="detail-section"><div className="detail-label">{copy.path}</div><div className="breadcrumb"><Folder aria-hidden="true" size={15} strokeWidth={1.75} /><span>{folderPath(panelFolder.id)} / {panelGoal.name}</span></div></div>
@@ -4160,7 +4206,7 @@ export function TasksRoute() {
           <div className="detail-empty">
             <Target aria-hidden="true" size={30} strokeWidth={1.75} />
             <p>{copy.selectItem}</p>
-            <button className="icon-button" type="button" aria-label={copy.collapse} title={copy.collapse} onClick={() => setIsPanelOpen(false)}><PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} /></button>
+            <button className="icon-button" type="button" aria-label={copy.collapse} title={copy.collapse} onClick={closeDetailPanel}><PanelRightClose aria-hidden="true" size={19} strokeWidth={1.75} /></button>
           </div>
         )}
       </aside>

@@ -18,7 +18,26 @@ export interface CalendarItemDto {
 }
 
 export interface CalendarResponse {
-  items: CalendarItemDto[];
+  timezone: string;
+  from: string;
+  toExclusive: string;
+  markers: CalendarMarkerDto[];
+  items?: CalendarItemDto[];
+}
+
+export interface CalendarMarkerDto {
+  markerId: string;
+  occurrenceId: string;
+  taskId: string;
+  goalId?: string | null;
+  kind: 'planned' | 'deadline';
+  at: string;
+  localDate: string;
+  title: string;
+  status: 'todo' | 'in_progress' | 'done' | 'cancelled';
+  effort?: number | null;
+  recurring?: boolean;
+  path?: string | null;
 }
 
 export interface MoveTaskPayload {

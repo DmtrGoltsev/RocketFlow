@@ -1,4 +1,4 @@
-const STATIC_CACHE = 'rocketflow-static-v1';
+const STATIC_CACHE = 'rocketflow-static-v2';
 const APP_BASE = '/rocket/';
 const APP_SHELL = [
   APP_BASE,
@@ -106,4 +106,48 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith(`${APP_BASE}assets/`) || url.pathname.startsWith(`${APP_BASE}icons/`)) {
     event.respondWith(cacheFirst(event.request));
   }
+});
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+
+  const title = payload.title || 'RocketFlow';
+  const options = {
+    body: payload.body || 'Пора вернуться к задачам недели.',
+    icon: `${APP_BASE}icons/icon-192.png`,
+    badge: `${APP_BASE}icons/icon-192.png`,
+    tag: payload.periodId ? `focus:${payload.periodId}` : 'focus',
+    renotify: false,
+    data: {
+      eventId: payload.eventId || null,
+      url: `${APP_BASE}app/focus`,
+    },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || `${APP_BASE}app/focus`, self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clients) => {
+      const rocketClients = clients.filter((client) => {
+        const url = new URL(client.url);
+        return url.origin === self.location.origin && url.pathname.startsWith(APP_BASE);
+      });
+      const existing = rocketClients.find((client) => new URL(client.url).pathname.startsWith(`${APP_BASE}app/focus`))
+        || rocketClients[0];
+      if (existing) {
+        await existing.navigate(targetUrl);
+        return existing.focus();
+      }
+      return self.clients.openWindow(targetUrl);
+    }),
+  );
 });

@@ -5,6 +5,7 @@ import { useI18n } from '../../../i18n';
 import { AuthCard } from '../components/AuthCard';
 import { AuthNotice } from '../components/AuthNotice';
 import { mapAuthErrorMessage, useAuth } from '../AuthProvider';
+import { authRouteWithReturnPath, resolveSafeReturnPath } from '../safe-return-path';
 
 interface RegisterFormState {
   email: string;
@@ -40,14 +41,6 @@ function validateForm(state: RegisterFormState, t: ReturnType<typeof useI18n>['t
   return nextErrors;
 }
 
-function resolveNextPath(raw: string | null) {
-  return raw?.startsWith('/') && !raw.startsWith('//') ? raw : '/app';
-}
-
-function authRouteWithNext(path: string, nextPath: string) {
-  return nextPath === '/app' ? path : `${path}?next=${encodeURIComponent(nextPath)}`;
-}
-
 export function RegisterRoute() {
   const { t, locale, setLocale } = useI18n();
   const { status, register } = useAuth();
@@ -63,7 +56,7 @@ export function RegisterRoute() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const nextPath = resolveNextPath(searchParams.get('next'));
+  const nextPath = resolveSafeReturnPath(searchParams.get('next'));
 
   if (status === 'authenticated') {
     return <Navigate to={nextPath} replace />;
@@ -104,7 +97,7 @@ export function RegisterRoute() {
         subtitle={t('auth.register.subtitle')}
         alternatePrompt={t('auth.register.alternatePrompt')}
         alternateAction={t('auth.register.alternateAction')}
-        alternateTo={authRouteWithNext('/auth/login', nextPath)}
+        alternateTo={authRouteWithReturnPath('/auth/login', nextPath)}
       >
         <form className="stack" onSubmit={handleSubmit}>
           <label className="field">

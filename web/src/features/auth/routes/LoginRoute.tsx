@@ -5,6 +5,7 @@ import { useI18n } from '../../../i18n';
 import { AuthCard } from '../components/AuthCard';
 import { AuthNotice } from '../components/AuthNotice';
 import { mapAuthErrorMessage, useAuth } from '../AuthProvider';
+import { authRouteWithReturnPath, resolveSafeReturnPath } from '../safe-return-path';
 
 interface LoginFormState {
   email: string;
@@ -51,14 +52,6 @@ function resolveNoticeMessage(
   return null;
 }
 
-function resolveNextPath(raw: string | null) {
-  return raw?.startsWith('/') && !raw.startsWith('//') ? raw : '/app';
-}
-
-function authRouteWithNext(path: string, nextPath: string) {
-  return nextPath === '/app' ? path : `${path}?next=${encodeURIComponent(nextPath)}`;
-}
-
 export function LoginRoute() {
   const { t } = useI18n();
   const { status, login, notice, clearNotice } = useAuth();
@@ -72,7 +65,7 @@ export function LoginRoute() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const nextPath = resolveNextPath(searchParams.get('next'));
+  const nextPath = resolveSafeReturnPath(searchParams.get('next'));
 
   useEffect(() => {
     return () => {
@@ -127,7 +120,7 @@ export function LoginRoute() {
         subtitle={t('auth.login.subtitle')}
         alternatePrompt={t('auth.login.alternatePrompt')}
         alternateAction={t('auth.login.alternateAction')}
-        alternateTo={authRouteWithNext('/auth/register', nextPath)}
+        alternateTo={authRouteWithReturnPath('/auth/register', nextPath)}
       >
         <form className="stack" onSubmit={handleSubmit}>
           <label className="field">

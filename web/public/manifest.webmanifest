@@ -1,6 +1,7 @@
 {
   "name": "RocketFlow",
   "short_name": "RocketFlow",
+  "id": "/rocket/",
   "description": "Folders, goals, and tasks in one quiet workspace.",
   "start_url": "/rocket/app",
   "scope": "/rocket/",

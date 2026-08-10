@@ -92,11 +92,13 @@ async function requestJson<TResponse>(
 export async function getCalendar(
   authorizedFetch: AuthorizedFetch,
   from: string,
-  to: string,
+  toExclusive: string,
+  signal?: AbortSignal,
 ) {
-  const params = new URLSearchParams({ from, to });
+  const params = new URLSearchParams({ from, toExclusive });
   return requestJson<CalendarResponse>(authorizedFetch, `/calendar?${params.toString()}`, {
     method: 'GET',
+    signal,
   });
 }
 

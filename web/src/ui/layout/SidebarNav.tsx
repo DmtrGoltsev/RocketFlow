@@ -1,6 +1,6 @@
-import { CalendarDays, ListTree, LogOut, Settings, Share2, UserCircle } from 'lucide-react';
+import { CalendarDays, Focus, House, ListTree, LogOut, Settings, Share2, UserCircle } from 'lucide-react';
 import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 
 import { routeInventory } from '../../app/route-map';
 import { useAppRuntime } from '../../app/foundation/runtime/AppRuntimeContext';
@@ -10,6 +10,7 @@ import { LanguageSwitch } from './StatusBar';
 const navIcons = {
   tasks: ListTree,
   calendar: CalendarDays,
+  focus: Focus,
   sharing: Share2,
   settings: Settings,
 };
@@ -18,7 +19,8 @@ export function SidebarNav() {
   const { copy, locale } = useAppRuntime();
   const { logout } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
-  const navRoutes = routeInventory.filter((route) => route.nav && route.id !== 'settings');
+  const primaryRoutes = routeInventory.filter((route) => ['tasks', 'calendar', 'focus'].includes(route.id));
+  const secondaryRoutes = routeInventory.filter((route) => route.nav && route.id === 'sharing');
   const settingsRoute = routeInventory.find((route) => route.id === 'settings');
   const profileLabel = locale === 'ru' ? 'Профиль' : 'Profile';
 
@@ -29,9 +31,13 @@ export function SidebarNav() {
       </NavLink>
 
       <div className="rail__primary">
-        {navRoutes.map((route) => (
+        {primaryRoutes.map((route) => (
           <NavItem key={route.id} route={route} label={route.label[locale]} />
         ))}
+      </div>
+
+      <div className="rail__secondary">
+        {secondaryRoutes.map((route) => <NavItem key={route.id} route={route} label={route.label[locale]} />)}
       </div>
 
       <div className="rail__bottom">
@@ -74,17 +80,21 @@ export function SidebarNav() {
 }
 
 function NavItem({ route, label }: { route: (typeof routeInventory)[number]; label: string }) {
-  const Icon = navIcons[route.id as keyof typeof navIcons] ?? ListTree;
+  const Icon = route.id === 'tasks' ? House : navIcons[route.id as keyof typeof navIcons] ?? ListTree;
+  const location = useLocation();
+  const homeActive = route.id === 'tasks' && (location.pathname === '/app' || location.pathname === '/app/tasks');
 
   return (
     <NavLink
-      className="rail__item"
+      className={({ isActive }) => `rail__item${isActive || homeActive ? ' is-active' : ''}`}
       to={route.path}
       end={route.path === '/app/tasks'}
+      aria-current={homeActive ? 'page' : undefined}
       aria-label={label}
       title={label}
     >
       <Icon aria-hidden="true" size={20} strokeWidth={1.75} />
+      <span className="rail__label">{label}</span>
     </NavLink>
   );
 }
