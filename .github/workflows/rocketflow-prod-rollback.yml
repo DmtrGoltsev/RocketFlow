@@ -121,8 +121,9 @@ jobs:
             -o UserKnownHostsFile=~/.ssh/known_hosts
           )
 
+          inventory_output="${RUNNER_TEMP}/rocketflow-pre-rollback-inventory.txt"
           ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
-            "TARGET_RELEASE_ID='${TARGET_RELEASE_ID}' CURRENT_RELEASE_CONFIRMATION='${CURRENT_RELEASE_CONFIRMATION}' bash -s" <<'REMOTE'
+            "TARGET_RELEASE_ID='${TARGET_RELEASE_ID}' CURRENT_RELEASE_CONFIRMATION='${CURRENT_RELEASE_CONFIRMATION}' bash -s" <<'REMOTE' | tee "${inventory_output}"
           set -euo pipefail
 
           current_backend="$(readlink -f /opt/rocketflow/current/rocketflow-backend.jar)"
@@ -131,6 +132,7 @@ jobs:
           current_release="${current_release%.jar}"
           target_backend="/opt/rocketflow/releases/rocketflow-backend-${TARGET_RELEASE_ID}.jar"
           target_web="/opt/rocketflow/web-releases/rocketflow-web-${TARGET_RELEASE_ID}.tar.gz"
+          target_manifest="/opt/rocketflow/releases/rocketflow-release-manifest-${TARGET_RELEASE_ID}.json"
           target_remote_checksum="/opt/rocketflow/releases/rocketflow-release-${TARGET_RELEASE_ID}.remote.sha256"
 
           echo "current_backend=${current_backend}"
@@ -145,6 +147,10 @@ jobs:
 
           test -r "${target_backend}"
           test -r "${target_web}"
+          if [ ! -r "${target_manifest}" ]; then
+            echo "::error::A readable target release manifest is required for rollback."
+            exit 1
+          fi
 
           if [ -r "${target_remote_checksum}" ]; then
             sha256sum -c "${target_remote_checksum}"
@@ -157,15 +163,96 @@ jobs:
 
           if flyway_count="$(sudo -n -u postgres psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null || psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null)"; then
             flyway_count="$(printf '%s' "${flyway_count}" | tr -d '[:space:]')"
-            echo "flyway_history_rows=${flyway_count}"
-            test "${flyway_count}" -ge 20
+            if ! [[ "${flyway_count}" =~ ^[0-9]+$ ]]; then
+              echo "::error::Pre-rollback Flyway history count is not a non-negative integer."
+              exit 1
+            fi
+            echo "pre_rollback_flyway_history_rows=${flyway_count}"
+            if (( flyway_count < 20 )); then
+              echo "::error::Pre-rollback Flyway history must remain at the V20 baseline or newer."
+              exit 1
+            fi
           else
             echo "::error::Unable to read Flyway history for rocketflow_prod."
             exit 1
           fi
+
+          TARGET_MANIFEST="${target_manifest}" \
+          TARGET_RELEASE_ID="${TARGET_RELEASE_ID}" \
+          PRE_ROLLBACK_FLYWAY_COUNT="${flyway_count}" \
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          BASELINE = 20
+          MISSING = object()
+
+          def validate_minimum(value, pre_count):
+              if value is MISSING:
+                  raise ValueError("Rollback target manifest must declare a Flyway minimum")
+              if isinstance(value, bool) or not isinstance(value, int):
+                  raise ValueError("Rollback target manifest Flyway minimum must be an integer")
+              if value < BASELINE:
+                  raise ValueError("Rollback target manifest must support the V20 Flyway baseline (>=20)")
+              if value > pre_count:
+                  raise ValueError(
+                      f"Rollback target Flyway minimum {value} exceeds pre-rollback history {pre_count}"
+                  )
+              return value
+
+          contract_matrix = (
+              ("equal-to-pre", 21, 21, True),
+              ("below-pre-at-baseline", 20, 21, True),
+              ("missing", MISSING, 21, False),
+              ("non-integer-string", "20", 21, False),
+              ("non-integer-boolean", True, 21, False),
+              ("below-baseline", 19, 21, False),
+              ("above-pre", 22, 21, False),
+          )
+          for name, value, pre_count, expected in contract_matrix:
+              try:
+                  validate_minimum(value, pre_count)
+                  accepted = True
+              except ValueError:
+                  accepted = False
+              if accepted != expected:
+                  raise SystemExit(f"Rollback Flyway contract matrix failed: {name}")
+          print("rollback_flyway_contract_matrix=passed")
+
+          pre_raw = os.environ["PRE_ROLLBACK_FLYWAY_COUNT"]
+          if not pre_raw.isdigit():
+              raise SystemExit("Pre-rollback Flyway history count must be a non-negative integer")
+          pre_count = int(pre_raw)
+          if pre_count < BASELINE:
+              raise SystemExit("Pre-rollback Flyway history must remain at the V20 baseline or newer")
+
+          manifest = json.loads(Path(os.environ["TARGET_MANIFEST"]).read_text(encoding="utf-8"))
+          if manifest.get("release_id") != os.environ["TARGET_RELEASE_ID"]:
+              raise SystemExit("Rollback target manifest release_id mismatch")
+          production_contract = manifest.get("production_contract")
+          if not isinstance(production_contract, dict):
+              raise SystemExit("Rollback target manifest must declare a production contract")
+
+          try:
+              min_rows = validate_minimum(
+                  production_contract.get("flyway_history_min_rows", MISSING),
+                  pre_count,
+              )
+          except ValueError as error:
+              raise SystemExit(str(error)) from error
+          print(f"rollback_target_manifest_flyway_min_rows={min_rows}")
+          PY
           REMOTE
 
-      - name: Promote target release without database rollback
+          pre_rollback_flyway_count="$(sed -n 's/^pre_rollback_flyway_history_rows=//p' "${inventory_output}" | tail -n 1)"
+          if ! [[ "${pre_rollback_flyway_count}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Unable to record the pre-rollback Flyway history count."
+            exit 1
+          fi
+          echo "PRE_ROLLBACK_FLYWAY_COUNT=${pre_rollback_flyway_count}" >> "${GITHUB_ENV}"
+
+      - name: Jointly promote target backend and web without database rollback
         env:
           HEXCORE_PROD_SSH_HOST: ${{ secrets.HEXCORE_PROD_SSH_HOST }}
           HEXCORE_PROD_SSH_USER: ${{ secrets.HEXCORE_PROD_SSH_USER }}
@@ -209,7 +296,7 @@ jobs:
           )
 
           ssh "${ssh_opts[@]}" "${HEXCORE_PROD_SSH_USER}@${HEXCORE_PROD_SSH_HOST}" \
-            "TARGET_RELEASE_ID='${TARGET_RELEASE_ID}' bash -s" <<'REMOTE'
+            "TARGET_RELEASE_ID='${TARGET_RELEASE_ID}' PRE_ROLLBACK_FLYWAY_COUNT='${PRE_ROLLBACK_FLYWAY_COUNT}' bash -s" <<'REMOTE'
           set -euo pipefail
 
           backend_current="$(readlink -f /opt/rocketflow/current/rocketflow-backend.jar)"
@@ -225,6 +312,26 @@ jobs:
           systemctl is-active --quiet rocketflow-backend.service
           curl --fail --silent --show-error http://127.0.0.1:8080/api/health | grep -q '"status":"UP"'
           curl --fail --silent --show-error http://127.0.0.1/rocket/ | grep -qi '<div id="root"'
+
+          if flyway_count="$(sudo -n -u postgres psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null || psql -d rocketflow_prod -tAc "select count(*) from flyway_schema_history;" 2>/dev/null)"; then
+            flyway_count="$(printf '%s' "${flyway_count}" | tr -d '[:space:]')"
+            if ! [[ "${flyway_count}" =~ ^[0-9]+$ ]]; then
+              echo "::error::Post-rollback Flyway history count is not a non-negative integer."
+              exit 1
+            fi
+            echo "post_rollback_flyway_history_rows=${flyway_count}"
+            if (( flyway_count < 20 )); then
+              echo "::error::Post-rollback Flyway history fell below the V20 baseline."
+              exit 1
+            fi
+            if (( flyway_count < PRE_ROLLBACK_FLYWAY_COUNT )); then
+              echo "::error::Post-rollback Flyway history decreased from ${PRE_ROLLBACK_FLYWAY_COUNT} to ${flyway_count}."
+              exit 1
+            fi
+          else
+            echo "::error::Unable to read Flyway history for rocketflow_prod after rollback."
+            exit 1
+          fi
           REMOTE
 
           health_url="http://${HEXCORE_PROD_SSH_HOST}/rocket-api/health"
