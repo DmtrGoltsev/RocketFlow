@@ -72,7 +72,10 @@ public class TaskService {
     @Transactional(readOnly = true)
     public TaskListResponse list(UUID actorUserId, UUID goalId) {
         GoalAccess goalAccess = sharingAccessService.requireGoalAccess(goalId, actorUserId);
-        List<Task> tasks = taskRepository.findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByPriorityDescCreatedAtAscIdAsc(goalId, goalAccess.goal().getOwnerUserId());
+        List<Task> tasks = taskRepository.findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByCreatedAtAscIdAsc(
+                goalId,
+                goalAccess.goal().getOwnerUserId()
+        );
         List<UUID> taskIds = tasks.stream().map(Task::getId).toList();
         Set<UUID> directlySharedTaskIds = sharingAccessService.findSharedTaskIds(taskIds);
         Map<UUID, List<TagDto>> tagsByTaskId = resolveTags(taskIds);
@@ -102,7 +105,7 @@ public class TaskService {
         task.setTitle(request.title().trim());
         task.setDescription(request.description());
         task.setType(request.type());
-        task.setPriority(request.priority());
+        task.setPriority(TaskPriorityCompatibility.LEGACY_TASK_PRIORITY);
         task.setEffort(normalizeEffort(request.effort()));
         task.setStatus(request.status());
         task.setPlannedTime(request.plannedTime());
@@ -161,7 +164,6 @@ public class TaskService {
         task.setTitle(request.title().trim());
         task.setDescription(request.description());
         task.setType(request.type());
-        task.setPriority(request.priority());
         if (request.effort() != null) {
             task.setEffort(normalizeEffort(request.effort()));
         }
@@ -229,7 +231,7 @@ public class TaskService {
         clone.setTitle(request.title() == null || request.title().isBlank() ? source.getTitle() : request.title().trim());
         clone.setDescription(source.getDescription());
         clone.setType(source.getType());
-        clone.setPriority(source.getPriority());
+        clone.setPriority(TaskPriorityCompatibility.LEGACY_TASK_PRIORITY);
         clone.setEffort(source.getEffort());
         clone.setStatus(source.getStatus());
         clone.setPlannedTime(source.getPlannedTime());
@@ -489,7 +491,6 @@ public class TaskService {
         if (!Objects.equals(task.getTitle(), request.title().trim())
                 || !Objects.equals(task.getDescription(), request.description())
                 || !Objects.equals(task.getType(), request.type())
-                || task.getPriority() != request.priority().intValue()
                 || (request.effort() != null && task.getEffort() != request.effort().intValue())
                 || !Objects.equals(task.getPlannedTime(), request.plannedTime())
                 || !Objects.equals(task.getDueTime(), request.dueTime())

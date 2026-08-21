@@ -70,11 +70,16 @@ class PlanningLocalStoreMigrationUnitTest {
 
         store = PlanningLocalStore(context)
         val upgradedColumns = tableColumns(store!!.writableDatabase, PlanningLocalStore.TABLE_TASK_CHECKLIST_ITEMS)
+        val legacyTask = store!!.findTask("user-1", "task-v14")
 
         assertTrue(upgradedColumns.containsKey("task_id"))
         assertTrue(upgradedColumns.containsKey("text"))
         assertTrue(upgradedColumns.containsKey("checked"))
         assertTrue(upgradedColumns.containsKey("display_order"))
+        assertNotNull(legacyTask)
+        assertEquals(9, legacyTask!!.priorityShadow)
+        assertEquals(SyncState.PendingUpdate, legacyTask.syncState)
+        assertEquals(16, store!!.readableDatabase.version)
 
         store!!.close()
         store = null
@@ -110,7 +115,6 @@ class PlanningLocalStoreMigrationUnitTest {
                 title = "Task",
                 description = "",
                 type = "green",
-                priority = 4,
                 status = "todo",
                 plannedTime = null,
                 dueTime = null,
@@ -140,18 +144,37 @@ class PlanningLocalStoreMigrationUnitTest {
     }
 
     @Test
-    fun snapshotTasksAreSortedByPriorityDescending() {
+    fun snapshotTaskOrderingIgnoresPriorityShadowAndIsDeterministic() {
         store = PlanningLocalStore(context)
         val folderId = store!!.createFolder("user-1", FolderDraft("Folder", ""))
         val goalId = store!!.createGoal("user-1", folderId, GoalDraft("Goal", ""))
 
-        store!!.createTask("user-1", goalId, taskDraft("Low", 1))
-        store!!.createTask("user-1", goalId, taskDraft("High", 9))
-        store!!.createTask("user-1", goalId, taskDraft("Middle", 5))
+        val lowId = store!!.createTask("user-1", goalId, taskDraft("Low", "2026-05-01T09:00:00Z"))
+        val highId = store!!.createTask("user-1", goalId, taskDraft("High", "2026-05-01T10:00:00Z"))
+        store!!.createTask("user-1", goalId, taskDraft("Unplanned", null))
+        store!!.writableDatabase.execSQL("UPDATE tasks SET priority = 1 WHERE id = ?", arrayOf(lowId))
+        store!!.writableDatabase.execSQL("UPDATE tasks SET priority = 9 WHERE id = ?", arrayOf(highId))
 
         val titles = store!!.snapshot("user-1", offline = false, lastSyncError = null).tasks.map { it.title }
 
-        assertEquals(listOf("High", "Middle", "Low"), titles)
+        assertEquals(listOf("Low", "High", "Unplanned"), titles)
+    }
+
+    @Test
+    fun taskCreateUsesDefaultShadowAndUpdateRetainsExistingShadowAndPendingAction() {
+        store = PlanningLocalStore(context)
+        val folderId = store!!.createFolder("user-1", FolderDraft("Folder", ""))
+        val goalId = store!!.createGoal("user-1", folderId, GoalDraft("Goal", ""))
+        val taskId = store!!.createTask("user-1", goalId, taskDraft("Task", null))
+
+        assertEquals(5, store!!.findTask("user-1", taskId)!!.priorityShadow)
+        store!!.writableDatabase.execSQL("UPDATE tasks SET priority = 9 WHERE id = ?", arrayOf(taskId))
+        val legacyTask = store!!.findTask("user-1", taskId)!!
+        store!!.updateTask("user-1", legacyTask, legacyTask.toDraftForTest())
+
+        val updated = store!!.findTask("user-1", taskId)!!
+        assertEquals(9, updated.priorityShadow)
+        assertEquals(SyncState.PendingCreate, updated.syncState)
     }
 
     @Test
@@ -270,6 +293,20 @@ class PlanningLocalStoreMigrationUnitTest {
                 )
                 """.trimIndent()
             )
+            db.execSQL(
+                """
+                INSERT INTO tasks (
+                    user_id, id, goal_id, title, description, type, priority, effort, status,
+                    archived, shared, full_access, version, tag_ids_json, created_at, updated_at,
+                    pending_action, pending_blocked, locally_deleted
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf(
+                    "user-1", "task-v14", "goal-1", "Legacy task", "", "green", 9, 0, "todo",
+                    0, 0, 1, 4, "[]", "2026-05-01T00:00:00Z", "2026-05-02T00:00:00Z",
+                    "update", 0, 0
+                )
+            )
             db.version = 14
         }
     }
@@ -372,14 +409,13 @@ class PlanningLocalStoreMigrationUnitTest {
         }
     }
 
-    private fun taskDraft(title: String, priority: Int): TaskDraft {
+    private fun taskDraft(title: String, plannedTime: String?): TaskDraft {
         return TaskDraft(
             title = title,
             description = "",
             type = "green",
-            priority = priority,
             status = "todo",
-            plannedTime = null,
+            plannedTime = plannedTime,
             dueTime = null
         )
     }
@@ -391,7 +427,6 @@ class PlanningLocalStoreMigrationUnitTest {
             title = title,
             description = description,
             type = type,
-            priority = priority,
             effort = effort,
             status = status,
             plannedTime = plannedTime,

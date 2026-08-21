@@ -298,8 +298,7 @@ class PlanningRepository(
         val refreshedSession = pullRemote(result.session)
         return TaskRescheduleResult(
             session = refreshedSession,
-            snapshot = localStore.snapshot(refreshedSession.user.id, offline = false, lastSyncError = null),
-            priorityDecayApplied = result.value.optBoolean("priorityDecayApplied", false)
+            snapshot = localStore.snapshot(refreshedSession.user.id, offline = false, lastSyncError = null)
         )
     }
 
@@ -1033,7 +1032,7 @@ class PlanningRepository(
             .put("title", title)
             .put("description", description)
             .put("type", type)
-            .put("priority", priority)
+            .put("priority", TaskPriorityCompatibility.DEFAULT_SHADOW)
             .put("effort", effort)
             .put("status", status)
             .putNullable("plannedTime", plannedTime)
@@ -1047,7 +1046,7 @@ class PlanningRepository(
             .put("title", title)
             .put("description", description)
             .put("type", type)
-            .put("priority", priority)
+            .put("priority", priorityShadow)
             .put("effort", effort)
             .put("status", status)
             .putNullable("plannedTime", plannedTime)
@@ -1149,7 +1148,7 @@ class PlanningRepository(
             title = text("title"),
             description = text("description"),
             type = text("type").ifBlank { "green" },
-            priority = optInt("priority", 5),
+            priorityShadow = TaskPriorityCompatibility.readShadow(this),
             effort = optInt("effort", 0),
             status = text("status").ifBlank { "todo" },
             plannedTime = nullableText("plannedTime"),

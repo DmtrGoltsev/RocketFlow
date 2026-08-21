@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.rocketflow.accounts.User;
 import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.common.ApiException;
+import com.rocketflow.common.UuidOrder;
 import com.rocketflow.goals.Goal;
 import com.rocketflow.goals.GoalRepository;
 import com.rocketflow.recurrence.RecurrenceCalculationService;
@@ -49,8 +50,8 @@ public class CalendarService {
             .thenComparing(CalendarMarkerDto::markerId);
     private static final Comparator<Task> LEGACY_ORDER = Comparator
             .comparing(Task::getPlannedTime)
-            .thenComparing(Comparator.comparingInt(Task::getPriority).reversed())
-            .thenComparing(Task::getCreatedAt);
+            .thenComparing(Task::getCreatedAt)
+            .thenComparing(Task::getId, UuidOrder.POSTGRES_ASC);
 
     private final TaskRepository taskRepository;
     private final GoalRepository goalRepository;

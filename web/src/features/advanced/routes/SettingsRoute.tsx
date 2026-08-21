@@ -7,27 +7,10 @@ import { LoadingState } from '../../../ui/feedback/LoadingState';
 import { AdvancedApiError, getSettings, updateSettings } from '../advanced-api';
 import { mapAdvancedError } from '../advanced-errors';
 import { useAdvancedCopy } from '../advanced-copy';
-import type { Locale, UpdateSettingsPayload, UserSettingsResponse } from '../types';
+import { toSettingsUpdatePayload } from '../settings-contract';
+import type { Locale, UserSettingsResponse } from '../types';
 
 type SettingsDraft = UserSettingsResponse;
-
-function toPayload(draft: SettingsDraft): UpdateSettingsPayload {
-  return {
-    language: draft.language,
-    greenPriorityDecayPolicy: {
-      enabled: draft.greenPriorityDecayPolicy.enabled,
-      thresholdPreset: draft.greenPriorityDecayPolicy.thresholdPreset,
-      decayAmount: draft.greenPriorityDecayPolicy.decayAmount,
-    },
-    redPriorityDecayPolicy: {
-      enabled: draft.redPriorityDecayPolicy.enabled,
-      thresholdPreset: draft.redPriorityDecayPolicy.thresholdPreset,
-      decayAmount: draft.redPriorityDecayPolicy.decayAmount,
-    },
-    notificationsEnabled: draft.notificationsEnabled,
-    version: draft.version,
-  };
-}
 
 export function SettingsRoute() {
   const { authorizedFetch, syncSessionLanguage } = useAuth();
@@ -73,7 +56,7 @@ export function SettingsRoute() {
     setFieldErrors({});
 
     try {
-      const saved = await updateSettings(authorizedFetch, toPayload(draft));
+      const saved = await updateSettings(authorizedFetch, toSettingsUpdatePayload(draft));
       setDraft(saved);
       syncSessionLanguage(saved.language);
       setNotice(copy.common.saved);

@@ -15,6 +15,7 @@ import type {
   UpdateSettingsPayload,
   UserSettingsResponse,
 } from './types';
+import { DEFAULT_TASK_PRIORITY, normalizeTaskResponse } from '../planning/planning-utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/rocket-api';
 
@@ -96,10 +97,17 @@ export async function getCalendar(
   signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({ from, toExclusive });
-  return requestJson<CalendarResponse>(authorizedFetch, `/calendar?${params.toString()}`, {
+  const calendar = await requestJson<CalendarResponse>(authorizedFetch, `/calendar?${params.toString()}`, {
     method: 'GET',
     signal,
   });
+  return {
+    ...calendar,
+    items: calendar.items?.map((item) => ({
+      ...item,
+      priority: item.priority ?? DEFAULT_TASK_PRIORITY,
+    })),
+  };
 }
 
 export async function moveTask(
@@ -107,10 +115,14 @@ export async function moveTask(
   taskId: string,
   payload: MoveTaskPayload,
 ) {
-  return requestJson<MoveTaskResponse>(authorizedFetch, `/tasks/${taskId}/move`, {
+  const moved = await requestJson<MoveTaskResponse>(authorizedFetch, `/tasks/${taskId}/move`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  return {
+    ...moved,
+    priority: moved.priority ?? DEFAULT_TASK_PRIORITY,
+  };
 }
 
 export async function quickRescheduleTask(
@@ -118,10 +130,17 @@ export async function quickRescheduleTask(
   taskId: string,
   payload: QuickReschedulePayload,
 ) {
-  return requestJson<QuickRescheduleResponse>(authorizedFetch, `/tasks/${taskId}/reschedule`, {
+  const rescheduled = await requestJson<QuickRescheduleResponse>(authorizedFetch, `/tasks/${taskId}/reschedule`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  return {
+    ...rescheduled,
+    task: {
+      ...rescheduled.task,
+      priority: rescheduled.task.priority ?? DEFAULT_TASK_PRIORITY,
+    },
+  };
 }
 
 export async function getInvitations(authorizedFetch: AuthorizedFetch) {
@@ -215,9 +234,13 @@ export async function acceptShareLink(authorizedFetch: AuthorizedFetch, token: s
 }
 
 export async function getSharedResources(authorizedFetch: AuthorizedFetch) {
-  return requestJson<SharedResourcesResponse>(authorizedFetch, '/shares/resources', {
+  const resources = await requestJson<SharedResourcesResponse>(authorizedFetch, '/shares/resources', {
     method: 'GET',
   });
+  return {
+    ...resources,
+    tasks: resources.tasks.map(normalizeTaskResponse),
+  };
 }
 
 export async function getSettings(authorizedFetch: AuthorizedFetch) {

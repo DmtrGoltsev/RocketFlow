@@ -22,7 +22,6 @@ data class TaskSummary(
     val title: String,
     val description: String,
     val type: String,
-    val priority: Int,
     val status: String,
     val plannedTime: String?,
     val dueTime: String?,

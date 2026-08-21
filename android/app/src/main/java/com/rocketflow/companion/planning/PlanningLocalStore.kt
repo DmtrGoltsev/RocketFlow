@@ -517,7 +517,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             title = draft.title,
             description = draft.description,
             type = draft.type,
-            priority = draft.priority,
+            priorityShadow = TaskPriorityCompatibility.DEFAULT_SHADOW,
             effort = draft.effort,
             status = draft.status,
             plannedTime = draft.plannedTime,
@@ -589,7 +589,6 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
                     put("title", draft.title)
                     put("description", draft.description)
                     put("type", draft.type)
-                    put("priority", draft.priority)
                     put("effort", draft.effort)
                     put("status", draft.status)
                     put("planned_time", draft.plannedTime)
@@ -1447,7 +1446,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             arrayOf(userId),
             null,
             null,
-            "priority DESC, planned_time IS NULL, planned_time ASC, created_at ASC, id ASC"
+            "planned_time IS NULL, planned_time ASC, created_at ASC, id ASC"
         ).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
@@ -1772,7 +1771,6 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
         return draft.title == task.title &&
             draft.description == task.description &&
             draft.type == task.type &&
-            draft.priority == task.priority &&
             draft.effort == task.effort &&
             draft.plannedTime == task.plannedTime &&
             draft.dueTime == task.dueTime &&
@@ -2028,7 +2026,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             put("title", task.title)
             put("description", task.description)
             put("type", task.type)
-            put("priority", task.priority)
+            put("priority", task.priorityShadow)
             put("effort", task.effort)
             put("status", task.status)
             put("planned_time", task.plannedTime)
@@ -2223,7 +2221,7 @@ class PlanningLocalStore(context: Context) : SQLiteOpenHelper(
             title = string("title"),
             description = string("description"),
             type = string("type"),
-            priority = int("priority"),
+            priorityShadow = int("priority"),
             effort = optionalInt("effort"),
             status = string("status"),
             plannedTime = stringOrNull("planned_time"),

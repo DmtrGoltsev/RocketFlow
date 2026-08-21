@@ -11,7 +11,7 @@ export interface CalendarItemDto {
   goalId: string;
   title: string;
   type: 'green' | 'red';
-  priority: number;
+  priority?: number;
   status: 'todo' | 'in_progress' | 'done' | 'cancelled';
   plannedTime: string;
   dueTime: string | null;
@@ -47,7 +47,7 @@ export interface MoveTaskPayload {
 export interface MoveTaskResponse {
   id: string;
   plannedTime: string;
-  priority: number;
+  priority?: number;
   updatedAt: string;
 }
 
@@ -60,7 +60,7 @@ export interface QuickRescheduleResponse {
   task: {
     id: string;
     plannedTime: string;
-    priority: number;
+    priority?: number;
     updatedAt: string;
   };
   rescheduleEvent: {

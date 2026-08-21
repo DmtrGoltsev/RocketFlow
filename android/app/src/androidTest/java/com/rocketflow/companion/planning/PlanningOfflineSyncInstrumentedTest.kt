@@ -17,6 +17,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,10 +26,18 @@ import org.junit.runner.RunWith
 class PlanningOfflineSyncInstrumentedTest {
 
     private lateinit var context: Context
+    private val localStores = mutableListOf<PlanningLocalStore>()
 
     @Before
     fun resetLocalDatabase() {
         context = ApplicationProvider.getApplicationContext()
+        context.deleteDatabase("rocketflow_planning.db")
+    }
+
+    @After
+    fun closeLocalStores() {
+        localStores.forEach(PlanningLocalStore::close)
+        localStores.clear()
         context.deleteDatabase("rocketflow_planning.db")
     }
 
@@ -72,7 +81,6 @@ class PlanningOfflineSyncInstrumentedTest {
                 title = "Web Rich Task Edited $unique",
                 description = "Edited from Android without metadata authoring",
                 type = "green",
-                priority = 5,
                 status = "in_progress",
                 plannedTime = "2026-05-12T09:00:00Z",
                 dueTime = "2026-05-12T18:00:00Z"
@@ -105,7 +113,6 @@ class PlanningOfflineSyncInstrumentedTest {
                 title = "Phone Task $unique",
                 description = "Offline task",
                 type = "green",
-                priority = 6,
                 status = "todo",
                 plannedTime = "2026-05-10T09:00:00Z",
                 dueTime = "2026-05-10T18:00:00Z"
@@ -153,7 +160,6 @@ class PlanningOfflineSyncInstrumentedTest {
                 title = "Phone Task Edited $unique",
                 description = "Edited offline",
                 type = "red",
-                priority = 8,
                 status = "in_progress",
                 plannedTime = "2026-05-11T09:00:00Z",
                 dueTime = "2026-05-11T18:00:00Z"
@@ -190,7 +196,9 @@ class PlanningOfflineSyncInstrumentedTest {
     private fun planningRepository(baseUrl: String): PlanningRepository {
         val client = HttpJsonClient(baseUrl)
         val authRepository = AuthRepository(client, SessionStore(context))
-        return PlanningRepository(authRepository, PlanningLocalStore(context))
+        val localStore = PlanningLocalStore(context)
+        localStores += localStore
+        return PlanningRepository(authRepository, localStore)
     }
 
     private suspend fun registerUser(client: HttpJsonClient, email: String, password: String) {

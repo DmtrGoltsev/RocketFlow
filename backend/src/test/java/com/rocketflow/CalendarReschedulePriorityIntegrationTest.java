@@ -174,6 +174,7 @@ class CalendarReschedulePriorityIntegrationTest {
                   "dueTime": "2026-05-01T18:00:00Z"
                 }
                 """);
+        setTaskPriority(taskId, 9);
 
         mockMvc.perform(post("/api/tasks/" + taskId + "/move")
                         .header("Authorization", "Bearer " + owner.accessToken())
@@ -184,7 +185,7 @@ class CalendarReschedulePriorityIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.priority").value(5));
+                .andExpect(jsonPath("$.priority").value(9));
 
         mockMvc.perform(post("/api/tasks/" + taskId + "/move")
                         .header("Authorization", "Bearer " + owner.accessToken())
@@ -196,26 +197,74 @@ class CalendarReschedulePriorityIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plannedTime").value("2026-05-02T10:00:00Z"))
-                .andExpect(jsonPath("$.priority").value(5));
+                .andExpect(jsonPath("$.priority").value(9));
+
+        mockMvc.perform(post("/api/tasks/" + taskId + "/reschedule")
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "preset": "1h"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.task.plannedTime").value("2026-05-02T11:00:00Z"))
+                .andExpect(jsonPath("$.task.priority").value(9))
+                .andExpect(jsonPath("$.priorityDecayApplied").value(false));
 
         List<TaskRescheduleEvent> events = taskRescheduleEventRepository.findByTaskIdOrderByCreatedAtAsc(UUID.fromString(taskId));
-        assertEquals(2, events.size());
+        assertEquals(3, events.size());
 
         TaskRescheduleEvent firstEvent = events.get(0);
         assertEquals(owner.userId(), firstEvent.getRescheduledByUserId());
         assertEquals(Instant.parse("2026-05-01T09:00:00Z"), firstEvent.getPreviousPlannedTime());
         assertEquals(Instant.parse("2026-05-01T21:00:00Z"), firstEvent.getNewPlannedTime());
-        assertEquals(5, firstEvent.getPriorityBefore());
-        assertEquals(5, firstEvent.getPriorityAfter());
+        assertEquals(9, firstEvent.getPriorityBefore());
+        assertEquals(9, firstEvent.getPriorityAfter());
         assertFalse(firstEvent.isPriorityDecayApplied());
         assertNotNull(firstEvent.getCreatedAt());
 
         TaskRescheduleEvent secondEvent = events.get(1);
         assertEquals(Instant.parse("2026-05-01T21:00:00Z"), secondEvent.getPreviousPlannedTime());
         assertEquals(Instant.parse("2026-05-02T10:00:00Z"), secondEvent.getNewPlannedTime());
-        assertEquals(5, secondEvent.getPriorityBefore());
-        assertEquals(5, secondEvent.getPriorityAfter());
+        assertEquals(9, secondEvent.getPriorityBefore());
+        assertEquals(9, secondEvent.getPriorityAfter());
         assertFalse(secondEvent.isPriorityDecayApplied());
+
+        TaskRescheduleEvent quickEvent = events.get(2);
+        assertEquals(9, quickEvent.getPriorityBefore());
+        assertEquals(9, quickEvent.getPriorityAfter());
+        assertFalse(quickEvent.isPriorityDecayApplied());
+    }
+
+    @Test
+    void legacyCalendarOrderingIgnoresHistoricalPriorityAndUsesIdTieBreaker() throws Exception {
+        Session owner = registerAndLogin("calendar-order@example.com", "Calendar Order");
+        String folderId = createFolder(owner.accessToken());
+        String goalId = read(createGoal(owner.accessToken(), folderId, "Calendar order"), "/id");
+        String firstId = read(createTask(owner.accessToken(), goalId, "First", "green", 1,
+                "2026-05-01T09:00:00Z", null), "/id");
+        String secondId = read(createTask(owner.accessToken(), goalId, "Second", "green", 10,
+                "2026-05-01T09:00:00Z", null), "/id");
+        String thirdId = read(createTask(owner.accessToken(), goalId, "Third", "green", 5,
+                "2026-05-01T09:00:00Z", null), "/id");
+        setSameCreatedAt(List.of(firstId, secondId, thirdId));
+        List<String> expectedIds = taskIdsOrderedById(goalId);
+        setTaskPriority(expectedIds.get(0), 1);
+        setTaskPriority(expectedIds.get(1), 10);
+        setTaskPriority(expectedIds.get(2), 5);
+
+        mockMvc.perform(get("/api/calendar")
+                        .header("Authorization", "Bearer " + owner.accessToken())
+                        .param("from", "2026-05-01T00:00:00Z")
+                        .param("to", "2026-05-01T23:59:59Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].taskId").value(expectedIds.get(0)))
+                .andExpect(jsonPath("$.items[0].priority").value(1))
+                .andExpect(jsonPath("$.items[1].taskId").value(expectedIds.get(1)))
+                .andExpect(jsonPath("$.items[1].priority").value(10))
+                .andExpect(jsonPath("$.items[2].taskId").value(expectedIds.get(2)))
+                .andExpect(jsonPath("$.items[2].priority").value(5));
     }
 
     @Test
@@ -467,6 +516,40 @@ class CalendarReschedulePriorityIntegrationTest {
         JsonNode root = objectMapper.readTree(json);
         JsonNode value = root.at(path);
         return value.isTextual() ? value.asText() : value.toString();
+    }
+
+    private void setTaskPriority(String taskId, int priority) throws Exception {
+        try (var connection = POSTGRES.getPostgresDatabase().getConnection();
+             var statement = connection.prepareStatement("update tasks set priority = ? where id = ?")) {
+            statement.setInt(1, priority);
+            statement.setObject(2, UUID.fromString(taskId));
+            statement.executeUpdate();
+        }
+    }
+
+    private void setSameCreatedAt(List<String> taskIds) throws Exception {
+        try (var connection = POSTGRES.getPostgresDatabase().getConnection();
+             var statement = connection.prepareStatement("update tasks set created_at = '2026-01-01T00:00:00Z' where id = ?")) {
+            for (String taskId : taskIds) {
+                statement.setObject(1, UUID.fromString(taskId));
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+    }
+
+    private List<String> taskIdsOrderedById(String goalId) throws Exception {
+        List<String> result = new java.util.ArrayList<>();
+        try (var connection = POSTGRES.getPostgresDatabase().getConnection();
+             var statement = connection.prepareStatement("select id from tasks where goal_id = ? order by id")) {
+            statement.setObject(1, UUID.fromString(goalId));
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    result.add(rows.getObject(1, UUID.class).toString());
+                }
+            }
+        }
+        return result;
     }
 
     private static EmbeddedPostgres startPostgres() {

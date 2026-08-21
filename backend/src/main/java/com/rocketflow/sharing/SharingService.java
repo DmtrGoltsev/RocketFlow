@@ -26,6 +26,7 @@ import com.rocketflow.accounts.User;
 import com.rocketflow.accounts.UserRepository;
 import com.rocketflow.auth.TokenHasher;
 import com.rocketflow.common.ApiException;
+import com.rocketflow.common.UuidOrder;
 import com.rocketflow.folders.Folder;
 import com.rocketflow.folders.FolderRepository;
 import com.rocketflow.focus.FocusService;
@@ -290,7 +291,7 @@ public class SharingService {
         Map<UUID, Task> tasksById = new LinkedHashMap<>();
         for (Goal goal : folderGoalsById.values()) {
             boolean inheritedFullAccess = goalFullAccessById.getOrDefault(goal.getId(), false);
-            taskRepository.findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByPriorityDescCreatedAtAscIdAsc(goal.getId(), goal.getOwnerUserId())
+            taskRepository.findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByCreatedAtAscIdAsc(goal.getId(), goal.getOwnerUserId())
                     .forEach(task -> {
                         tasksById.put(task.getId(), task);
                         taskFullAccessById.putIfAbsent(task.getId(), inheritedFullAccess);
@@ -302,7 +303,7 @@ public class SharingService {
             } catch (ApiException exception) {
                 continue;
             }
-            taskRepository.findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByPriorityDescCreatedAtAscIdAsc(goalShare.getGoalId(), goalShare.getOwnerUserId())
+            taskRepository.findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByCreatedAtAscIdAsc(goalShare.getGoalId(), goalShare.getOwnerUserId())
                     .forEach(task -> {
                         tasksById.put(task.getId(), task);
                         taskFullAccessById.put(task.getId(), goalShare.isFullAccess());
@@ -338,9 +339,8 @@ public class SharingService {
         }
 
         List<Task> sharedTasks = tasksById.values().stream()
-                .sorted(Comparator.comparingInt(Task::getPriority).reversed()
-                        .thenComparing(Task::getCreatedAt)
-                        .thenComparing(Task::getId))
+                .sorted(Comparator.comparing(Task::getCreatedAt)
+                        .thenComparing(Task::getId, UuidOrder.POSTGRES_ASC))
                 .toList();
         List<UUID> sharedTaskIds = sharedTasks.stream().map(Task::getId).toList();
         Map<UUID, RecurrenceDto> recurrenceByTaskId = recurrenceService.findDtos(sharedTaskIds);

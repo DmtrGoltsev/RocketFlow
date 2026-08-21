@@ -3,13 +3,16 @@ package com.rocketflow.companion
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
+import android.app.Dialog
 import android.app.TimePickerDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.net.ConnectivityManager
@@ -51,6 +54,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.rocketflow.companion.calendar.CalendarMarkerKind
 import com.rocketflow.companion.calendar.CalendarMonth
 import com.rocketflow.companion.focus.FocusCandidate
@@ -93,6 +98,10 @@ import com.rocketflow.companion.planning.PlanningLocalStore
 import com.rocketflow.companion.planning.PlanningNote
 import com.rocketflow.companion.planning.PlanningPendingIssue
 import com.rocketflow.companion.planning.PlanningPendingIssueClassifier
+import com.rocketflow.companion.planning.PlannerRowGeometry
+import com.rocketflow.companion.planning.PlannerRowKey
+import com.rocketflow.companion.planning.PlannerScrollAnchor
+import com.rocketflow.companion.planning.PlannerScrollPosition
 import com.rocketflow.companion.planning.PlanningSnapshot
 import com.rocketflow.companion.planning.PlanningSyncReason
 import com.rocketflow.companion.planning.PlanningTask
@@ -290,7 +299,6 @@ class MainActivity : Activity() {
         val taskDetail: String,
         val notes: String,
         val status: String,
-        val priority: String,
         val effort: String = "Effort",
         val planned: String = "План",
         val due: String,
@@ -382,11 +390,8 @@ class MainActivity : Activity() {
         val notesField: String,
         val dueField: String,
         val plannedField: String = "План, например 2026-05-01 09:00",
-        val priorityField: String = "Приоритет 1-10",
-        val priorityRequired: String = "Приоритет должен быть от 1 до 10.",
         val effortField: String = "Effort",
         val effortRequired: String = "Effort must be 0 or more.",
-        val priorityShort: String,
         val sharing: String,
         val share: String,
         val shareByEmail: String,
@@ -530,6 +535,10 @@ class MainActivity : Activity() {
     private var messageScreen: Screen? = null
     private var transientMessageJob: Job? = null
     private var plannerRefreshJob: Job? = null
+    private var plannerScrollPosition: PlannerScrollPosition? = null
+    private var plannerScrollView: ScrollView? = null
+    private var plannerListView: LinearLayout? = null
+    private val plannerRowViews = linkedMapOf<PlannerRowKey, Pair<View, PlannerRowKey?>>()
     private var taskDetailScrollY = 0
     private var taskDetailScrollView: ScrollView? = null
     private var settingsScrollY = 0
@@ -561,12 +570,21 @@ class MainActivity : Activity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        capturePlannerScrollPosition()
         super.onSaveInstanceState(outState)
         outState.putString(STATE_SCREEN, currentScreen.name)
         outState.putString(STATE_DETAIL_RETURN_SCREEN, detailReturnScreen.name)
         outState.putString(STATE_CALENDAR_MONTH, calendarYearMonth.toString())
         outState.putString(STATE_CALENDAR_DATE, calendarSelectedDate.toString())
         outState.putString(STATE_SELECTED_TASK_ID, selectedTaskId)
+        plannerScrollPosition?.let { position ->
+            outState.putString(STATE_PLANNER_ANCHOR_TYPE, position.anchorKey?.resourceType)
+            outState.putString(STATE_PLANNER_ANCHOR_ID, position.anchorKey?.resourceId)
+            outState.putStringArrayList(STATE_PLANNER_ANCESTOR_TYPES, ArrayList(position.ancestorKeys.map { it.resourceType }))
+            outState.putStringArrayList(STATE_PLANNER_ANCESTOR_IDS, ArrayList(position.ancestorKeys.map { it.resourceId }))
+            outState.putInt(STATE_PLANNER_PIXEL_OFFSET, position.pixelOffset)
+            outState.putInt(STATE_PLANNER_ABSOLUTE_Y, position.absoluteScrollY)
+        }
     }
 
     private fun restoreNavigationState(state: Bundle?) {
@@ -584,6 +602,16 @@ class MainActivity : Activity() {
             runCatching { LocalDate.parse(value) }.getOrNull()
         } ?: calendarSelectedDate
         selectedTaskId = state.getString(STATE_SELECTED_TASK_ID)?.takeIf { it.isNotBlank() }
+        val anchorType = state.getString(STATE_PLANNER_ANCHOR_TYPE)
+        val anchorId = state.getString(STATE_PLANNER_ANCHOR_ID)
+        val ancestorTypes = state.getStringArrayList(STATE_PLANNER_ANCESTOR_TYPES).orEmpty()
+        val ancestorIds = state.getStringArrayList(STATE_PLANNER_ANCESTOR_IDS).orEmpty()
+        plannerScrollPosition = PlannerScrollPosition(
+            anchorKey = if (anchorType != null && anchorId != null) PlannerRowKey(anchorType, anchorId) else null,
+            ancestorKeys = ancestorTypes.zip(ancestorIds).map { (type, id) -> PlannerRowKey(type, id) },
+            pixelOffset = state.getInt(STATE_PLANNER_PIXEL_OFFSET, 0),
+            absoluteScrollY = state.getInt(STATE_PLANNER_ABSOLUTE_Y, 0)
+        )
         navigationStateRestored = restoredScreen != null
     }
 
@@ -850,6 +878,7 @@ class MainActivity : Activity() {
         planningManualSyncRunning = false
         planningLastManualSyncMessage = null
         planningLastManualSyncAt = null
+        resetPlannerScrollPosition()
         taskDetailScrollY = 0
         taskDetailScrollView = null
         settingsScrollY = 0
@@ -921,6 +950,12 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
+        capturePlannerScrollPosition()
+        if (currentScreen != Screen.Planner) {
+            plannerScrollView = null
+            plannerListView = null
+            plannerRowViews.clear()
+        }
         if (message != null && messageScreen != null && messageScreen != currentScreen) {
             message = null
         }
@@ -1082,6 +1117,7 @@ class MainActivity : Activity() {
 
     private fun renderPlanner() {
         val c = copy()
+        plannerRowViews.clear()
         val frame = FrameLayout(this).apply { setBackgroundColor(color(Ui.CANVAS)) }
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1128,7 +1164,7 @@ class MainActivity : Activity() {
                 sharedFolderList.forEach { folder -> renderFolder(list, folder, indentLevel = 0) }
                 looseSharedGoals.forEach { goal -> renderGoal(list, goal, shared = true) }
                 looseSharedTasks.forEach { task ->
-                    list.addView(taskRow(task, indentLevel = 1))
+                    list.addView(plannerRow(taskRow(task, indentLevel = 1), "task", task.id, "goal", task.goalId))
                     list.addView(rowDivider(indentLevel = 1))
                 }
             }
@@ -1151,6 +1187,8 @@ class MainActivity : Activity() {
                 1f
             )
         }
+        plannerScrollView = scrollView
+        plannerListView = list
         shell.addView(scrollView)
         shell.addView(bottomNavigation(Screen.Planner))
         frame.addView(
@@ -1190,6 +1228,7 @@ class MainActivity : Activity() {
         }
 
         setContentView(frame)
+        restorePlannerScrollPositionAfterLayout()
     }
 
     private fun renderCalendar() {
@@ -1493,6 +1532,7 @@ class MainActivity : Activity() {
     }
 
     private fun switchTopLevel(target: Screen) {
+        resetPlannerScrollPosition()
         currentScreen = target
         message = null
         render()
@@ -1578,8 +1618,63 @@ class MainActivity : Activity() {
 
     private fun activeLocale(): Locale = if (currentLanguage == "en") Locale.ENGLISH else Locale("ru")
 
+    private fun plannerRow(
+        view: View,
+        resourceType: String,
+        resourceId: String,
+        parentType: String? = null,
+        parentId: String? = null
+    ): View {
+        val key = PlannerRowKey(resourceType, resourceId)
+        val parentKey = if (parentType != null && parentId != null) PlannerRowKey(parentType, parentId) else null
+        view.setTag(R.id.planner_row_anchor, "$resourceType:$resourceId")
+        plannerRowViews[key] = view to parentKey
+        return view
+    }
+
+    private fun capturePlannerScrollPosition() {
+        val scrollView = plannerScrollView ?: return
+        if (!scrollView.isAttachedToWindow) return
+        val rows = plannerRowGeometries()
+        plannerScrollPosition = PlannerScrollAnchor.capture(rows, scrollView.scrollY)
+    }
+
+    private fun restorePlannerScrollPositionAfterLayout() {
+        val scrollView = plannerScrollView ?: return
+        scrollView.post {
+            if (plannerScrollView !== scrollView || currentScreen != Screen.Planner) return@post
+            val list = plannerListView ?: return@post
+            val viewportHeight = (scrollView.height - scrollView.paddingTop - scrollView.paddingBottom).coerceAtLeast(0)
+            val maxScrollY = (list.height - viewportHeight).coerceAtLeast(0)
+            val restoredY = PlannerScrollAnchor.restore(plannerScrollPosition, plannerRowGeometries(), maxScrollY)
+            scrollView.scrollTo(0, restoredY)
+        }
+    }
+
+    private fun plannerRowGeometries(): List<PlannerRowGeometry> {
+        return plannerRowViews.map { (key, entry) ->
+            val (view, parentKey) = entry
+            PlannerRowGeometry(key, parentKey, view.top, view.bottom)
+        }
+    }
+
+    private fun resetPlannerScrollPosition() {
+        plannerScrollPosition = null
+        plannerScrollView = null
+        plannerListView = null
+        plannerRowViews.clear()
+    }
+
     private fun renderFolder(parent: LinearLayout, folder: PlanningFolder, indentLevel: Int) {
-        parent.addView(folderRow(folder, indentLevel))
+        parent.addView(
+            plannerRow(
+                folderRow(folder, indentLevel),
+                resourceType = "folder",
+                resourceId = folder.id,
+                parentType = folder.parentFolderId?.let { "folder" },
+                parentId = folder.parentFolderId
+            )
+        )
         parent.addView(rowDivider(indentLevel = indentLevel))
         if (folder.id in collapsedFolderIds) return
 
@@ -1593,11 +1688,11 @@ class MainActivity : Activity() {
         } else {
             childFolders.forEach { child -> renderFolder(parent, child, indentLevel + 1) }
             plainNotes.forEach { note ->
-                parent.addView(noteRow(note, indentLevel = indentLevel + 1))
+                parent.addView(plannerRow(noteRow(note, indentLevel = indentLevel + 1), "note", note.id, "folder", folder.id))
                 parent.addView(rowDivider(indentLevel = indentLevel + 1))
             }
             folderIdeas.forEach { idea ->
-                parent.addView(ideaRow(idea, indentLevel = indentLevel + 1))
+                parent.addView(plannerRow(ideaRow(idea, indentLevel = indentLevel + 1), "idea", idea.id, "folder", folder.id))
                 parent.addView(rowDivider(indentLevel = indentLevel + 1))
             }
             folderGoals.forEach { goal -> renderGoal(parent, goal, shared = folder.shared || goal.shared, indentLevel = indentLevel + 1) }
@@ -1605,7 +1700,7 @@ class MainActivity : Activity() {
     }
 
     private fun renderGoal(parent: LinearLayout, goal: PlanningGoal, shared: Boolean, indentLevel: Int = 1) {
-        parent.addView(goalRow(goal, shared = shared, indentLevel = indentLevel))
+        parent.addView(plannerRow(goalRow(goal, shared = shared, indentLevel = indentLevel), "goal", goal.id, "folder", goal.folderId))
         parent.addView(rowDivider(indentLevel = indentLevel))
         if (goal.id in collapsedGoalIds) return
 
@@ -1617,7 +1712,7 @@ class MainActivity : Activity() {
             parent.addView(rowDivider(indentLevel = indentLevel + 1))
         } else {
             openGoalTasks.forEach { task ->
-                parent.addView(taskRow(task, indentLevel = indentLevel + 1))
+                parent.addView(plannerRow(taskRow(task, indentLevel = indentLevel + 1), "task", task.id, "goal", goal.id))
                 parent.addView(rowDivider(indentLevel = indentLevel + 1))
             }
         }
@@ -1703,7 +1798,6 @@ class MainActivity : Activity() {
             if (detailsExpanded) {
                 content.addView(propertyRow(c.status, localizedStatus(task.status), clickable = false))
                 content.addView(propertyRow(c.taskType, taskTypeLabel(task.type), clickable = false))
-                content.addView(propertyRow(c.priority, task.priority.toString(), clickable = canWrite(task)) { showPriorityDialog(task) })
                 content.addView(propertyRow(c.effort, formatEffort(task.effort), clickable = canWrite(task)) { showEffortDialog(task) })
                 content.addView(propertyRow(c.planned, formatDateTime(task.plannedTime), clickable = false))
                 content.addView(propertyRow(c.due, formatDateTime(task.dueTime), clickable = false))
@@ -2267,7 +2361,6 @@ class MainActivity : Activity() {
                     contentDescription = if (currentLanguage == "en") "Planned time has passed" else "\u0412\u0440\u0435\u043c\u044f \"\u043a\u043e\u0433\u0434\u0430 \u0434\u0435\u043b\u0430\u0442\u044c\" \u043f\u0440\u043e\u0448\u043b\u043e"
                 })
             }
-            addView(counterText(task.priority.toString()))
             addView(iconButton(R.drawable.ic_more_horiz, c.details) { showTaskActions(task) })
             if (canWrite(task)) {
                 enableEntityDragSource(dragPayload)
@@ -4655,6 +4748,7 @@ class MainActivity : Activity() {
                 saveFolder(folder, draft, onSaved)
             }
             .show()
+        configureFullscreenFormDialog(dialog)
         focusDialogInput(dialog, nameInput)
     }
 
@@ -4720,12 +4814,6 @@ class MainActivity : Activity() {
         val titleInput = dialogInput(c.titleField, task?.title.orEmpty())
         val notesInput = dialogInput(c.details, task?.description.orEmpty(), multiline = true)
         val typeGroup = taskTypeGroup(task?.type ?: "green")
-        val priorityInput = dialogInput(
-            c.priorityField,
-            (task?.priority ?: 5).toString(),
-            inputPurpose = TextInputPurpose.Number,
-            inputTypeOverride = InputType.TYPE_CLASS_NUMBER
-        )
         val effortInput = dialogInput(
             c.effortField,
             (task?.effort ?: 0).toString(),
@@ -4772,64 +4860,73 @@ class MainActivity : Activity() {
             }
         }
         reminderButton = reminderButtonView
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(if (task == null) c.newTask else c.edit)
-            .setView(
-                dialogForm(
-                    dialogContextLine(c.goal, goal?.name ?: c.goal),
-                    dialogField(c.titleField, titleInput),
-                    dialogField(c.details, notesInput),
-                    dialogLabel(c.taskType),
-                    typeGroup,
-                    dialogField(c.priorityField, priorityInput),
-                    dialogField(c.effortField, effortInput),
-                    plannedField.view,
-                    dueField.view,
-                    recurrenceButton,
-                    reminderButtonView,
-                    dialogLabel(c.taskPlan),
-                    checklistEditor.first
-                )
+        val form = dialogForm(
+            dialogContextLine(c.goal, goal?.name ?: c.goal),
+            dialogField(c.titleField, titleInput),
+            dialogField(c.details, notesInput),
+            dialogLabel(c.taskType),
+            typeGroup,
+            dialogField(c.effortField, effortInput),
+            plannedField.view,
+            dueField.view,
+            recurrenceButton,
+            reminderButtonView,
+            dialogLabel(c.taskPlan),
+            checklistEditor.first
+        )
+
+        fun submitTask(dismiss: () -> Unit) {
+            val effort = effortInput.text.toString().trim().toIntOrNull()
+            val draft = TaskDraft(
+                title = titleInput.text.toString().trim(),
+                description = notesInput.text.toString().trim(),
+                type = typeGroup.selectedTaskType(),
+                effort = effort ?: 0,
+                status = task?.status ?: "todo",
+                plannedTime = plannedField.isoValue(),
+                dueTime = dueField.isoValue(),
+                checklistItems = checklistEditor.second(),
+                recurrenceJson = recurrenceJson
             )
-            .setNegativeButton(c.cancel, null)
-            .setPositiveButton(c.save, null)
-            .show()
-        configureFullscreenFormDialog(dialog)
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val priority = priorityInput.text.toString().trim().toIntOrNull()
-                val effort = effortInput.text.toString().trim().toIntOrNull()
-                val draft = TaskDraft(
-                    title = titleInput.text.toString().trim(),
-                    description = notesInput.text.toString().trim(),
-                    type = typeGroup.selectedTaskType(),
-                    priority = priority ?: 5,
-                    effort = effort ?: 0,
-                    status = task?.status ?: "todo",
-                    plannedTime = plannedField.isoValue(),
-                    dueTime = dueField.isoValue(),
-                    checklistItems = checklistEditor.second(),
-                    recurrenceJson = recurrenceJson
-                )
-                if (draft.title.isBlank()) {
-                    titleInput.error = c.titleRequired
-                    return@setOnClickListener
-                }
-                if (priority == null || priority !in 1..10) {
-                    priorityInput.error = c.priorityRequired
-                    return@setOnClickListener
-                }
-                if (effort == null || effort < 0) {
-                    effortInput.error = c.effortRequired
-                    return@setOnClickListener
-                }
-                if (isRecurrenceActive(recurrenceJson) && draft.plannedTime.isNullOrBlank() && draft.dueTime.isNullOrBlank()) {
-                    Toast.makeText(this, recurrenceRequiresScheduleMessage(), Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                dialog.dismiss()
-                saveTask(goalId, task, draft, reminderDraft = reminderDraft, clearReminder = reminderTouched && reminderDraft == null)
+            if (draft.title.isBlank()) {
+                titleInput.error = c.titleRequired
+                return
             }
-        focusDialogInput(dialog, titleInput)
+            if (effort == null || effort < 0) {
+                effortInput.error = c.effortRequired
+                return
+            }
+            if (isRecurrenceActive(recurrenceJson) && draft.plannedTime.isNullOrBlank() && draft.dueTime.isNullOrBlank()) {
+                Toast.makeText(this, recurrenceRequiresScheduleMessage(), Toast.LENGTH_SHORT).show()
+                return
+            }
+            dismiss()
+            saveTask(goalId, task, draft, reminderDraft = reminderDraft, clearReminder = reminderTouched && reminderDraft == null)
+        }
+
+        if (usesCompactLandscapeForm()) {
+            lateinit var dialog: Dialog
+            dialog = showCompactLandscapeFormDialog(
+                title = if (task == null) c.newTask else c.edit,
+                form = form,
+                cancelLabel = c.cancel,
+                saveLabel = c.save,
+                focusInput = titleInput,
+                onSave = { submitTask(dialog::dismiss) }
+            )
+        } else {
+            val dialog = AlertDialog.Builder(this)
+                .setTitle(if (task == null) c.newTask else c.edit)
+                .setView(form)
+                .setNegativeButton(c.cancel, null)
+                .setPositiveButton(c.save, null)
+                .show()
+            configureFullscreenFormDialog(dialog)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                submitTask(dialog::dismiss)
+            }
+            focusDialogInput(dialog, titleInput)
+        }
     }
 
     private fun showIdeaDialog(folderId: String, idea: PlanningIdea? = null) {
@@ -4909,6 +5006,7 @@ class MainActivity : Activity() {
                 }
             }
             .show()
+        configureFullscreenFormDialog(dialog)
         focusDialogInput(dialog, input)
     }
 
@@ -4942,7 +5040,7 @@ class MainActivity : Activity() {
                 saveNote(folderId, note, draft)
             }
             .show()
-        dialog.window?.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+        configureFullscreenFormDialog(dialog)
         focusDialogInput(dialog, titleInput)
     }
 
@@ -4972,17 +5070,6 @@ class MainActivity : Activity() {
             .setTitle(copy().taskType)
             .setSingleChoiceItems(labels, checked) { dialog, which ->
                 saveTask(task.goalId, task, task.toDraft(type = values[which]))
-                dialog.dismiss()
-            }
-            .show()
-    }
-
-    private fun showPriorityDialog(task: PlanningTask) {
-        val labels = (1..10).map { it.toString() }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle(copy().priority)
-            .setSingleChoiceItems(labels, (task.priority - 1).coerceIn(0, 9)) { dialog, which ->
-                saveTask(task.goalId, task, task.toDraft(priority = which + 1))
                 dialog.dismiss()
             }
             .show()
@@ -6438,89 +6525,90 @@ class MainActivity : Activity() {
         currentSession = session
 
         val localStore = PlanningLocalStore(this)
-        val existing = localStore.snapshot(session.user.id, offline = true, lastSyncError = null)
-        if (intent.getBooleanExtra(EXTRA_ACCEPTANCE_EMPTY, false)) {
-            return
-        }
-        if (existing.folders.isNotEmpty()) {
-            return
-        }
+        try {
+            val existing = localStore.snapshot(session.user.id, offline = true, lastSyncError = null)
+            if (intent.getBooleanExtra(EXTRA_ACCEPTANCE_EMPTY, false)) {
+                return
+            }
+            if (existing.folders.isNotEmpty()) {
+                return
+            }
 
-        val data = if (language == "en") {
-            AcceptanceData(
-                folder = "Product launch",
-                goal = "Soft release",
-                firstTask = "Prepare the sign-in screen",
-                secondTask = "Check Pixel 7",
-                thirdTask = "Team call",
-                notes = "Review copy, error states, and the first empty screen."
-            )
-        } else {
-            AcceptanceData(
-                folder = "Запуск продукта",
-                goal = "Мягкий релиз",
-                firstTask = "Подготовить экран входа",
-                secondTask = "Проверить Pixel 7",
-                thirdTask = "Созвон с командой",
-                notes = "Проверить тексты, состояния ошибок и первый пустой экран."
-            )
-        }
+            val data = if (language == "en") {
+                AcceptanceData(
+                    folder = "Product launch",
+                    goal = "Soft release",
+                    firstTask = "Prepare the sign-in screen",
+                    secondTask = "Check Pixel 7",
+                    thirdTask = "Team call",
+                    notes = "Review copy, error states, and the first empty screen."
+                )
+            } else {
+                AcceptanceData(
+                    folder = "Запуск продукта",
+                    goal = "Мягкий релиз",
+                    firstTask = "Подготовить экран входа",
+                    secondTask = "Проверить Pixel 7",
+                    thirdTask = "Созвон с командой",
+                    notes = "Проверить тексты, состояния ошибок и первый пустой экран."
+                )
+            }
 
-        val folderId = localStore.createFolder(session.user.id, FolderDraft(data.folder, ""))
-        val goalId = localStore.createGoal(session.user.id, folderId, GoalDraft(data.goal, ""))
-        val recurrenceJson = JSONObject()
-            .put("mode", "weekly")
-            .put("interval", 1)
-            .put("daysOfWeek", JSONArray().put("SATURDAY"))
-            .put("dayOfMonth", JSONObject.NULL)
-            .put("startAt", "2026-05-02T09:00:00Z")
-            .put("endAt", JSONObject.NULL)
-            .put("active", true)
-            .toString()
-        val remindersJson = JSONArray()
-            .put(reminderPayload("before_due_time", 30))
-            .toString()
-        localStore.createTask(
-            session.user.id,
-            goalId,
-            TaskDraft(
-                title = data.firstTask,
-                description = data.notes,
-                type = "green",
-                priority = 2,
-                status = "in_progress",
-                plannedTime = "2026-05-02T09:00:00Z",
-                dueTime = "2026-05-02T09:00:00Z",
-                recurrenceJson = recurrenceJson,
-                remindersJson = remindersJson
+            val folderId = localStore.createFolder(session.user.id, FolderDraft(data.folder, ""))
+            val goalId = localStore.createGoal(session.user.id, folderId, GoalDraft(data.goal, ""))
+            val recurrenceJson = JSONObject()
+                .put("mode", "weekly")
+                .put("interval", 1)
+                .put("daysOfWeek", JSONArray().put("SATURDAY"))
+                .put("dayOfMonth", JSONObject.NULL)
+                .put("startAt", "2026-05-02T09:00:00Z")
+                .put("endAt", JSONObject.NULL)
+                .put("active", true)
+                .toString()
+            val remindersJson = JSONArray()
+                .put(reminderPayload("before_due_time", 30))
+                .toString()
+            localStore.createTask(
+                session.user.id,
+                goalId,
+                TaskDraft(
+                    title = data.firstTask,
+                    description = data.notes,
+                    type = "green",
+                    status = "in_progress",
+                    plannedTime = "2026-05-02T09:00:00Z",
+                    dueTime = "2026-05-02T09:00:00Z",
+                    recurrenceJson = recurrenceJson,
+                    remindersJson = remindersJson
+                )
             )
-        )
-        localStore.createTask(
-            session.user.id,
-            goalId,
-            TaskDraft(
-                title = data.secondTask,
-                description = "",
-                type = "green",
-                priority = 3,
-                status = "todo",
-                plannedTime = null,
-                dueTime = null
+            localStore.createTask(
+                session.user.id,
+                goalId,
+                TaskDraft(
+                    title = data.secondTask,
+                    description = "",
+                    type = "green",
+                    status = "todo",
+                    plannedTime = null,
+                    dueTime = null
+                )
             )
-        )
-        localStore.createTask(
-            session.user.id,
-            goalId,
-            TaskDraft(
-                title = data.thirdTask,
-                description = "",
-                type = "green",
-                priority = 5,
-                status = "done",
-                plannedTime = null,
-                dueTime = null
+            localStore.createTask(
+                session.user.id,
+                goalId,
+                TaskDraft(
+                    title = data.thirdTask,
+                    description = "",
+                    type = "green",
+                    status = "done",
+                    plannedTime = null,
+                    dueTime = null
+                )
             )
-        )
+        } finally {
+            localStore.close()
+        }
     }
 
     private fun maybeOpenPendingTask(): Boolean {
@@ -6928,7 +7016,6 @@ class MainActivity : Activity() {
                 }
             )
             addView(markerDot(taskTypeColor(task), taskTypeA11y(task)))
-            addView(counterText(task.priority.toString()))
             dueChip(task)?.let { addView(it) }
             addView(
                 View(context).apply {
@@ -7247,7 +7334,8 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            addView(dialogLabel(label))
+            if (input.id == View.NO_ID) input.id = View.generateViewId()
+            addView(dialogLabel(label).apply { labelFor = input.id })
             (input.parent as? ViewGroup)?.removeView(input)
             input.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -7266,6 +7354,132 @@ class MainActivity : Activity() {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT
         )
+    }
+
+    private fun showCompactLandscapeFormDialog(
+        title: String,
+        form: ScrollView,
+        cancelLabel: String,
+        saveLabel: String,
+        focusInput: EditText,
+        onSave: () -> Unit
+    ): Dialog {
+        lateinit var dialog: Dialog
+        (form.getChildAt(0) as? LinearLayout)?.addView(
+            TextView(this).apply {
+                text = title
+                textSize = 20f
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(color(Ui.TEXT))
+                setPadding(0, dp(4), 0, dp(6))
+                ViewCompat.setAccessibilityHeading(this, true)
+            },
+            0
+        )
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(4), 0, dp(4), 0)
+            addView(compactDialogActionButton(cancelLabel) { dialog.dismiss() })
+            addView(compactDialogActionButton(saveLabel, primary = true, onClick = onSave))
+        }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(color(Ui.SURFACE))
+            addView(
+                form,
+                LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    1f
+                )
+            )
+            addView(
+                View(context).apply { setBackgroundColor(color(Ui.HAIRLINE)) },
+                LinearLayout.LayoutParams(dp(1), LinearLayout.LayoutParams.MATCH_PARENT)
+            )
+            addView(
+                actions,
+                LinearLayout.LayoutParams(
+                    dp(224),
+                    LinearLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+        }
+        val usesExplicitImeInsets = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        dialog = Dialog(this).apply {
+            setContentView(root)
+            window?.apply {
+                setBackgroundDrawable(ColorDrawable(color(Ui.SURFACE)))
+                setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
+                        if (usesExplicitImeInsets) {
+                            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                        } else {
+                            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                        }
+                )
+                WindowCompat.setDecorFitsSystemWindows(this, false)
+            }
+            show()
+            window?.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT
+            )
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            val padding = CompactFormWindowPolicy.resolvePadding(
+                systemBars = FormWindowInsets(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom),
+                ime = FormWindowInsets(ime.left, ime.top, ime.right, ime.bottom),
+                usesExplicitImeInsets = usesExplicitImeInsets && insets.isVisible(WindowInsetsCompat.Type.ime())
+            )
+            view.setPadding(padding.left, padding.top, padding.right, padding.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
+        focusDialogInput(
+            dialog,
+            focusInput,
+            resizeForIme = !usesExplicitImeInsets
+        )
+        return dialog
+    }
+
+    private fun usesCompactLandscapeForm(): Boolean {
+        val configuration = resources.configuration
+        return CompactFormWindowPolicy.shouldUseCompactLayout(
+            isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE,
+            screenHeightDp = configuration.screenHeightDp
+        )
+    }
+
+    private fun compactDialogActionButton(
+        label: String,
+        primary: Boolean = false,
+        onClick: () -> Unit
+    ): Button {
+        return Button(this).apply {
+            text = label
+            setAllCaps(false)
+            textSize = 14f
+            includeFontPadding = false
+            minWidth = dp(88)
+            minHeight = dp(48)
+            setTextColor(color(if (primary) Ui.ELEVATED else Ui.TEXT))
+            background = roundedDrawable(
+                fillColorHex = if (primary) Ui.ACCENT else "#00FFFFFF",
+                strokeColorHex = if (primary) Ui.ACCENT else "#00FFFFFF",
+                radiusDp = 8
+            )
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1f
+            )
+        }
     }
 
     private fun dialogContextLine(label: String, value: String): TextView {
@@ -7533,10 +7747,14 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun focusDialogInput(dialog: AlertDialog, input: EditText) {
+    private fun focusDialogInput(dialog: Dialog, input: EditText, resizeForIme: Boolean = true) {
         dialog.window?.setSoftInputMode(
             WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
-                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                if (resizeForIme) {
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                } else {
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                }
         )
         input.ensureKeyboardVisible()
     }
@@ -7656,6 +7874,7 @@ class MainActivity : Activity() {
             {
                 if (keyboardShowSerial == serial && isFocused && windowToken != null) {
                     showKeyboard(this)
+                    requestRectangleOnScreen(Rect(0, 0, width, height), false)
                 }
             },
             delayMs
@@ -8210,23 +8429,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun priorityColor(priority: Int): String {
-        return when {
-            priority <= 2 -> Ui.DANGER
-            priority <= 5 -> Ui.AMBER
-            else -> Ui.LOW
-        }
-    }
-
-    private fun priorityA11y(priority: Int): String {
-        val level = when {
-            priority <= 2 -> if (currentLanguage == "en") "high" else "высокий"
-            priority <= 5 -> if (currentLanguage == "en") "medium" else "средний"
-            else -> if (currentLanguage == "en") "low" else "низкий"
-        }
-        return if (currentLanguage == "en") "Priority $level" else "Приоритет: $level"
-    }
-
     private fun dueChipColor(raw: String?): String {
         val date = parseInstant(raw)?.atZone(zone)?.toLocalDate() ?: return Ui.MUTED
         val today = LocalDate.now(zone)
@@ -8770,7 +8972,6 @@ class MainActivity : Activity() {
         description: String = this.description,
         type: String = this.type,
         status: String = this.status,
-        priority: Int = this.priority,
         effort: Int = this.effort,
         plannedTime: String? = this.plannedTime,
         dueTime: String? = this.dueTime,
@@ -8783,7 +8984,6 @@ class MainActivity : Activity() {
             title = title,
             description = description,
             type = normalizeTaskType(type),
-            priority = priority,
             effort = effort,
             status = status,
             plannedTime = plannedTime,
@@ -9184,7 +9384,6 @@ class MainActivity : Activity() {
                 taskDetail = "Task",
                 notes = "Notes",
                 status = "Status",
-                priority = "Priority",
                 effort = "Effort",
                 planned = "Planned",
                 due = "Due",
@@ -9276,11 +9475,8 @@ class MainActivity : Activity() {
                 notesField = "Notes",
                 dueField = "Due",
                 plannedField = "Plan",
-                priorityField = "Priority 1-10",
                 effortField = "Effort / hours",
                 effortRequired = "Effort must be 0 or more.",
-                priorityRequired = "Priority must be from 1 to 10.",
-                priorityShort = "",
                 sharing = "Sharing",
                 share = "Share",
                 shareByEmail = "Email",
@@ -9373,7 +9569,6 @@ class MainActivity : Activity() {
                 taskDetail = "Задача",
                 notes = "Заметки",
                 status = "Статус",
-                priority = "Приоритет",
                 effort = "Трудоемкость",
                 planned = "\u041a\u043e\u0433\u0434\u0430 \u0434\u0435\u043b\u0430\u0442\u044c",
                 due = "\u0414\u0435\u0434\u043b\u0430\u0439\u043d",
@@ -9465,11 +9660,8 @@ class MainActivity : Activity() {
                 notesField = "Заметки",
                 dueField = "Срок",
                 plannedField = "План",
-                priorityField = "Приоритет 1-10",
                 effortField = "\u0422\u0440\u0443\u0434\u043e\u0435\u043c\u043a\u043e\u0441\u0442\u044c / \u0447\u0430\u0441\u044b",
                 effortRequired = "Трудоемкость должна быть 0 или больше.",
-                priorityRequired = "Приоритет должен быть от 1 до 10.",
-                priorityShort = "",
                 sharing = "Доступ",
                 share = "Поделиться",
                 shareByEmail = "Email",
@@ -9513,5 +9705,11 @@ class MainActivity : Activity() {
         private const val STATE_CALENDAR_MONTH = "state.calendarMonth"
         private const val STATE_CALENDAR_DATE = "state.calendarDate"
         private const val STATE_SELECTED_TASK_ID = "state.selectedTaskId"
+        private const val STATE_PLANNER_ANCHOR_TYPE = "state.plannerAnchorType"
+        private const val STATE_PLANNER_ANCHOR_ID = "state.plannerAnchorId"
+        private const val STATE_PLANNER_ANCESTOR_TYPES = "state.plannerAncestorTypes"
+        private const val STATE_PLANNER_ANCESTOR_IDS = "state.plannerAncestorIds"
+        private const val STATE_PLANNER_PIXEL_OFFSET = "state.plannerPixelOffset"
+        private const val STATE_PLANNER_ABSOLUTE_Y = "state.plannerAbsoluteY"
     }
 }

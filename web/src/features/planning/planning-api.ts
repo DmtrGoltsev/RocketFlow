@@ -26,11 +26,13 @@ import type {
   TaskClonePayload,
   TaskChecklistItemDto,
   TaskChecklistReplacePayload,
+  TaskApiDto,
   TaskDto,
   TaskMoveToGoalPayload,
   TaskRecurrenceUpsertPayload,
   TaskUpsertPayload,
 } from './types';
+import { normalizeTaskResponse } from './planning-utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/rocket-api';
 
@@ -239,17 +241,18 @@ export async function cloneGoal(
 }
 
 export async function listTasks(authorizedFetch: AuthorizedFetch, goalId: string) {
-  const response = await requestJson<ListResponse<TaskDto>>(authorizedFetch, `/goals/${goalId}/tasks`, {
+  const response = await requestJson<ListResponse<TaskApiDto>>(authorizedFetch, `/goals/${goalId}/tasks`, {
     method: 'GET',
   });
 
-  return response.items;
+  return response.items.map(normalizeTaskResponse);
 }
 
 export async function getTask(authorizedFetch: AuthorizedFetch, taskId: string) {
-  return requestJson<TaskDto>(authorizedFetch, `/tasks/${taskId}`, {
+  const task = await requestJson<TaskApiDto>(authorizedFetch, `/tasks/${taskId}`, {
     method: 'GET',
   });
+  return normalizeTaskResponse(task);
 }
 
 export async function createTask(
@@ -257,10 +260,11 @@ export async function createTask(
   goalId: string,
   payload: TaskUpsertPayload,
 ) {
-  return requestJson<TaskDto>(authorizedFetch, `/goals/${goalId}/tasks`, {
+  const task = await requestJson<TaskApiDto>(authorizedFetch, `/goals/${goalId}/tasks`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  return normalizeTaskResponse(task);
 }
 
 export async function updateTask(
@@ -268,10 +272,11 @@ export async function updateTask(
   taskId: string,
   payload: TaskUpsertPayload,
 ) {
-  return requestJson<TaskDto>(authorizedFetch, `/tasks/${taskId}`, {
+  const task = await requestJson<TaskApiDto>(authorizedFetch, `/tasks/${taskId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
+  return normalizeTaskResponse(task);
 }
 
 export async function deleteTask(authorizedFetch: AuthorizedFetch, taskId: string) {
@@ -296,10 +301,11 @@ export async function moveTaskToGoal(
   taskId: string,
   payload: TaskMoveToGoalPayload,
 ) {
-  return requestJson<TaskDto>(authorizedFetch, `/tasks/${taskId}/move-to-goal`, {
+  const task = await requestJson<TaskApiDto>(authorizedFetch, `/tasks/${taskId}/move-to-goal`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  return normalizeTaskResponse(task);
 }
 
 export async function cloneTask(
@@ -307,10 +313,11 @@ export async function cloneTask(
   taskId: string,
   payload: TaskClonePayload,
 ) {
-  return requestJson<TaskDto>(authorizedFetch, `/tasks/${taskId}/clone`, {
+  const task = await requestJson<TaskApiDto>(authorizedFetch, `/tasks/${taskId}/clone`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  return normalizeTaskResponse(task);
 }
 
 export async function listIdeas(authorizedFetch: AuthorizedFetch, folderId: string) {

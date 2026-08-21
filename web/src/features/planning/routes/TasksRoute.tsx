@@ -87,11 +87,15 @@ import {
 import { usePlanningCopy } from '../planning-copy';
 import { mapPlanningError } from '../planning-errors';
 import {
+  DEFAULT_TASK_PRIORITY,
+  compatibilityTaskPriority,
   createDefaultRecurrenceDraft,
   describeRecurrence,
   formatDateTime,
   fromDateTimeInputValue,
+  sortTasksForPlan,
   toDateTimeInputValue,
+  toTaskUpsertPayload,
   toTaskRecurrenceDraft,
   toTaskRecurrenceUpsertPayload,
 } from '../planning-utils';
@@ -152,7 +156,6 @@ interface TaskDraft {
   description: string;
   type: TaskType;
   status: TaskStatus;
-  priority: string;
   effort: string;
   plannedTime: string;
   dueTime: string;
@@ -205,7 +208,6 @@ function toDraft(task: TaskDto | null): TaskDraft {
     description: task?.description ?? '',
     type: task?.type ?? 'green',
     status: task?.status ?? 'todo',
-    priority: String(task?.priority ?? 2),
     effort: String(task?.effort ?? 0),
     plannedTime: toDateTimeInputValue(task?.plannedTime ?? null),
     dueTime: toDateTimeInputValue(task?.dueTime ?? null),
@@ -346,23 +348,6 @@ function formatEffortProgress(tasks: TaskDto[], locale: 'ru' | 'en') {
 
 function isComplete(task: TaskDto) {
   return task.status === 'done' || task.status === 'cancelled';
-}
-
-function sortTasksByPriority(tasks: TaskDto[]) {
-  return [...tasks].sort((left, right) => {
-    const priorityDelta = right.priority - left.priority;
-    if (priorityDelta !== 0) {
-      return priorityDelta;
-    }
-
-    const leftDue = left.dueTime ? new Date(left.dueTime).getTime() : Number.POSITIVE_INFINITY;
-    const rightDue = right.dueTime ? new Date(right.dueTime).getTime() : Number.POSITIVE_INFINITY;
-    if (leftDue !== rightDue) {
-      return leftDue - rightDue;
-    }
-
-    return left.createdAt.localeCompare(right.createdAt);
-  });
 }
 
 function sortChecklistItems(items: TaskChecklistItemDto[] | undefined) {
@@ -579,7 +564,7 @@ function groupGoalsByFolder(goals: GoalDto[]) {
 }
 
 function groupTasksByGoal(tasks: TaskDto[]) {
-  return sortTasksByPriority(filterActiveEntities(tasks)).reduce<TasksByGoal>((groups, task) => {
+  return sortTasksForPlan(filterActiveEntities(tasks)).reduce<TasksByGoal>((groups, task) => {
     groups[task.goalId] = [...(groups[task.goalId] ?? []), task];
     return groups;
   }, {});
@@ -656,7 +641,6 @@ function usePlanCopy() {
     details: locale === 'ru' ? 'Сведения' : 'Details',
     status: locale === 'ru' ? 'Статус' : 'Status',
     type: locale === 'ru' ? 'Тип' : 'Type',
-    priority: locale === 'ru' ? 'Приоритет' : 'Priority',
     effort: locale === 'ru' ? 'Трудоёмкость' : 'Effort',
     effortHours: locale === 'ru' ? 'Трудоёмкость, часы' : 'Effort, hours',
     hoursHint: locale === 'ru' ? 'Укажите целое число часов.' : 'Enter whole hours.',
@@ -833,8 +817,8 @@ export function TasksRoute() {
   const selectedNote = notes.find((note) => note.id === selection.noteId) ?? null;
   const selectedIdeaNotes = selectedIdea ? ideaNotesByIdea[selectedIdea.id] ?? [] : [];
   const selectedFolderGoals = selectedFolder ? goals.filter((goal) => goal.folderId === selectedFolder.id) : [];
-  const selectedFolderTasks = sortTasksByPriority(selectedFolderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []));
-  const selectedGoalTasks = selectedGoal ? sortTasksByPriority(tasksByGoal[selectedGoal.id] ?? []) : [];
+  const selectedFolderTasks = sortTasksForPlan(selectedFolderGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []));
+  const selectedGoalTasks = selectedGoal ? sortTasksForPlan(tasksByGoal[selectedGoal.id] ?? []) : [];
   const folderCreationParent = createFolderParentId ? folders.find((folder) => folder.id === createFolderParentId) ?? null : null;
   const goalCreationFolder = createGoalFolderId ? folders.find((folder) => folder.id === createGoalFolderId) ?? null : null;
   const ideaCreationFolder = createIdeaFolderId ? folders.find((folder) => folder.id === createIdeaFolderId) ?? null : null;
@@ -2143,9 +2127,8 @@ export function TasksRoute() {
       return;
     }
 
-    const priority = Number(draft.priority);
     const effort = Number(draft.effort);
-    if (!draft.title.trim() || !Number.isInteger(priority) || priority < 1 || priority > 10 || !Number.isInteger(effort) || effort < 0) {
+    if (!draft.title.trim() || !Number.isInteger(effort) || effort < 0) {
       return;
     }
 
@@ -2168,7 +2151,7 @@ export function TasksRoute() {
           title: draft.title.trim(),
           description: draft.description.trim(),
           type: draft.type,
-          priority,
+          priority: DEFAULT_TASK_PRIORITY,
           effort,
           status: draft.status,
           plannedTime: fromDateTimeInputValue(draft.plannedTime),
@@ -2197,16 +2180,7 @@ export function TasksRoute() {
         setIsPanelOpen(true);
 
         try {
-          const task = await createTask(authorizedFetch, targetGoal.id, {
-            title: optimisticTask.title,
-            description: optimisticTask.description,
-            type: draft.type,
-            priority,
-            effort,
-            status: draft.status,
-            plannedTime: optimisticTask.plannedTime,
-            dueTime: optimisticTask.dueTime,
-          });
+          const task = await createTask(authorizedFetch, targetGoal.id, toTaskUpsertPayload(draft));
 
           const recurrencePayload = draft.recurrence.enabled ? toTaskRecurrenceUpsertPayload(draft) : null;
           let nextTask = task;
@@ -2246,7 +2220,6 @@ export function TasksRoute() {
         title: draft.title.trim(),
         description: draft.description.trim(),
         type: draft.type,
-        priority,
         effort,
         status: draft.status,
         plannedTime: fromDateTimeInputValue(draft.plannedTime),
@@ -2272,14 +2245,7 @@ export function TasksRoute() {
           : null;
 
         const updated = await updateTask(authorizedFetch, originalTask.id, {
-          title: optimisticTask.title,
-          description: optimisticTask.description,
-          type: optimisticTask.type,
-          priority,
-          effort,
-          status: optimisticTask.status,
-          plannedTime: optimisticTask.plannedTime,
-          dueTime: optimisticTask.dueTime,
+          ...toTaskUpsertPayload(draft, originalTask),
           archived: originalTask.archived,
           version: originalTask.version,
         });
@@ -2325,7 +2291,7 @@ export function TasksRoute() {
           title: task.title,
           description: task.description,
           type: task.type,
-          priority: task.priority,
+          priority: compatibilityTaskPriority(task),
           effort: taskEffort(task),
           status: optimisticTask.status,
           plannedTime: task.plannedTime,
@@ -3491,13 +3457,13 @@ export function TasksRoute() {
     const allIdeas = ideasByFolder[folder.id] ?? [];
     const allNotes = notesByFolder[folder.id] ?? [];
     const children = childFoldersByParent[folder.id] ?? [];
-    const folderTasks = sortTasksByPriority(allGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []));
+    const folderTasks = sortTasksForPlan(allGoals.flatMap((goal) => tasksByGoal[goal.id] ?? []));
     const currentFolderMatches = isSearching && folderMatches(folder);
     const visibleIdeas = allIdeas.filter((idea) => !isSearching || currentFolderMatches || matchesQuery(idea.title, normalizedSearch, locale) || matchesQuery(idea.body, normalizedSearch, locale));
     const visibleNotes = allNotes.filter((note) => !isSearching || currentFolderMatches || matchesQuery(note.title, normalizedSearch, locale) || matchesQuery(note.body, normalizedSearch, locale));
     const visibleGoals = allGoals
       .map((goal) => {
-        const allTasks = sortTasksByPriority(tasksByGoal[goal.id] ?? []);
+        const allTasks = sortTasksForPlan(tasksByGoal[goal.id] ?? []);
         const activeTasks = allTasks.filter((task) => !isComplete(task));
         const goalMatches = isSearching && (matchesQuery(goal.name, normalizedSearch, locale) || matchesQuery(goal.description, normalizedSearch, locale));
         const visibleTasks = activeTasks.filter((task) => {
@@ -4076,7 +4042,6 @@ export function TasksRoute() {
                         <span className={`marker-dot marker-dot--${markerToneForTask(task)}`} aria-hidden="true" />
                         <span className="goal-task-list__title">{task.title}</span>
                         <span className="meta-chip">{planningCopy.enums.taskStatus[task.status]}</span>
-                        <span className="meta-chip">{copy.priority}: {task.priority}</span>
                         <span className="meta-chip">{formatTaskEffort(task, locale)}</span>
                       </button>
                     ))}
@@ -4142,7 +4107,6 @@ export function TasksRoute() {
               {!isCreatingTask && selectedTask ? (
                 <div className="detail-panel__badges" aria-label={copy.details}>
                   <span className="meta-chip" title={copy.status}><span className={`marker-dot marker-dot--${markerToneForTask(selectedTask)}`} aria-hidden="true" />{planningCopy.enums.taskStatus[selectedTask.status]}</span>
-                  <span className="meta-chip" title={copy.priority}>{selectedTask.priority}</span>
                   <span className="meta-chip" title={copy.effortHours}>{formatTaskEffort(selectedTask, locale)}</span>
                   {selectedTask.dueTime ? <span className={`meta-chip meta-chip--${dueTone(selectedTask.dueTime)}`} title={copy.due}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.dueTime, locale)}</span> : null}
                   {selectedTask.plannedTime ? <span className="meta-chip" title={copy.planned}><CalendarClock aria-hidden="true" size={14} strokeWidth={1.75} />{formatDateTime(selectedTask.plannedTime, locale)}</span> : null}
@@ -4160,7 +4124,6 @@ export function TasksRoute() {
                   <label className="field detail-grid__wide"><span>{planningCopy.tasks.descriptionLabel}</span><textarea className="field__control field__control--area" disabled={!canEditSelectedTaskFields} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
                   <label className="field"><span>{planningCopy.tasks.typeLabel}</span><select className="field__control" disabled={!canEditSelectedTaskFields} value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as TaskType }))}><option value="green">{planningCopy.enums.taskType.green}</option><option value="red">{planningCopy.enums.taskType.red}</option></select></label>
                   <label className="field"><span>{planningCopy.tasks.statusLabel}</span><select className="field__control" disabled={!canEditSelectedTaskFields} value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as TaskStatus }))}>{TASK_STATUSES.map((status) => <option key={status} value={status}>{planningCopy.enums.taskStatus[status]}</option>)}</select></label>
-                  <label className="field"><span>{planningCopy.tasks.priorityLabel}</span><input className="field__control" inputMode="numeric" disabled={!canEditSelectedTaskFields} value={draft.priority} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value }))} /></label>
                   <label className="field"><span>{copy.effortHours}</span><input className="field__control" inputMode="numeric" disabled={!canEditSelectedTaskFields} value={draft.effort} onChange={(event) => setDraft((current) => ({ ...current, effort: event.target.value }))} /><span className="field__hint">{copy.hoursHint}</span>{currentEffortError ? <span className="field__error">{currentEffortError}</span> : null}</label>
                   <label className="field"><span>{planningCopy.tasks.plannedTimeLabel}</span><input className="field__control" type="datetime-local" disabled={!canEditSelectedTaskFields} value={draft.plannedTime} onChange={(event) => setDraft((current) => ({ ...current, plannedTime: event.target.value }))} /></label>
                   <label className="field"><span>{planningCopy.tasks.dueTimeLabel}</span><input className="field__control" type="datetime-local" disabled={!canEditSelectedTaskFields} value={draft.dueTime} onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))} /></label>

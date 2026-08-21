@@ -47,7 +47,7 @@ data class PlanningTask(
     val title: String,
     val description: String,
     val type: String,
-    val priority: Int,
+    internal val priorityShadow: Int,
     val effort: Int,
     val status: String,
     val plannedTime: String?,
@@ -221,8 +221,7 @@ data class PlanningLoadResult(
 
 data class TaskRescheduleResult(
     val session: com.rocketflow.companion.auth.AuthSession,
-    val snapshot: PlanningSnapshot,
-    val priorityDecayApplied: Boolean
+    val snapshot: PlanningSnapshot
 )
 
 data class FolderDraft(
@@ -241,7 +240,6 @@ data class TaskDraft(
     val title: String,
     val description: String,
     val type: String,
-    val priority: Int,
     val effort: Int = 0,
     val status: String,
     val plannedTime: String?,

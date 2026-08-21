@@ -15,6 +15,7 @@ public final class CalendarApi {
             UUID goalId,
             String title,
             String type,
+            @Deprecated
             int priority,
             String status,
             Instant plannedTime,

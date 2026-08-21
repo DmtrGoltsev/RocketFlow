@@ -3,6 +3,7 @@ package com.rocketflow.settings;
 import static com.rocketflow.auth.AuthDtos.*;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
@@ -58,14 +59,14 @@ public class UserSettingsService {
             throw new ApiException(HttpStatus.CONFLICT, "conflict", "Settings were updated by another request.");
         }
 
+        boolean changed = !Objects.equals(settings.getLanguage(), request.language())
+                || settings.isNotificationsEnabled() != request.notificationsEnabled();
+        if (!changed) {
+            return toResponse(settings);
+        }
+
         settings.setLanguage(request.language());
         settings.setNotificationsEnabled(request.notificationsEnabled());
-        settings.setGreenPriorityDecayEnabled(false);
-        settings.setGreenPriorityDecayThreshold(request.greenPriorityDecayPolicy().thresholdPreset());
-        settings.setGreenPriorityDecayAmount(request.greenPriorityDecayPolicy().decayAmount());
-        settings.setRedPriorityDecayEnabled(false);
-        settings.setRedPriorityDecayThreshold(request.redPriorityDecayPolicy().thresholdPreset());
-        settings.setRedPriorityDecayAmount(request.redPriorityDecayPolicy().decayAmount());
         settings.setUpdatedAt(Instant.now());
 
         return toResponse(userSettingsRepository.save(settings));

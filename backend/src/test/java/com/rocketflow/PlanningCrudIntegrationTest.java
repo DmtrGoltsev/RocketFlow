@@ -8,6 +8,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -384,7 +388,7 @@ class PlanningCrudIntegrationTest {
                 .andExpect(jsonPath("$.title").value("Editable task saved"))
                 .andExpect(jsonPath("$.description").value("After edit"))
                 .andExpect(jsonPath("$.type").value("red"))
-                .andExpect(jsonPath("$.priority").value(6))
+                .andExpect(jsonPath("$.priority").value(5))
                 .andExpect(jsonPath("$.effort").value(3))
                 .andExpect(jsonPath("$.status").value("in_progress"))
                 .andExpect(jsonPath("$.archived").value(false))
@@ -499,7 +503,7 @@ class PlanningCrudIntegrationTest {
     }
 
     @Test
-    void taskListOrdersByPriorityDescendingWithStableSecondaryKeys() throws Exception {
+    void taskListIgnoresHistoricalPriorityAndOrdersByCreatedAtThenId() throws Exception {
         String tokens = registerAndLogin();
         String accessToken = read(tokens, "/tokens/accessToken");
 
@@ -527,19 +531,112 @@ class PlanningCrudIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString(), "/id");
 
-        createTask(accessToken, goalId, "Medium priority task", 5);
-        createTask(accessToken, goalId, "High priority task", 9);
-        createTask(accessToken, goalId, "Low priority task", 2);
+        String firstId = read(createTask(accessToken, goalId, "First task", 5), "/id");
+        String secondId = read(createTask(accessToken, goalId, "Second task", 9), "/id");
+        String thirdId = read(createTask(accessToken, goalId, "Third task", 2), "/id");
+        setSameCreatedAt(List.of(firstId, secondId, thirdId));
+        List<String> expectedIds = taskIdsOrderedById(goalId);
+        setTaskPriority(expectedIds.get(0), 1);
+        setTaskPriority(expectedIds.get(1), 10);
+        setTaskPriority(expectedIds.get(2), 5);
 
         mockMvc.perform(get("/api/goals/" + goalId + "/tasks")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[0].title").value("High priority task"))
-                .andExpect(jsonPath("$.items[0].priority").value(9))
-                .andExpect(jsonPath("$.items[1].title").value("Medium priority task"))
-                .andExpect(jsonPath("$.items[1].priority").value(5))
-                .andExpect(jsonPath("$.items[2].title").value("Low priority task"))
-                .andExpect(jsonPath("$.items[2].priority").value(2));
+                .andExpect(jsonPath("$.items[0].id").value(expectedIds.get(0)))
+                .andExpect(jsonPath("$.items[0].priority").value(1))
+                .andExpect(jsonPath("$.items[1].id").value(expectedIds.get(1)))
+                .andExpect(jsonPath("$.items[1].priority").value(10))
+                .andExpect(jsonPath("$.items[2].id").value(expectedIds.get(2)))
+                .andExpect(jsonPath("$.items[2].priority").value(5));
+    }
+
+    @Test
+    void oldAndNewTaskPayloadsKeepPriorityAsAnIgnoredCompatibilityShadow() throws Exception {
+        String accessToken = read(registerAndLogin(), "/tokens/accessToken");
+        String folderId = createFolder(accessToken, "Compatibility");
+        String goalId = createGoal(accessToken, folderId, "Priority retirement");
+
+        String oldClientTask = createTask(accessToken, goalId, "Old client", 10);
+        String omittedPriorityTask = createTaskWithoutPriority(accessToken, goalId, "New client", null);
+        String nullPriorityTask = createTaskWithoutPriority(accessToken, goalId, "Nullable client", "null");
+
+        String oldClientTaskId = read(oldClientTask, "/id");
+        org.junit.jupiter.api.Assertions.assertEquals("5", read(oldClientTask, "/priority"));
+        org.junit.jupiter.api.Assertions.assertEquals("5", read(omittedPriorityTask, "/priority"));
+        org.junit.jupiter.api.Assertions.assertEquals("5", read(nullPriorityTask, "/priority"));
+
+        setTaskPriority(oldClientTaskId, 9);
+        String historical = mockMvc.perform(get("/api/tasks/" + oldClientTaskId)
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.priority").value(9))
+                .andReturn().getResponse().getContentAsString();
+
+        mockMvc.perform(patch("/api/tasks/" + oldClientTaskId)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(taskUpdatePayload("Old payload update", "\"priority\": 1,", read(historical, "/version"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.priority").value(9));
+        String afterOldUpdate = getTask(accessToken, oldClientTaskId);
+
+        mockMvc.perform(patch("/api/tasks/" + oldClientTaskId)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(taskUpdatePayload("Omitted priority update", "", read(afterOldUpdate, "/version"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.priority").value(9));
+        String afterOmittedUpdate = getTask(accessToken, oldClientTaskId);
+
+        mockMvc.perform(patch("/api/tasks/" + oldClientTaskId)
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(taskUpdatePayload("Null priority update", "\"priority\": null,", read(afterOmittedUpdate, "/version"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.priority").value(9));
+    }
+
+    @Test
+    void cloneUsesLegacyPriorityWhileMoveToGoalPreservesHistoricalShadow() throws Exception {
+        String accessToken = read(registerAndLogin(), "/tokens/accessToken");
+        String folderId = createFolder(accessToken, "Clone and move");
+        String sourceGoalId = createGoal(accessToken, folderId, "Source");
+        String targetGoalId = createGoal(accessToken, folderId, "Target");
+        String source = createTask(accessToken, sourceGoalId, "Historical source", 8);
+        String sourceId = read(source, "/id");
+        setTaskPriority(sourceId, 8);
+
+        mockMvc.perform(post("/api/tasks/" + sourceId + "/clone")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "targetGoalId": "%s",
+                                  "title": "Compatibility clone"
+                                }
+                                """.formatted(targetGoalId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.priority").value(5));
+
+        String current = mockMvc.perform(get("/api/tasks/" + sourceId)
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.priority").value(8))
+                .andReturn().getResponse().getContentAsString();
+
+        mockMvc.perform(post("/api/tasks/" + sourceId + "/move-to-goal")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "targetGoalId": "%s",
+                                  "version": %s
+                                }
+                                """.formatted(targetGoalId, read(current, "/version"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.goalId").value(targetGoalId))
+                .andExpect(jsonPath("$.priority").value(8));
     }
 
     @Test
@@ -641,8 +738,8 @@ class PlanningCrudIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
     }
 
-    private void createTask(String accessToken, String goalId, String title, int priority) throws Exception {
-        mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+    private String createTask(String accessToken, String goalId, String title, int priority) throws Exception {
+        return mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
                         .header("Authorization", "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -657,7 +754,113 @@ class PlanningCrudIntegrationTest {
                                   "tagIds": []
                                 }
                                 """.formatted(title, priority)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private String createTaskWithoutPriority(String accessToken, String goalId, String title, String priorityValue) throws Exception {
+        String priorityProperty = priorityValue == null ? "" : "\"priority\": " + priorityValue + ",";
+        return mockMvc.perform(post("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "%s",
+                                  "description": "Task description",
+                                  "type": "green",
+                                  %s
+                                  "status": "todo",
+                                  "tagIds": []
+                                }
+                                """.formatted(title, priorityProperty)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private String createFolder(String accessToken, String name) throws Exception {
+        return read(mockMvc.perform(post("/api/folders")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "%s",
+                                  "description": "Compatibility fixture"
+                                }
+                                """.formatted(name)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+    }
+
+    private String createGoal(String accessToken, String folderId, String name) throws Exception {
+        return read(mockMvc.perform(post("/api/folders/" + folderId + "/goals")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "%s",
+                                  "description": "Compatibility fixture"
+                                }
+                                """.formatted(name)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(), "/id");
+    }
+
+    private String taskUpdatePayload(String title, String priorityProperty, String version) {
+        return """
+                {
+                  "title": "%s",
+                  "description": "Task description",
+                  "type": "green",
+                  %s
+                  "status": "todo",
+                  "plannedTime": "2026-05-01T09:00:00Z",
+                  "dueTime": "2026-05-02T18:00:00Z",
+                  "archived": false,
+                  "tagIds": [],
+                  "version": %s
+                }
+                """.formatted(title, priorityProperty, version);
+    }
+
+    private String getTask(String accessToken, String taskId) throws Exception {
+        return mockMvc.perform(get("/api/tasks/" + taskId)
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private void setTaskPriority(String taskId, int priority) throws Exception {
+        try (var connection = POSTGRES.getPostgresDatabase().getConnection();
+             var statement = connection.prepareStatement("update tasks set priority = ? where id = ?")) {
+            statement.setInt(1, priority);
+            statement.setObject(2, UUID.fromString(taskId));
+            statement.executeUpdate();
+        }
+    }
+
+    private void setSameCreatedAt(List<String> taskIds) throws Exception {
+        try (var connection = POSTGRES.getPostgresDatabase().getConnection();
+             var statement = connection.prepareStatement("update tasks set created_at = '2026-01-01T00:00:00Z' where id = ?")) {
+            for (String taskId : taskIds) {
+                statement.setObject(1, UUID.fromString(taskId));
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+    }
+
+    private List<String> taskIdsOrderedById(String goalId) throws Exception {
+        List<String> result = new ArrayList<>();
+        try (var connection = POSTGRES.getPostgresDatabase().getConnection();
+             var statement = connection.prepareStatement("select id from tasks where goal_id = ? order by id")) {
+            statement.setObject(1, UUID.fromString(goalId));
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    result.add(rows.getObject(1, UUID.class).toString());
+                }
+            }
+        }
+        return result;
     }
 
     private String read(String json, String path) throws Exception {

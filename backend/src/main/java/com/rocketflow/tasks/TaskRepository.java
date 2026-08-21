@@ -12,9 +12,9 @@ import org.springframework.data.repository.query.Param;
 
 public interface TaskRepository extends JpaRepository<Task, UUID> {
 
-    List<Task> findByGoalIdAndOwnerUserIdOrderByPriorityDescCreatedAtAscIdAsc(UUID goalId, UUID ownerUserId);
+    List<Task> findByGoalIdAndOwnerUserIdOrderByCreatedAtAscIdAsc(UUID goalId, UUID ownerUserId);
 
-    List<Task> findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByPriorityDescCreatedAtAscIdAsc(UUID goalId, UUID ownerUserId);
+    List<Task> findByGoalIdAndOwnerUserIdAndArchivedFalseOrderByCreatedAtAscIdAsc(UUID goalId, UUID ownerUserId);
 
     List<Task> findByGoalIdIn(Collection<UUID> goalIds);
 
@@ -62,7 +62,7 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
               and task.plannedTime is not null
               and task.plannedTime >= :from
               and task.plannedTime <= :to
-            order by task.plannedTime asc, task.priority desc, task.createdAt asc
+            order by task.plannedTime asc, task.createdAt asc, task.id asc
             """)
     List<Task> findCalendarTasksForOwner(
             @Param("ownerUserId") UUID ownerUserId,
@@ -78,7 +78,7 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
               and task.plannedTime is not null
               and task.plannedTime >= :from
               and task.plannedTime <= :to
-            order by task.plannedTime asc, task.priority desc, task.createdAt asc
+            order by task.plannedTime asc, task.createdAt asc, task.id asc
             """)
     List<Task> findCalendarTasksByGoalIds(
             @Param("goalIds") Collection<UUID> goalIds,
@@ -94,7 +94,7 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
               and task.plannedTime is not null
               and task.plannedTime >= :from
               and task.plannedTime <= :to
-            order by task.plannedTime asc, task.priority desc, task.createdAt asc
+            order by task.plannedTime asc, task.createdAt asc, task.id asc
             """)
     List<Task> findCalendarTasksByIds(
             @Param("taskIds") Collection<UUID> taskIds,

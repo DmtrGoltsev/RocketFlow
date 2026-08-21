@@ -1,5 +1,6 @@
 package com.rocketflow;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -8,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterAll;
@@ -756,19 +758,20 @@ class SharingIntegrationTest {
                                   "version": %s
                                 }
                                 """.formatted(taskAfterOwnerUpdateVersion)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("not_found"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("in_progress"))
+                .andExpect(jsonPath("$.priority").value(5));
 
-        String taskAfterPriorityMutationAttempt = mockMvc.perform(get("/api/tasks/" + sharedTaskId)
+        String taskAfterIgnoredPriorityUpdate = mockMvc.perform(get("/api/tasks/" + sharedTaskId)
                         .header("Authorization", "Bearer " + owner.accessToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("todo"))
-                .andExpect(jsonPath("$.priority").value(6))
+                .andExpect(jsonPath("$.status").value("in_progress"))
+                .andExpect(jsonPath("$.priority").value(5))
                 .andExpect(jsonPath("$.title").value("Shared completion"))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
-        String taskAfterPriorityMutationAttemptVersion = read(taskAfterPriorityMutationAttempt, "/version");
+        String taskAfterIgnoredPriorityUpdateVersion = read(taskAfterIgnoredPriorityUpdate, "/version");
 
         mockMvc.perform(patch("/api/tasks/" + sharedTaskId)
                         .header("Authorization", "Bearer " + taskCollaborator.accessToken())
@@ -785,15 +788,15 @@ class SharingIntegrationTest {
                                   "archived": false,
                                   "version": %s
                                 }
-                                """.formatted(taskAfterPriorityMutationAttemptVersion)))
+                                """.formatted(taskAfterIgnoredPriorityUpdateVersion)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("not_found"));
 
         mockMvc.perform(get("/api/tasks/" + sharedTaskId)
-                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .header("Authorization", "Bearer " + owner.accessToken()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("todo"))
-                .andExpect(jsonPath("$.priority").value(6))
+                .andExpect(jsonPath("$.status").value("in_progress"))
+                .andExpect(jsonPath("$.priority").value(5))
                 .andExpect(jsonPath("$.title").value("Shared completion"));
     }
 
@@ -1123,6 +1126,48 @@ class SharingIntegrationTest {
                 .andExpect(jsonPath("$.goals[0].id").value(goalId));
     }
 
+    @Test
+    void taskOrderingMatchesPostgresAcrossRepositoryCalendarAndShareEndpoints() throws Exception {
+        Session owner = registerAndLogin("share-order-owner@example.com", "Share Order Owner");
+        Session collaborator = registerAndLogin("share-order-collaborator@example.com", "Share Order Collaborator");
+        String folderId = createFolder(owner.accessToken());
+        String goalId = read(createGoal(owner.accessToken(), folderId, "Shared order", "Stable task order"), "/id");
+        String firstId = read(createTask(owner.accessToken(), goalId, "First", 1), "/id");
+        String secondId = read(createTask(owner.accessToken(), goalId, "Second", 10), "/id");
+        List<String> expectedIds = List.of(
+                "7fffffff-ffff-ffff-ffff-ffffffffffff",
+                "80000000-0000-0000-0000-000000000000"
+        );
+        remapTask(firstId, expectedIds.get(1), 10);
+        remapTask(secondId, expectedIds.get(0), 1);
+        shareAndAccept(
+                owner.accessToken(),
+                collaborator.accessToken(),
+                "/api/goals/" + goalId + "/share",
+                "share-order-collaborator@example.com"
+        );
+
+        String repositoryResponse = mockMvc.perform(get("/api/goals/" + goalId + "/tasks")
+                        .header("Authorization", "Bearer " + collaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String calendarResponse = mockMvc.perform(get("/api/calendar")
+                        .header("Authorization", "Bearer " + collaborator.accessToken())
+                        .param("from", "2026-05-01T00:00:00Z")
+                        .param("to", "2026-05-01T23:59:59Z"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String shareResponse = mockMvc.perform(get("/api/shares/resources")
+                        .header("Authorization", "Bearer " + collaborator.accessToken()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        List<String> repositoryOrder = idsAt(repositoryResponse, "/items", "id");
+        assertEquals(expectedIds, repositoryOrder);
+        assertEquals(repositoryOrder, idsAt(calendarResponse, "/items", "taskId"));
+        assertEquals(repositoryOrder, idsAt(shareResponse, "/tasks", "id"));
+    }
+
     private Session registerAndLogin(String email, String displayName) throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -1231,6 +1276,28 @@ class SharingIntegrationTest {
         JsonNode root = objectMapper.readTree(json);
         JsonNode value = root.at(path);
         return value.isTextual() ? value.asText() : value.toString();
+    }
+
+    private void remapTask(String currentTaskId, String targetTaskId, int priority) throws Exception {
+        try (var connection = POSTGRES.getPostgresDatabase().getConnection();
+             var statement = connection.prepareStatement("""
+                     update tasks
+                     set id = ?, priority = ?, created_at = '2026-01-01T00:00:00Z'
+                     where id = ?
+                     """)) {
+            statement.setObject(1, UUID.fromString(targetTaskId));
+            statement.setInt(2, priority);
+            statement.setObject(3, UUID.fromString(currentTaskId));
+            statement.executeUpdate();
+        }
+    }
+
+    private List<String> idsAt(String json, String collectionPath, String idField) throws Exception {
+        List<String> result = new java.util.ArrayList<>();
+        for (JsonNode item : objectMapper.readTree(json).at(collectionPath)) {
+            result.add(item.path(idField).asText());
+        }
+        return List.copyOf(result);
     }
 
     private String userId(String email) throws Exception {

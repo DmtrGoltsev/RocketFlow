@@ -5,19 +5,18 @@ import com.rocketflow.companion.auth.AuthSession
 import com.rocketflow.companion.auth.SessionBoundResult
 import org.json.JSONObject
 
-data class PriorityDecayPolicy(
-    val taskType: String,
-    val enabled: Boolean,
-    val thresholdPreset: String,
-    val decayAmount: Int
-)
+data class SettingsCompatibilityShadows(
+    val greenJson: String,
+    val redJson: String
+) {
+    companion object
+}
 
 data class UserSettings(
     val language: String,
-    val greenPriorityDecayPolicy: PriorityDecayPolicy,
-    val redPriorityDecayPolicy: PriorityDecayPolicy,
     val notificationsEnabled: Boolean,
-    val version: Long
+    val version: Long,
+    internal val compatibilityShadows: SettingsCompatibilityShadows = SettingsCompatibilityShadows.defaults()
 )
 
 class UserSettingsRepository(
@@ -33,51 +32,45 @@ class UserSettingsRepository(
         session: AuthSession,
         settings: UserSettings
     ): SessionBoundResult<UserSettings> {
-        val result = authRepository.authorizedPatch(session, "/me/settings", settings.toBody())
+        val result = authRepository.authorizedPatch(session, "/me/settings", settings.toV20Body())
         return SessionBoundResult(result.session, result.value.toSettings())
     }
 
-    private fun UserSettings.toBody(): JSONObject {
-        return JSONObject()
-            .put("language", language)
-            .put("greenPriorityDecayPolicy", greenPriorityDecayPolicy.toRequestBody())
-            .put("redPriorityDecayPolicy", redPriorityDecayPolicy.toRequestBody())
-            .put("notificationsEnabled", notificationsEnabled)
-            .put("version", version)
-    }
-
-    private fun PriorityDecayPolicy.toRequestBody(): JSONObject {
-        return JSONObject()
-            .put("enabled", enabled)
-            .put("thresholdPreset", thresholdPreset)
-            .put("decayAmount", decayAmount)
-    }
-
     private fun JSONObject.toSettings(): UserSettings {
-        return UserSettings(
-            language = optString("language", "ru"),
-            greenPriorityDecayPolicy = optJSONObject("greenPriorityDecayPolicy")?.toPolicy("green") ?: defaultPolicy("green"),
-            redPriorityDecayPolicy = optJSONObject("redPriorityDecayPolicy")?.toPolicy("red") ?: defaultPolicy("red"),
-            notificationsEnabled = optBoolean("notificationsEnabled", true),
-            version = optLong("version", 0)
-        )
-    }
-
-    private fun defaultPolicy(taskType: String): PriorityDecayPolicy {
-        return PriorityDecayPolicy(
-            taskType = taskType,
-            enabled = false,
-            thresholdPreset = "day",
-            decayAmount = 1
-        )
-    }
-
-    private fun JSONObject.toPolicy(defaultTaskType: String): PriorityDecayPolicy {
-        return PriorityDecayPolicy(
-            taskType = optString("taskType", defaultTaskType),
-            enabled = optBoolean("enabled", true),
-            thresholdPreset = optString("thresholdPreset", "day"),
-            decayAmount = optInt("decayAmount", 1).coerceAtLeast(1)
-        )
+        return toUserSettings()
     }
 }
+
+internal fun JSONObject.toUserSettings(): UserSettings {
+    val defaults = SettingsCompatibilityShadows.defaults()
+    return UserSettings(
+        language = optString("language", "ru"),
+        notificationsEnabled = optBoolean("notificationsEnabled", true),
+        version = optLong("version", 0),
+        compatibilityShadows = SettingsCompatibilityShadows(
+            greenJson = optJSONObject("greenPriorityDecayPolicy")?.toString() ?: defaults.greenJson,
+            redJson = optJSONObject("redPriorityDecayPolicy")?.toString() ?: defaults.redJson
+        )
+    )
+}
+
+internal fun UserSettings.toV20Body(): JSONObject {
+    return JSONObject()
+        .put("language", language)
+        .put("greenPriorityDecayPolicy", JSONObject(compatibilityShadows.greenJson))
+        .put("redPriorityDecayPolicy", JSONObject(compatibilityShadows.redJson))
+        .put("notificationsEnabled", notificationsEnabled)
+        .put("version", version)
+}
+
+private fun SettingsCompatibilityShadows.Companion.defaults(): SettingsCompatibilityShadows =
+    SettingsCompatibilityShadows(
+        greenJson = defaultPolicyJson(),
+        redJson = defaultPolicyJson()
+    )
+
+private fun defaultPolicyJson(): String = JSONObject()
+    .put("enabled", false)
+    .put("thresholdPreset", "day")
+    .put("decayAmount", 1)
+    .toString()

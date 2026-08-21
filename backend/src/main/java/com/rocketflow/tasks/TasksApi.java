@@ -60,6 +60,7 @@ public final class TasksApi {
             String title,
             String description,
             String type,
+            @Deprecated
             int priority,
             int effort,
             String status,
@@ -89,7 +90,7 @@ public final class TasksApi {
             @NotBlank @Size(max = 200) String title,
             @Size(max = 2000) String description,
             @NotBlank @Pattern(regexp = "green|red") String type,
-            @NotNull @Min(1) @Max(10) Integer priority,
+            @Deprecated Integer priority,
             @Min(0) Integer effort,
             @NotBlank @Pattern(regexp = "todo|in_progress|done|cancelled") String status,
             Instant plannedTime,
@@ -103,7 +104,7 @@ public final class TasksApi {
             @NotBlank @Size(max = 200) String title,
             @Size(max = 2000) String description,
             @NotBlank @Pattern(regexp = "green|red") String type,
-            @NotNull @Min(1) @Max(10) Integer priority,
+            @Deprecated Integer priority,
             @Min(0) Integer effort,
             @NotBlank @Pattern(regexp = "todo|in_progress|done|cancelled") String status,
             Instant plannedTime,
@@ -141,6 +142,7 @@ public final class TasksApi {
     public record MoveTaskResponse(
             UUID id,
             Instant plannedTime,
+            @Deprecated
             int priority,
             Instant updatedAt
     ) {
@@ -155,6 +157,7 @@ public final class TasksApi {
     public record RescheduledTaskDto(
             UUID id,
             Instant plannedTime,
+            @Deprecated
             int priority,
             Instant updatedAt
     ) {
@@ -171,6 +174,7 @@ public final class TasksApi {
     public record QuickRescheduleResponse(
             RescheduledTaskDto task,
             RescheduleEventDto rescheduleEvent,
+            @Deprecated
             boolean priorityDecayApplied
     ) {
     }

@@ -2,6 +2,7 @@ import type {
   DayOfWeek,
   FolderDto,
   GoalDto,
+  TaskApiDto,
   TaskDto,
   TaskRecurrenceDraft,
   TaskRecurrenceDto,
@@ -16,13 +17,13 @@ type NamedEntity = FolderDto | GoalDto;
 
 const EMPTY_VALUE = '-';
 const WEEKDAYS: DayOfWeek[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+export const DEFAULT_TASK_PRIORITY = 5;
 
 export interface TaskEditorDraft {
   title: string;
   description: string;
   type: TaskType;
   status: TaskStatus;
-  priority: string;
   effort: string;
   plannedTime: string;
   dueTime: string;
@@ -148,7 +149,6 @@ export function toTaskEditorDraft(task: TaskDto | null): TaskEditorDraft {
     description: task?.description ?? '',
     type: task?.type ?? 'green',
     status: task?.status ?? 'todo',
-    priority: String(task?.priority ?? 5),
     effort: String(task?.effort ?? 0),
     plannedTime: toDateTimeInputValue(task?.plannedTime ?? null),
     dueTime: toDateTimeInputValue(task?.dueTime ?? null),
@@ -156,13 +156,41 @@ export function toTaskEditorDraft(task: TaskDto | null): TaskEditorDraft {
   };
 }
 
-export function toTaskUpsertPayload(draft: TaskEditorDraft): TaskUpsertPayload {
+export function compatibilityTaskPriority(task?: Pick<TaskApiDto, 'priority'> | null) {
+  return typeof task?.priority === 'number' && Number.isFinite(task.priority)
+    ? task.priority
+    : DEFAULT_TASK_PRIORITY;
+}
+
+export function normalizeTaskResponse(task: TaskApiDto): TaskDto {
+  return {
+    ...task,
+    priority: compatibilityTaskPriority(task),
+  };
+}
+
+export function sortTasksForPlan(tasks: TaskDto[]) {
+  return [...tasks].sort((left, right) => {
+    const leftDueValue = left.dueTime ? new Date(left.dueTime).getTime() : Number.POSITIVE_INFINITY;
+    const rightDueValue = right.dueTime ? new Date(right.dueTime).getTime() : Number.POSITIVE_INFINITY;
+    const leftDue = Number.isFinite(leftDueValue) ? leftDueValue : Number.POSITIVE_INFINITY;
+    const rightDue = Number.isFinite(rightDueValue) ? rightDueValue : Number.POSITIVE_INFINITY;
+    if (leftDue !== rightDue) {
+      return leftDue - rightDue;
+    }
+
+    const createdDelta = left.createdAt.localeCompare(right.createdAt);
+    return createdDelta !== 0 ? createdDelta : left.id.localeCompare(right.id);
+  });
+}
+
+export function toTaskUpsertPayload(draft: TaskEditorDraft, existingTask?: TaskApiDto | null): TaskUpsertPayload {
   return {
     title: draft.title.trim(),
     description: draft.description.trim(),
     type: draft.type,
     status: draft.status,
-    priority: Number(draft.priority),
+    priority: compatibilityTaskPriority(existingTask),
     effort: Number(draft.effort),
     plannedTime: fromDateTimeInputValue(draft.plannedTime),
     dueTime: fromDateTimeInputValue(draft.dueTime),

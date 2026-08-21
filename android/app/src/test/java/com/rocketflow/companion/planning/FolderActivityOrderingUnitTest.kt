@@ -325,7 +325,7 @@ class FolderActivityOrderingUnitTest {
             title = id,
             description = "",
             type = "task",
-            priority = 0,
+            priorityShadow = 5,
             effort = 0,
             status = "todo",
             plannedTime = null,

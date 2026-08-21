@@ -21,12 +21,14 @@ class PlanningSyncWorker(
                 sessionStore = SessionStore(applicationContext)
             )
             val session = authRepository.bootstrapSession() ?: return Result.failure()
-            val repository = PlanningRepository(
-                authRepository = authRepository,
-                localStore = PlanningLocalStore(applicationContext)
-            )
-            val result = repository.syncAndLoad(session)
-            if (result.snapshot.offline) boundedRetry() else Result.success()
+            PlanningLocalStore(applicationContext).use { localStore ->
+                val repository = PlanningRepository(
+                    authRepository = authRepository,
+                    localStore = localStore
+                )
+                val result = repository.syncAndLoad(session)
+                if (result.snapshot.offline) boundedRetry() else Result.success()
+            }
         } catch (error: ApiException) {
             if (error.status == 401) Result.failure() else boundedRetry()
         } catch (_: Exception) {

@@ -1062,8 +1062,7 @@
   color: var(--rf-muted);
 }
 
-.marker-dot,
-.priority-dot {
+.marker-dot {
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
@@ -1071,33 +1070,23 @@
   background: var(--rf-gray);
 }
 
-.priority-dot {
-  width: 7px;
-  height: 7px;
-}
-
-.marker-dot--green,
-.priority-dot--green {
+.marker-dot--green {
   background: var(--rf-accent);
 }
 
-.marker-dot--red,
-.priority-dot--red {
+.marker-dot--red {
   background: var(--rf-danger);
 }
 
-.marker-dot--blue,
-.priority-dot--blue {
+.marker-dot--blue {
   background: var(--rf-blue);
 }
 
-.marker-dot--amber,
-.priority-dot--amber {
+.marker-dot--amber {
   background: var(--rf-amber);
 }
 
-.marker-dot--gray,
-.priority-dot--gray {
+.marker-dot--gray {
   background: var(--rf-gray);
 }
 

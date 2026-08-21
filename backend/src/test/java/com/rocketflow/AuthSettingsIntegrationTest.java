@@ -1,5 +1,6 @@
 package com.rocketflow;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -23,6 +24,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rocketflow.auth.AuthSessionRepository;
 import com.rocketflow.auth.TokenHasher;
+import com.rocketflow.settings.UserSettingsRepository;
 
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
 
@@ -43,6 +45,9 @@ class AuthSettingsIntegrationTest {
 
     @Autowired
     private TokenHasher tokenHasher;
+
+    @Autowired
+    private UserSettingsRepository userSettingsRepository;
 
     @DynamicPropertySource
     static void configureDatasource(DynamicPropertyRegistry registry) {
@@ -167,9 +172,10 @@ class AuthSettingsIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.language").value("en"))
                 .andExpect(jsonPath("$.notificationsEnabled").value(false))
-                .andExpect(jsonPath("$.greenPriorityDecayPolicy.thresholdPreset").value("month"))
+                .andExpect(jsonPath("$.greenPriorityDecayPolicy.enabled").value(false))
+                .andExpect(jsonPath("$.greenPriorityDecayPolicy.thresholdPreset").value("day"))
                 .andExpect(jsonPath("$.redPriorityDecayPolicy.enabled").value(false))
-                .andExpect(jsonPath("$.redPriorityDecayPolicy.decayAmount").value(2));
+                .andExpect(jsonPath("$.redPriorityDecayPolicy.decayAmount").value(1));
 
         mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -181,6 +187,98 @@ class AuthSettingsIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.tokens.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.tokens.refreshToken").isNotEmpty());
+    }
+
+    @Test
+    void policyOnlyPatchIsIgnoredWithoutVersionOrStoredValueChanges() throws Exception {
+        String response = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "policy-shadow@example.com",
+                                  "password": "strong-password",
+                                  "displayName": "Policy Shadow",
+                                  "timezone": "Europe/Moscow",
+                                  "language": "ru"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String accessToken = read(response, "/tokens/accessToken");
+        java.util.UUID userId = java.util.UUID.fromString(read(response, "/user/id"));
+        var before = userSettingsRepository.findById(userId).orElseThrow();
+        long version = before.getVersion();
+        Instant updatedAt = before.getUpdatedAt();
+
+        mockMvc.perform(patch("/api/me/settings")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "language": "ru",
+                                  "greenPriorityDecayPolicy": {
+                                    "enabled": true,
+                                    "thresholdPreset": "unsupported",
+                                    "decayAmount": -100
+                                  },
+                                  "redPriorityDecayPolicy": null,
+                                  "notificationsEnabled": true,
+                                  "version": %d
+                                }
+                                """.formatted(version)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(version))
+                .andExpect(jsonPath("$.greenPriorityDecayPolicy.enabled").value(false))
+                .andExpect(jsonPath("$.greenPriorityDecayPolicy.thresholdPreset").value("day"))
+                .andExpect(jsonPath("$.greenPriorityDecayPolicy.decayAmount").value(1));
+
+        var after = userSettingsRepository.findById(userId).orElseThrow();
+        assertEquals(version, after.getVersion());
+        assertEquals(updatedAt, after.getUpdatedAt());
+        assertEquals(false, after.isGreenPriorityDecayEnabled());
+        assertEquals("day", after.getGreenPriorityDecayThreshold());
+        assertEquals(1, after.getGreenPriorityDecayAmount());
+        assertEquals(false, after.isRedPriorityDecayEnabled());
+        assertEquals("week", after.getRedPriorityDecayThreshold());
+        assertEquals(1, after.getRedPriorityDecayAmount());
+    }
+
+    @Test
+    void newSettingsPayloadMayOmitDeprecatedPolicies() throws Exception {
+        String response = mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "new-settings-client@example.com",
+                                  "password": "strong-password",
+                                  "displayName": "New Settings Client",
+                                  "timezone": "Europe/Moscow",
+                                  "language": "ru"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        String accessToken = read(response, "/tokens/accessToken");
+        String settings = mockMvc.perform(get("/api/me/settings")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        mockMvc.perform(patch("/api/me/settings")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "language": "en",
+                                  "notificationsEnabled": false,
+                                  "version": %s
+                                }
+                                """.formatted(read(settings, "/version"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.language").value("en"))
+                .andExpect(jsonPath("$.notificationsEnabled").value(false))
+                .andExpect(jsonPath("$.greenPriorityDecayPolicy.enabled").value(false))
+                .andExpect(jsonPath("$.redPriorityDecayPolicy.enabled").value(false));
     }
 
     @Test

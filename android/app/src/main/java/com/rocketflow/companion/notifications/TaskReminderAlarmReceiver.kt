@@ -23,7 +23,9 @@ class TaskReminderAlarmReceiver : BroadcastReceiver() {
             .firstOrNull { it.enabled && (reminderId.isBlank() || it.reminderId == reminderId) }
             ?: return
         val scheduler = TaskReminderAlarmScheduler(context, store)
-        val task = PlanningLocalStore(context).findTask(userId, taskId)
+        val task = PlanningLocalStore(context).use { localStore ->
+            localStore.findTask(userId, taskId)
+        }
         if (task == null || task.archived || task.status == "done" || task.status == "cancelled") {
             store.readAll(userId, taskId).forEach(scheduler::cancel)
             store.clear(userId, taskId)

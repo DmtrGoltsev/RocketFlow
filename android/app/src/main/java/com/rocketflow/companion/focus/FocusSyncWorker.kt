@@ -38,12 +38,14 @@ class FocusSyncWorker(appContext: Context, params: WorkerParameters) : Coroutine
         return try {
             val auth = AuthRepository(HttpJsonClient(BuildConfig.ROCKETFLOW_API_BASE_URL), SessionStore(applicationContext))
             val session = auth.bootstrapSession() ?: return Result.failure()
-            val repository = FocusRepository(
-                auth,
-                FocusLocalDataSource(PlanningLocalStore(applicationContext))
-            )
-            repository.syncPending(session)
-            Result.success()
+            PlanningLocalStore(applicationContext).use { localStore ->
+                val repository = FocusRepository(
+                    auth,
+                    FocusLocalDataSource(localStore)
+                )
+                repository.syncPending(session)
+                Result.success()
+            }
         } catch (error: ApiException) {
             if (isRetryableFocusSyncFailure(error)) Result.retry() else Result.failure()
         } catch (error: Exception) {

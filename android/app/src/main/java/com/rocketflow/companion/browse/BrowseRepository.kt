@@ -85,7 +85,6 @@ internal fun JSONObject.toTaskSummary(): TaskSummary {
         title = getString("title"),
         description = optString("description"),
         type = getString("type"),
-        priority = getInt("priority"),
         status = getString("status"),
         plannedTime = optString("plannedTime").ifBlank { null },
         dueTime = optString("dueTime").ifBlank { null },

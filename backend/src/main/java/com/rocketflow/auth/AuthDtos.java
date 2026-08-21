@@ -3,7 +3,6 @@ package com.rocketflow.auth;
 import java.time.Instant;
 import java.util.UUID;
 
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -55,6 +54,7 @@ public final class AuthDtos {
     public record RefreshResponse(TokensResponse tokens) {
     }
 
+    @Deprecated
     public record PriorityDecayPolicyDto(
             String taskType,
             boolean enabled,
@@ -65,13 +65,16 @@ public final class AuthDtos {
 
     public record UserSettingsResponse(
             String language,
+            @Deprecated
             PriorityDecayPolicyDto greenPriorityDecayPolicy,
+            @Deprecated
             PriorityDecayPolicyDto redPriorityDecayPolicy,
             boolean notificationsEnabled,
             long version
     ) {
     }
 
+    @Deprecated
     public record UpdatePriorityDecayPolicyRequest(
             @NotNull Boolean enabled,
             @NotBlank @Pattern(regexp = "day|week|month") String thresholdPreset,
@@ -81,8 +84,8 @@ public final class AuthDtos {
 
     public record UpdateSettingsRequest(
             @NotBlank @Pattern(regexp = "ru|en") String language,
-            @NotNull @Valid UpdatePriorityDecayPolicyRequest greenPriorityDecayPolicy,
-            @NotNull @Valid UpdatePriorityDecayPolicyRequest redPriorityDecayPolicy,
+            @Deprecated UpdatePriorityDecayPolicyRequest greenPriorityDecayPolicy,
+            @Deprecated UpdatePriorityDecayPolicyRequest redPriorityDecayPolicy,
             @NotNull Boolean notificationsEnabled,
             @NotNull Long version
     ) {

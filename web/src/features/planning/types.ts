@@ -93,6 +93,10 @@ export interface TaskDto {
   updatedAt: string;
 }
 
+export type TaskApiDto = Omit<TaskDto, 'priority'> & {
+  priority?: number;
+};
+
 export interface IdeaDto {
   id: string;
   folderId: string;
