@@ -1,6 +1,6 @@
 # RocketFlow Live Status
 
-Last updated: 2026-08-10.
+Last updated: 2026-08-22.
 
 ## Current production facts
 
@@ -21,6 +21,8 @@ Last updated: 2026-08-10.
 - Web Push: disabled.
 - Android: installable sideload APK built from the deployed source is verified with the existing debug certificate; it has no Firebase configuration and is not a Play Store production release.
 - Authenticated production smoke: not completed.
+
+The current repository delivery candidate includes V21 priority-retirement compatibility, Android Planner scroll restoration, SQLite lifecycle, and compact landscape editor work, but none of it is deployed. Candidate verification is backend `142/142`, web `61/61` plus build/audit PASS, and Android `90/90` plus build/lint/debug Android-test APK assembly PASS. Production remains exactly at the source, release, and Flyway V20 facts above until a successful approved deploy is recorded. The APK history below is also unchanged.
 
 ## Release state model
 
@@ -64,3 +66,5 @@ A deploy or rollback is considered ready only when these checks pass in the work
 - local `/rocket/` route returns the web root marker;
 - local backend health returns `"status":"UP"`;
 - `rocketflow_prod.flyway_schema_history` has at least 20 rows after the V20 release.
+
+For a future V21 rollout only, the deploy workflow preflights the current V20 baseline at `>=20`, requires manifest target `=21` and post-start `>=21`, and jointly promotes backend and web through the existing helper. This is safe because the new web is compatible with both V20 and V21; Android follows separately after readiness. Application rollback starts from `>=20`, records the pre-count, and now fails closed unless a readable target manifest declares integer `flyway_history_min_rows` between 20 and that pre-count inclusive. Post-count must remain `>=20` without decreasing; a V20 binary with minimum 20 may run on retained V21 schema, with no database downgrade, repair, or restore. This workflow hardening is repository candidate state only and does not change the live V20 facts above; no deploy or push was performed.

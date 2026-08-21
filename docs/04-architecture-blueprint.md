@@ -169,8 +169,7 @@ Must not own:
 Responsibilities:
 - interface language preference
 - notification preferences
-- priority decay settings for `green`
-- priority decay settings for `red`
+- deprecated green/red priority-policy DTO shadows while V20 rollback compatibility is required
 
 Must not own:
 - task recurrence definitions
@@ -203,7 +202,7 @@ Responsibilities:
 - task CRUD
 - task status transitions
 - task type
-- task priority
+- opaque legacy priority-shadow preservation/defaulting during the compatibility window
 - task tagging
 - task linking
 - task planned and due dates
@@ -260,12 +259,11 @@ Must not own:
 ### `priority-policy`
 
 Responsibilities:
-- priority decay policy evaluation
-- task-type-specific decay application
-- reschedule impact calculation
+- deprecated compatibility DTO/column retention only
+- report policies disabled and ignore policy updates
 
 Must not own:
-- generic task persistence outside policy-related updates
+- product settings UI, task ordering, or reschedule behavior
 
 ### `notifications`
 
@@ -287,7 +285,7 @@ To keep the monolith clean:
 - `sharing` is the source of truth for collaborative access decisions
 - `calendar` reads from `tasks` and time-related task data
 - `recurrence` and `reminders` operate on tasks but should not absorb generic task CRUD concerns
-- `priority-policy` reacts to reschedule actions and user settings
+- `priority-policy` is retired from active behavior; reschedule audit and settings updates do not invoke decay
 - `notifications` depends on outputs from `reminders`, not the other way around
 
 Important rule:
@@ -323,7 +321,7 @@ Suggested aggregate ownership:
 - `Folder` aggregate owns folder identity and metadata
 - `Goal` aggregate owns goal metadata and relation to folder
 - `Task` aggregate owns task core state, tags, links, recurrence association, reminder association, and reschedule history references
-- `UserSettings` aggregate owns language and priority decay configuration
+- `UserSettings` aggregate owns language and notification configuration; legacy priority-policy fields remain opaque compatibility storage
 - user timezone belongs to the account model and is not duplicated in `UserSettings`
 
 MVP caution:
@@ -450,7 +448,7 @@ There are four distinct concerns:
 - task planned time and due time
 - recurrence
 - reminders
-- reschedule and priority decay
+- reschedule audit
 
 Canonical time model for MVP:
 - user account stores one IANA timezone identifier
@@ -474,10 +472,7 @@ They are related but should not be collapsed into one vague service.
 
 - `RescheduleService`
   - records postpone events
-  - triggers policy evaluation
-
-- `PriorityDecayService`
-  - calculates priority changes based on policy and event history
+  - preserves the existing legacy priority shadow without policy evaluation
 
 ### Architectural Rule
 
@@ -517,7 +512,7 @@ The MVP should:
 Avoid:
 - overengineering a distributed retry platform in MVP
 
-## 14. Quick Reschedule and Priority Decay Flow
+## 14. Quick Reschedule and Retired Priority Compatibility Flow
 
 ### Quick Reschedule Flow
 
@@ -527,17 +522,15 @@ Avoid:
 4. backend computes new planned time from preset
 5. backend stores reschedule event
 6. backend updates task planned time
-7. backend evaluates priority decay based on user policy and task type
-8. backend stores the updated priority if decay applies
-9. backend returns the updated task state
+7. backend preserves the stored legacy priority-before/after shadow unchanged
+8. backend returns the updated task state with `priorityDecayApplied=false` while the legacy field exists
 
-### Priority Decay Rule
+### Compatibility Rule
 
-For MVP:
-- use policy presets `day`, `week`, `month`
-- use separate settings for `green` and `red`
-- keep the default decay amount at `1`
-- apply the owner's policy even when a collaborator performs the postponement
+- task priority and decay settings are absent from product UI and business decisions
+- create/clone default the opaque shadow to `5`; update/move/reschedule preserve historical stored shadows
+- old task/settings request fields are accepted and ignored by V21
+- web and Android preserve fetched shadows when talking to a V20 backend and default missing task fields to `5`
 
 ### Auditability Requirement
 
@@ -545,7 +538,7 @@ The backend must retain enough information to answer:
 - when was the task postponed
 - by whom
 - from what time to what time
-- whether priority changed as a result
+- the retained historical priority-before/after and decay-applied values
 
 ## 15. Localization Architecture
 
@@ -628,7 +621,7 @@ Testing should align to architecture, not be bolted on later.
 
 ### Backend Verification
 
-- unit tests for recurrence, reminder eligibility, and priority decay
+- unit tests for recurrence, reminder eligibility, priority-shadow compatibility, and deterministic ordering
 - integration tests for auth, permissions, CRUD flows, sharing, and notifications
 - migration tests
 
@@ -645,6 +638,7 @@ Testing should align to architecture, not be bolted on later.
 - push handling
 - open-from-notification flow
 - task rendering sanity checks
+- Planner anchor/offset restoration and fallback tests
 
 ### Cross-Cutting Verification
 
@@ -700,7 +694,7 @@ Main risks:
 - recurrence can expand into calendar-engine complexity
 - access control can become inconsistent if permission checks are scattered
 - reminder delivery can duplicate if scheduling is not idempotent enough
-- priority decay can feel arbitrary if event history is not retained
+- legacy priority compatibility can regress if old APK/V20 rollback support is removed before its explicit end gate
 - localization can drift without automated checks
 
 ## 21. Architecture Decisions to Keep Stable
@@ -737,3 +731,14 @@ This section describes the implementation on `codex/weekly-focus-calendar-web-pu
 - Web Push registration is account-scoped. An endpoint cannot move across accounts, each user has at most 10 active subscriptions by default, and logout attempts server deactivation before browser unsubscribe and local auth cleanup.
 - Web Push endpoints must use HTTPS on port 443, pass private/special-address SSRF rejection, and match a configured strict allowlist of known provider DNS suffixes.
 - Flyway `V19` adds Weekly Focus and task soft-delete state; `V20` adds Web Push subscriptions and Focus delivery outbox state.
+
+## 24. Implemented V21 Compatibility Architecture
+
+This section describes the current delivery candidate and is not a production-deployment statement. Production remains on V20 until explicit rollout evidence is recorded.
+
+- Flyway `V21__retire_task_priority.sql` changes only defaults for legacy task/reschedule priority columns (`5`) and green/red decay-enabled columns (`false`). It performs no data rewrite/drop and preserves constraints, indexes, columns, and historical values.
+- Backend list/sharing/calendar comparators are deterministic without priority: task collections use `createdAt` then `id`; calendar ties use `plannedTime`, `createdAt`, then `id`.
+- Web uses `dueTime` (missing last), `createdAt`, then `id` for plan projection. Android local Planner tasks use `plannedTime` (missing last), `createdAt`, then `id`; folder-activity ordering also does not consult the shadow.
+- Android Planner captures a stable resource key, ancestor chain, pixel offset, and absolute scroll Y before re-render. Restore prefers the same anchor, then a surviving ancestor, then clamped absolute Y.
+- Production rollout uses the existing joint backend/web promotion: preflight requires the V20-or-newer database baseline, the manifest targets V21, and post-start readiness requires V21. Joint promotion is compatible in both transition directions because the new web supports V20 and V21; Android follows separately. Application rollback accepts a V20-or-newer baseline, keeps Flyway history non-decreasing, and promotes a V20 artifact that is forward-compatible with V21; database rollback is separate.
+- Technical FCM `HIGH` priority remains unchanged because notification transport priority is architecturally separate from retired task priority.

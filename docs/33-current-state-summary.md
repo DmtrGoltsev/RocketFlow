@@ -16,6 +16,21 @@ Use this together with:
 
 ## Project Status
 
+Current delivery candidate (`2026-08-22`):
+
+- backend, web, and Android retire task priority from UI, editing, validation, business behavior, sorting, and settings while retaining `LEGACY_TASK_PRIORITY=5` as an opaque compatibility shadow for old APK/V20 rollback support
+- old task/settings wire fields remain accepted and ignored or preserved in responses; hidden policy values and historical task/reschedule values are retained without product effect
+- Flyway `V21__retire_task_priority.sql` changes defaults only and performs no data rewrite/drop
+- task/shared ordering is `createdAt`, then `id`; calendar ties are `plannedTime`, `createdAt`, then `id`; web plan projection uses due time with missing values last, then `createdAt`, then `id`; Android local Planner uses planned time with missing values last, then `createdAt`, then `id`
+- Android Planner restores a stable visible resource anchor plus pixel offset across expand/collapse, detail return, refresh, insertion above, and rotation, falling back through surviving ancestors to clamped absolute scroll position; explicit top-level tab switching intentionally resets to the top
+- four short-lived Android SQLite runtime owners now close their `PlanningLocalStore` instances; lifecycle tests cover the ownership boundary
+- landscape task editing below `600dp` uses a compact full-screen dialog with a real scroll viewport, persistent Save/Cancel actions, and explicit IME/system-bar insets; portrait retains the existing `AlertDialog`
+- current evidence is backend 142/142, web 61/61 with build/audit PASS, and Android 90/90 with `assembleDebug`, lint (`0` errors, `34` existing warnings), and debug Android-test APK assembly PASS; these are checkpoint counts, not permanent suite requirements
+- dedicated visual QA passed all scroll-restoration scenarios, parent fallback after anchor deletion, and intentional tab reset; a later IME rerun passed portrait, landscape Title, and landscape Details editing with the keyboard open
+- the existing helper jointly promotes the V21 backend and V20+V21-compatible web artifact; Android follows separately after Flyway `>=21` and readiness pass; application rollback accepts a V20-or-newer schema and promotes a V20 artifact that is forward-compatible with V21 without decreasing Flyway history
+- production has not received this delivery: deployed source/release and Flyway remain the V20 facts below; signed/debug-certificate and superseded unsigned APK history is unchanged
+- canonical delivery and future rollout contract: `docs/68-scroll-and-priority-retirement-delivery.md`
+
 Weekly Focus production checkpoint (`2026-08-10`):
 
 - branch: `codex/weekly-focus-calendar-web-push`
@@ -138,7 +153,7 @@ Wave C:
 - recurrence and reminders
 - calendar projection
 - move and quick reschedule
-- priority decay
+- retired task-priority compatibility shadows and reschedule audit without decay
 - device registration
 - notification delivery
 - Firebase Admin sender integration path
@@ -174,6 +189,8 @@ Wave C:
   - `done`
   - `cancelled`
 - backend remains a modular monolith
+- task priority has no product/business effect; technical FCM notification priority remains a separate transport setting
+- old task/settings shadows remain until old APK and V20 rollback support explicitly end
 - scheduler safety now has a PostgreSQL advisory transaction lock, but notification rollout should still be treated cautiously and not as horizontally hardened
 
 ## Current Quality State
@@ -202,8 +219,10 @@ Known non-blocking note:
 
 ## Recommended Next Step
 
-The backend/web production deploy is complete. The next active gates are:
+The recorded V20 backend/web production deploy is complete. The next active gates are:
 
+- jointly promote the V21-capable backend and V20+V21-compatible web artifact from a verified V20 baseline, require Flyway `>=21` and readiness, then roll out Android separately; do not claim deployment before production evidence is recorded
+- keep application rollback forward-schema compatible: require pre/post Flyway `>=20` with no history-count decrease, and require the target V20 artifact to tolerate retained V21 columns/defaults/history
 - complete authenticated production smoke and attach sanitized evidence
 - prepare an installable, correctly configured Android release artifact before claiming Android production delivery
 - keep Focus cadence and Web Push disabled until controlled production provider smoke and notification certification pass

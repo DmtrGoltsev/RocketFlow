@@ -22,6 +22,7 @@ Current Android runtime contract:
 - use `rocketflowDebugApiBaseUrl` or `ROCKETFLOW_ANDROID_DEBUG_API_BASE_URL` for emulator-only smoke tests such as `http://10.0.2.2:8081/api`; release tasks reject local-only URLs
 - cleartext traffic is enabled only when the selected API base URL uses `http://`
 - planning data is cached in SQLite and local drafts survive database upgrades
+- short-lived `PlanningLocalStore` instances owned by planning sync, Focus sync, reminder delivery, and acceptance seeding are closed deterministically; lifecycle regressions are covered by tests
 - pending planning changes are queued locally and retried by a bounded WorkManager sync with connected-network constraints and exponential backoff
 - planning sync is enqueued on app startup, pending local changes, network restore, and manual Sync
 - Focus notification cadence is owned by the backend. Android handles data-only FCM delivery and opens `rocketflow://focus`; it must not schedule a second local Focus cadence.
@@ -34,6 +35,12 @@ Planning behavior:
 - folder, goal, and task deletes are soft-deleted remotely through the existing backend API and hidden locally while pending
 - shared goals and tasks are read-only on Android
 - accessible shared tasks may be selected into the user's Focus while access remains valid
+- Planner re-renders restore the first visible stable resource row plus its pixel offset; if that row disappears, restoration falls back to its nearest surviving ancestor, then the clamped absolute scroll position
+- Planner scroll state survives detail return, refresh, and Android instance-state recreation; explicit top-level tab switches, sign-out, and planner-state clearing reset it
+- task priority is absent from Android UI and business behavior; the local `priority` column/value is an opaque compatibility shadow only, defaulting to `5` when V21 responses omit it and preserved on V20-compatible updates
+- hidden green/red priority-decay policy JSON is preserved only so settings updates remain compatible with V20; it is not editable or interpreted by Android
+- local task ordering is deterministic without priority: scheduled tasks by `plannedTime`, then `createdAt`, then `id`, with missing `plannedTime` last
+- task editing keeps the existing portrait `AlertDialog`; compact landscape below `600dp` uses a full-screen dialog with a real `ScrollView`, persistent Save/Cancel actions, and explicit IME/system-bar insets so focused Title and Details remain reachable with the keyboard open
 
 Current limitations:
 
@@ -44,8 +51,9 @@ Current limitations:
 
 Feature-branch verification evidence:
 
-- `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --no-daemon`
-- 77 Android unit tests passed for the current feature checkpoint, including terminal `401` handling without session resurrection; this number is evidence, not a fixed contract.
-- Production APK and backend rollout are outside this checkpoint and have not been performed.
+- `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest --no-daemon`
+- 90 Android debug unit tests passed for the current feature checkpoint. `assembleDebug`, `lintDebug` (`0` errors, `34` existing warnings), and `assembleDebugAndroidTest` also passed. Coverage includes stable anchor/offset restoration fallbacks, priority-shadow migration/compatibility, hidden settings-policy preservation, SQLite-store lifecycle ownership, compact landscape form policy, and terminal `401` handling without session resurrection; this number is evidence, not a fixed contract.
+- Device QA passed portrait editing plus landscape Title and Details editing with IME open. The latest IME rerun did not repeat the earlier anchor/logcat scenarios; the prior dedicated anchor QA remains passing, and the compact-form change did not touch anchor code.
+- The V21 branch delivery has not been deployed or included in a newly recorded production APK. Existing signed/debug-certificate and superseded unsigned APK evidence remains unchanged in `docs/production/rocketflow-live-status.md`.
 
 Implementation should follow `docs/16-mobile-lead-decomposition.md` and `docs/34-wave-c-android-companion-foundation.md`.

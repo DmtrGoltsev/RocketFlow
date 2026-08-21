@@ -50,6 +50,7 @@ Core documents:
 - `docs/51-agent-notification-runtime-playbook.md` - short autonomous verification playbook for repeating the notification smoke without user intervention
 - `docs/66-weekly-focus-calendar-delivery.md` - Calendar, Weekly Focus, Web Push delivery status and rollout runbook
 - `docs/67-weekly-focus-production-rollout-evidence.md` - immutable production rollout evidence for deployed source `910c061de4af9395d9bb682624bd966b2977a738`
+- `docs/68-scroll-and-priority-retirement-delivery.md` - current branch contract and future V21 rollout/rollback gates for Android scroll restoration and task-priority retirement
 
 Weekly Focus production checkpoint (`2026-08-10`):
 
@@ -60,7 +61,17 @@ Weekly Focus production checkpoint (`2026-08-10`):
 - Focus cadence and Web Push remain disabled. No rollback was used.
 - An installable production-API sideload APK was built from source `910c061de4af9395d9bb682624bd966b2977a738`, signed with the existing debug certificate, and verified by reinstall, hash match, cold launch, logcat, and health checks. It has no FCM configuration and is not a Play Store production release.
 - Authenticated production smoke remains an explicit evidence gap.
-- Current branch evidence is backend 135 tests, web 54 tests, and Android 77 tests. Counts are evidence for this checkpoint, not permanent suite requirements.
+- At this recorded production checkpoint, branch evidence was backend 135 tests, web 54 tests, and Android 77 tests. These historical counts are not permanent suite requirements.
+
+Current branch delivery candidate (`2026-08-22`):
+
+- Current evidence is backend 142/142, web 61/61 with production build and dependency audit passing, and Android 90/90 with `assembleDebug`, `lintDebug` (`0` errors, `34` existing warnings), and debug Android-test APK assembly passing. These are checkpoint counts, not permanent suite requirements.
+- Android Planner restores a stable resource-row anchor plus pixel offset across re-render, detail return, refresh, and instance-state recreation, with ancestor, absolute-position, and clamped fallbacks.
+- Android short-lived SQLite stores are closed by their four runtime owners, and the landscape task editor now uses a compact full-screen dialog with a real scroll viewport and explicit IME/system-bar insets; portrait keeps the existing `AlertDialog`.
+- Task priority is retired from product UI, editing, validation, business behavior, sorting, and settings. `LEGACY_TASK_PRIORITY=5` remains an opaque wire/storage shadow until old APK and V20 rollback support explicitly end.
+- Flyway V21 changes compatibility defaults only and does not rewrite/drop historical task, reschedule-event, or settings data.
+- The existing production helper jointly promotes the V21 backend and the web artifact; this is safe because the new web is compatible with both V20 and V21. Android follows separately after the joint deploy reaches Flyway `>=21` and passes readiness. Application rollback accepts a V20-or-newer database baseline, never decreases the Flyway history count, and uses a V20 artifact that is forward-compatible with V21; database rollback is not part of the app workflow.
+- Production is still the recorded V20 release above. V21 has not been deployed, and the recorded unsigned/debug-certificate APK history is unchanged.
 
 Current verification status:
 - backend `mvn test` is green in the current documented state

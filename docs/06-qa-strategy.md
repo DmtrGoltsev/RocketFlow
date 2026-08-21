@@ -32,7 +32,7 @@ For RocketFlow, quality is not just UI correctness. It especially includes:
 - correct permissions
 - correct recurrence and reminder behavior
 - correct quick reschedule behavior
-- correct priority decay behavior
+- correct task-priority retirement and V20 compatibility behavior
 - reliable Android notification flow
 
 ## 3. Primary Risk Areas
@@ -60,15 +60,16 @@ High-risk scenarios:
 - moving a task later does not create the correct reschedule trail
 - DST or timezone changes shift future reminders incorrectly
 
-### Priority Decay Risk
+### Task Priority Retirement Risk
 
 Why it matters:
-- hidden or confusing priority changes can make the product feel unreliable
+- old APK/V20 rollback support still needs legacy fields even though priority has no product meaning
 
 High-risk scenarios:
-- priority drops when it should not
-- priority does not drop when policy says it should
-- green and red settings are applied incorrectly
+- task priority leaks back into UI, validation, settings, sorting, or business behavior
+- V21 rewrites/drops historical values or rejects old request shapes
+- new clients overwrite historical shadows when talking to V20
+- technical FCM notification priority is accidentally retired with task priority
 
 ### Localization Risk
 
@@ -102,7 +103,7 @@ Must verify:
 - recurrence
 - reminders
 - quick reschedule
-- priority decay
+- ignored legacy task/settings fields, historical-shadow preservation, and deterministic priority-free ordering
 - sharing
 - device registration
 - notification delivery behavior
@@ -115,6 +116,7 @@ Must verify:
 - simple calendar flows
 - quick reschedule UI
 - settings
+- absence of task-priority/policy controls and V20-compatible hidden shadows
 - language switching
 - shared resource access behavior in UI
 
@@ -123,6 +125,8 @@ Must verify:
 Must verify:
 - authentication
 - goal and task rendering
+- stable Planner anchor/offset restoration and fallbacks
+- priority-shadow SQLite/wire compatibility without UI exposure
 - push receipt
 - open-from-notification flow
 
@@ -143,7 +147,7 @@ Use unit tests for focused domain logic.
 Best candidates:
 - recurrence calculations
 - reminder eligibility rules
-- priority decay calculations
+- Planner anchor/offset restoration and priority-shadow normalization
 - permission decision helpers
 
 Goal:
@@ -294,12 +298,13 @@ Expected result:
 - the task planned time updates
 - a reschedule event is recorded
 
-### Scenario 5. Priority Decay by Policy
+### Scenario 5. Task Priority Retirement Compatibility
 
 Expected result:
-- priority changes only when policy conditions are met
-- green and red tasks use their own policy
-- priority never drops below `1`
+- task priority and decay settings are absent from product UI and sorting
+- old task/settings request fields are accepted and ignored
+- new tasks use shadow `5`; existing historical shadows survive update/reschedule
+- reschedule records an audit event and reports no decay
 
 ### Scenario 6. Recurrence
 
@@ -365,7 +370,7 @@ Minimum scheduling verification:
 
 - task with planned time appears in calendar query
 - moving a task later records a reschedule event
-- moving a task earlier does not trigger priority decay
+- moving a task earlier or later does not change the legacy priority shadow
 - quick reschedule works for `30m`, `1h`, `3h`, `24h`
 - quick reschedule fails when planned time does not exist
 - recurrence weekly rule validates required weekdays
@@ -375,18 +380,19 @@ Minimum scheduling verification:
 - timezone change affects future calculations only
 - DST boundary cases preserve intended owner-local behavior
 
-## 11. Priority Decay Test Matrix
+## 11. Task Priority Retirement Test Matrix
 
 Minimum verification:
 
-- green task uses green policy
-- red task uses red policy
-- disabled policy causes no decay
-- daily threshold behaves differently from weekly threshold
-- month threshold behaves correctly
-- multiple postponements accumulate correctly according to policy
-- priority floor at `1` is enforced
-- collaborator postponement uses the owner's policy
+- create accepts omitted, `null`, and old `priority` values and returns/stores `5`
+- update accepts omitted, `null`, and old values while preserving historical stored shadows
+- clone uses `5`; move-to-goal preserves the existing shadow
+- task, calendar, and shared lists order deterministically without priority
+- settings policy controls are hidden; policy-only payloads are ignored without version/timestamp/data changes
+- web/Android default a missing response shadow to `5` and preserve fetched shadows for V20 updates
+- V20-to-V21 migration changes defaults only and retains all historical task/event/settings values, columns, constraints, and indexes
+- reschedule preserves priority-before/after and returns `priorityDecayApplied=false`
+- FCM data-only messages still use technical Android `HIGH` priority
 
 ## 12. Localization Test Matrix
 
@@ -418,7 +424,7 @@ Highest automation priority:
 - task CRUD
 - recurrence calculations
 - reminder rules
-- priority decay
+- task-priority retirement compatibility and deterministic ordering
 - quick reschedule
 - localization key synchronization
 - migration path verification against PostgreSQL
@@ -455,7 +461,7 @@ The MVP should not be considered release-ready unless:
 - recurrence rules work in supported scenarios
 - reminder rules work in supported scenarios
 - quick reschedule works
-- priority decay behaves predictably
+- task priority stays absent from product behavior while V20 compatibility shadows remain intact
 - Android push flow works
 - Russian and English localization both work
 - localization keys are synchronized
@@ -475,7 +481,7 @@ Examples:
 
 Examples:
 - recurrence creates wrong future behavior
-- priority decay misapplies rules
+- retired priority changes data or affects ordering/settings behavior
 - quick reschedule corrupts task timing
 - Android push cannot open task
 
@@ -507,12 +513,10 @@ Minimum bug record should contain:
 Important rule:
 - if behavior differs from the documented domain or API contract, the mismatch must be recorded against the relevant document as well
 
-## 19. Recommended Future QA Documents
+## 19. Active QA Evidence Documents
 
-After implementation starts, the following documents should be added:
-- `docs/07-test-matrix.md`
-- `docs/08-release-readiness.md`
-- `docs/09-known-risks.md`
+- `docs/68-scroll-and-priority-retirement-delivery.md` contains the current V21-candidate scope, evidence, and release gates.
+- `docs/67-weekly-focus-production-rollout-evidence.md` remains immutable historical evidence for the deployed V20 rollout.
 
 ## 20. Next Step
 
@@ -534,4 +538,6 @@ Required coverage for this feature includes:
 - Web logout/account switching, service-worker deep links, stale-response guards, keyboard/focus behavior, and responsive layouts.
 - Android cold Focus deep link, event deduplication, offline cache/rebase, rotation restoration, terminal `401` handling without session resurrection, and proof that no local repeating Focus alarm is scheduled.
 
-Current feature-branch evidence is 135 backend tests, 54 web tests, and 77 Android tests, plus successful backend packaging, web production build/audit, Android debug build, and lint. The updated client evidence includes the final mobile accessibility, deep-link, and security regression fixes. These counts describe this checkpoint only. Real-provider FCM and Web Push smoke remains a release-environment gate.
+Current feature-branch evidence is backend `142/142`, web `61/61` with production build/audit PASS, and Android `90/90` with debug build, lint (`0` errors, `34` existing warnings), and debug Android-test APK assembly PASS. Coverage includes stable Android Planner anchor/offset restoration, V20/V21 compatibility shadows, no-rewrite V21 migration, hidden policy settings, SQLite lifecycle ownership, compact landscape editor/IME policy, and priority-free deterministic ordering. Dedicated visual QA passed scroll restoration and portrait/landscape editor scenarios; the latest IME rerun did not repeat the earlier anchor/logcat run. These counts describe this checkpoint only. Real-provider FCM and Web Push smoke remains a release-environment gate.
+
+Production remains on V20 until an approved V21 deploy is recorded. Release verification must cover joint backend/web promotion through the existing helper, with Flyway preflight `>=20`, manifest target `=21`, and post-start `>=21`; the new web must remain compatible with both V20 and V21, and Android follows separately. Application rollback requires pre/post Flyway `>=20` with no row-count decrease and treats a V20 target as forward-compatible with schema V21.

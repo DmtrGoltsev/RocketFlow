@@ -124,9 +124,9 @@ A rule describing how a task repeats over time.
 
 A stored record that a task was postponed or moved to a later time.
 
-### Priority Decay
+### Legacy Task Priority Shadow
 
-An automatic reduction of task priority after repeated postponement, controlled by user settings and separated by task type.
+A deprecated integer retained only for old APK and V20 wire/storage compatibility. It has no current product meaning and must not affect UI, validation, business behavior, settings, or ordering.
 
 ### Share Invitation
 
@@ -173,14 +173,12 @@ Stores user preferences and domain-affecting settings.
 Minimum business fields:
 - user id
 - interface language
-- green task priority decay policy
-- red task priority decay policy
 - notification preferences
 
 Business rules:
 - Russian is the default interface language
 - English is supported from MVP launch
-- green and red tasks use separate priority decay settings
+- legacy green/red priority-decay values may remain in storage and compatibility responses, but are disabled, hidden, and ignored on update
 - user timezone is stored once at the account level and is the canonical timezone for scheduling
 
 ### Folder
@@ -233,7 +231,6 @@ Minimum business fields:
 - title
 - description optional
 - type: `green` or `red`
-- priority from `1` to `10`
 - status
 - planned time optional
 - due time optional
@@ -252,7 +249,7 @@ Business rules:
 - a task belongs to exactly one goal
 - a task belongs to exactly one owner
 - a task type must be either `green` or `red`
-- priority must stay within `1..10`
+- a deprecated priority shadow may remain in storage and legacy responses; new tasks use compatibility value `5`
 - a task may be shared
 - a task may have reminders
 - a task may have one recurrence rule in MVP
@@ -393,27 +390,15 @@ Business rules:
 - every quick postpone creates a reschedule event
 - manual date/time movement that postpones a task should also create a reschedule event if it moves the task later
 
-### Priority Decay Policy
+### Legacy Priority Decay Policy Shadow
 
-Represents the user's automatic priority reduction settings.
-
-Minimum business fields:
-- id
-- user id
-- task type: `green` or `red`
-- enabled flag
-- threshold unit preset: `day`, `week`, `month`
-- decay amount
-
-MVP simplification:
-- `decay amount` should default to `1`
-- custom amounts may be supported later
-- the policy is persisted as part of `UserSettings`, not as a separate table, in MVP
+Deprecated green/red policy columns and DTO objects are retained only through the old APK/V20 rollback compatibility window.
 
 Business rules:
-- a user has one effective policy per task type
-- policy is applied only when enabled
-- priority never drops below `1`
+- policy controls are hidden from product settings
+- backend update ignores supplied policy objects and does not rewrite stored historical threshold/amount values
+- compatibility responses report policies disabled while retaining historical threshold/amount values
+- no reschedule operation evaluates or applies priority decay
 
 ### Device Registration
 
@@ -476,7 +461,7 @@ MVP simplification:
 - if a goal is shared, all tasks under that goal become visible and editable to the collaborator
 - if a task is shared directly, only that task is visible and editable through the task share
 - goal and task reminder deliveries still target the owner only in MVP
-- if a collaborator postpones a shared task, the owner's priority decay policy applies
+- if a collaborator postpones a shared task, the actor is recorded and the task's legacy priority shadow remains unchanged
 
 ### Sharing Constraints
 
@@ -578,11 +563,10 @@ Business rules:
 
 Allowed operations:
 - create event
-- evaluate priority decay impact
 
 Business rules:
-- moving a task earlier is not a postponement and should not cause decay
-- moving a task later may cause decay depending on settings
+- moving a task later records an audit event without changing the legacy priority shadow
+- historical priority-before/after and decay-applied values remain retained
 
 ## 6. Scheduling Rules
 
@@ -624,47 +608,35 @@ Recommended MVP rule:
 - quick reschedule requires an existing planned time
 - if no planned time exists, the user must set one first
 
-## 7. Priority Decay Rules
+## 7. Task Priority Retirement Rules
 
-### Core Meaning
+### Product Rule
 
-Priority decay reflects that repeatedly postponed tasks may deserve less urgency in planning.
+- task priority is not a user-facing or business domain concept
+- task create/edit/detail, settings, validation, sorting, sharing, calendar, and reschedule behavior must not consult it
+- technical FCM/Android notification priority remains a separate transport concern
 
-### User Configuration
+### Compatibility Rule
 
-For each user:
-- one policy for `green`
-- one policy for `red`
+- `LEGACY_TASK_PRIORITY=5` is the default opaque shadow for new tasks and missing client fields
+- old request fields are accepted and ignored
+- updates preserve an existing historical task shadow; clones use `5`; move-to-goal preserves the moved task's shadow
+- legacy fields may remain in responses for old clients
+- removing the fields or historical values requires explicit end of old APK and V20 rollback support
 
-Each policy contains:
-- enabled or disabled
-- threshold preset: `day`, `week`, `month`
-- decay amount, default `1`
+### Historical Data Rule
 
-### Application Rule
+- historical task priority, reschedule priority-before/after, decay-applied, and policy values remain stored
+- V21 changes defaults only; it does not rewrite/drop rows, columns, constraints, or indexes
+- reschedule events remain auditable, but current behavior records no priority change and reports no decay
 
-When a task is moved later:
-- the system records a reschedule event
-- the system evaluates whether enough postponement has accumulated
-- if the policy threshold is reached, priority decreases
+### Ordering Rule
 
-### Bounds
-
-- priority cannot drop below `1`
-- priority cannot exceed `10`
-
-### Transparency Requirement
-
-The product should be able to explain why priority changed.
-
-This means:
-- the system should retain enough event history to audit the change
-- UI later should be able to show the basis for the decay
-
-### Ownership Rule
-
-- priority decay for a shared task always uses the owner's task-type policy in MVP
-- the actor who performed the postponement is still recorded in the reschedule event history
+- task lists and shared task lists use `createdAt ASC`, then `id ASC`
+- calendar ties use `plannedTime ASC`, then `createdAt ASC`, then `id ASC`
+- web plan projection uses `dueTime ASC` with missing values last, then `createdAt ASC`, then `id ASC`
+- Android local Planner uses `plannedTime ASC` with missing values last, then `createdAt ASC`, then `id ASC`
+- no ordering may use the compatibility shadow
 
 ## 8. Localization Rules
 
@@ -701,8 +673,8 @@ The following conditions must always hold:
 - a goal belongs to one folder
 - a task belongs to one goal
 - task type is always `green` or `red`
-- task priority stays between `1` and `10`
-- priority decay policies exist independently for `green` and `red`
+- task priority has no product/business effect; compatibility shadow `5` remains only during old APK/V20 rollback support
+- legacy green/red priority-decay values remain disabled and hidden without historical rewrite
 - every active share comes from accepted access, not just a pending invitation
 - every quick postpone creates a reschedule record
 - localization key sets for Russian and English must match

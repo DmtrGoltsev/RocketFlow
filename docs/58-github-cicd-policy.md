@@ -38,7 +38,7 @@ Manual production deploys also require:
 Release branch push deploys do not require manual dispatch inputs, but still run
 through the `production` environment and pinned SSH host-key path.
 
-The deploy workflow builds backend and web artifacts, writes SHA256 checksums, writes a release manifest, uploads the release bundle with 30-day retention, verifies the manifest locally and remotely, and only then calls the server-side promotion helper. Post-promotion readiness waits/retries service activity, local backend health, local Nginx web routing, and public health/web checks before failing the run.
+The deploy workflow builds backend and web artifacts, writes SHA256 checksums, writes a release manifest, uploads the release bundle with 30-day retention, verifies the manifest locally and remotely, and only then calls the server-side helper to promote backend and web together. Post-promotion readiness waits/retries service activity, local backend health, local Nginx web routing, and public health/web checks before failing the run.
 
 `MVP2` must not deploy directly unless it is renamed or promoted through a branch whose name contains `release`.
 
@@ -65,8 +65,10 @@ Rollback requires:
 - approval ticket or incident id;
 - `include_db_rollback=false`;
 - `production` environment approval.
+- a readable target release manifest containing integer `flyway_history_min_rows`;
+- manifest minimum `>=20` and `<=` the recorded pre-rollback Flyway count.
 
-The rollback workflow does not perform database rollback, backup restore, or Flyway repair/migrate/undo commands.
+The workflow fails closed for a missing/unreadable manifest, missing or non-integer minimum (including string/boolean values), a value below 20, or a value above the pre-rollback count. Post-rollback Flyway history must remain `>=20` and must not decrease from the recorded pre-count. A V20 binary declaring minimum 20 may run against retained V21 schema; the workflow does not perform database downgrade, backup restore, or Flyway repair/migrate/undo commands.
 
 ## Secret policy
 
@@ -98,7 +100,7 @@ Minimum protection for release branches:
 3. Wait for green `backend-verify`, `web-verify`, and `android-verify`.
 4. Merge only after checks and review pass.
 5. Push to the release branch creates backend/web artifacts, checksums, and a release manifest.
-6. The release push deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, promotes the release, and runs retrying post-deploy health checks.
+6. The release push deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, jointly promotes backend and web, and runs retrying post-deploy health checks.
 7. For an operator-driven redeploy, start `RocketFlow HexCore Prod Deploy` manually from the release branch with an approval ticket and `DEPLOY_ROCKETFLOW_PROD`; it uses the same promotion path.
 
 See also:

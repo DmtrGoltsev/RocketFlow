@@ -73,7 +73,10 @@ Default sorting should be deterministic.
 Examples:
 - folders by `displayOrder`, then `createdAt`
 - goals by `createdAt`
-- tasks by `plannedTime`, then `priority`, then `createdAt`
+- task lists/shared tasks by `createdAt`, then `id`
+- calendar tasks by `plannedTime`, then `createdAt`, then `id`
+
+Task priority must not participate in ordering.
 
 ## 4. Authentication Contract
 
@@ -238,6 +241,8 @@ Response `204 No Content`
 
 ### TaskDto
 
+`priority` is a deprecated compatibility shadow, not a product field. New tasks use `5`; responses may preserve another historical stored value while old APK/V20 rollback support remains.
+
 ```json
 {
   "id": "uuid",
@@ -294,10 +299,12 @@ Response `204 No Content`
 
 ### PriorityDecayPolicyDto
 
+Deprecated compatibility response object. It is hidden from product settings, always reports `enabled=false`, and retains stored threshold/amount values without giving them business effect.
+
 ```json
 {
   "taskType": "green",
-  "enabled": true,
+  "enabled": false,
   "thresholdPreset": "day",
   "decayAmount": 1
 }
@@ -305,22 +312,25 @@ Response `204 No Content`
 
 ### UserSettingsDto
 
+The green/red policy objects below are deprecated response shadows. Active settings are `language`, `notificationsEnabled`, and optimistic `version`.
+
 ```json
 {
   "language": "ru",
   "greenPriorityDecayPolicy": {
     "taskType": "green",
-    "enabled": true,
+    "enabled": false,
     "thresholdPreset": "day",
     "decayAmount": 1
   },
   "redPriorityDecayPolicy": {
     "taskType": "red",
-    "enabled": true,
+    "enabled": false,
     "thresholdPreset": "week",
     "decayAmount": 1
   },
-  "notificationsEnabled": true
+  "notificationsEnabled": true,
+  "version": 0
 }
 ```
 
@@ -398,17 +408,18 @@ Response `200 OK`:
   "language": "ru",
   "greenPriorityDecayPolicy": {
     "taskType": "green",
-    "enabled": true,
+    "enabled": false,
     "thresholdPreset": "day",
     "decayAmount": 1
   },
   "redPriorityDecayPolicy": {
     "taskType": "red",
-    "enabled": true,
+    "enabled": false,
     "thresholdPreset": "week",
     "decayAmount": 1
   },
-  "notificationsEnabled": true
+  "notificationsEnabled": true,
+  "version": 0
 }
 ```
 
@@ -430,9 +441,16 @@ Request:
     "thresholdPreset": "month",
     "decayAmount": 1
   },
-  "notificationsEnabled": true
+  "notificationsEnabled": true,
+  "version": 0
 }
 ```
+
+Compatibility notes:
+- V21 clients may omit `greenPriorityDecayPolicy` and `redPriorityDecayPolicy`
+- old clients may send either object; V21 accepts and ignores them, including `null` or values outside the old policy validation rules
+- policy-only changes do not update stored values, timestamps, or optimistic version
+- V20-compatible web/Android clients preserve fetched hidden policy objects when sending the old request shape
 
 Response `200 OK`:
 ```json
@@ -440,17 +458,18 @@ Response `200 OK`:
   "language": "en",
   "greenPriorityDecayPolicy": {
     "taskType": "green",
-    "enabled": true,
+    "enabled": false,
     "thresholdPreset": "day",
     "decayAmount": 1
   },
   "redPriorityDecayPolicy": {
     "taskType": "red",
-    "enabled": true,
-    "thresholdPreset": "month",
+    "enabled": false,
+    "thresholdPreset": "week",
     "decayAmount": 1
   },
-  "notificationsEnabled": true
+  "notificationsEnabled": true,
+  "version": 1
 }
 ```
 
@@ -696,6 +715,10 @@ Request:
 }
 ```
 
+Compatibility notes:
+- `priority` may be omitted, `null`, or supplied by an old client; backend ignores it and creates the task with compatibility shadow `5`
+- the field remains accepted until old APK/V20 rollback support explicitly ends
+
 Response `201 Created`:
 ```json
 {
@@ -704,7 +727,7 @@ Response `201 Created`:
   "title": "Prepare promotion plan",
   "description": "Outline achievements and next steps",
   "type": "green",
-  "priority": 8,
+  "priority": 5,
   "status": "todo",
   "plannedTime": "2026-04-27T09:00:00+03:00",
   "dueTime": "2026-04-28T18:00:00+03:00",
@@ -774,6 +797,7 @@ Request:
 Contract note:
 - `tagIds` may be omitted when a client does not author tags; omitted `tagIds` preserves existing task tags
 - send `"tagIds": []` to intentionally clear all tags, or a UUID list to replace the tag set
+- `priority` may be omitted, `null`, or supplied; backend ignores it and preserves the task's stored historical shadow in the response
 
 Response `200 OK`:
 ```json
@@ -975,7 +999,7 @@ Response `200 OK`:
 ```
 
 Business note:
-- if the move postpones the task, backend may record a reschedule event and evaluate priority decay
+- if the move postpones the task, backend records a reschedule event and preserves the historical priority shadow; no priority decay is evaluated
 
 ## 13. Recurrence and Reminder API
 
@@ -1099,16 +1123,18 @@ Response `200 OK`:
     "newPlannedTime": "2026-04-27T12:00:00+03:00",
     "createdAt": "2026-04-26T19:10:00Z"
   },
-  "priorityDecayApplied": true
+  "priorityDecayApplied": false
 }
 ```
+
+The example shape retains deprecated fields for compatibility. Current behavior preserves the stored task `priority` shadow and returns `priorityDecayApplied=false`.
 
 Validation rules:
 - task must exist
 - caller must have access
 - planned time must exist
 - preset must be supported
-- if the caller is a collaborator, the owner's decay policy still applies
+- no owner/collaborator decay policy is evaluated; actor identity and historical before/after shadows remain in the audit event
 
 ## 15. Sharing API
 
@@ -1459,7 +1485,7 @@ Response:
 
 - `title` is required
 - `type` must be `green` or `red`
-- `priority` must be between `1` and `10`
+- deprecated `priority` may be omitted, `null`, or any legacy integer and is ignored
 - `status` must be one of the allowed task statuses
 - `plannedTime` and `dueTime` must be valid timestamps when present
 
@@ -1587,3 +1613,14 @@ Period DTOs include ISO-week dates, absolute boundaries, timezone snapshot, opti
 - `DELETE /api/notifications/web-push/subscriptions/{subscriptionId}`
 
 Registration carries the browser endpoint, optional ISO-8601 `expirationTime`, `p256dh`, `auth`, and a stable installation id. The backend enforces endpoint ownership and the configured active-subscription cap. Logout must attempt authenticated server deletion before browser unsubscribe and local credential removal. Focus push payloads route to `/rocket/app/focus`; Android data-only FCM payloads route to `rocketflow://focus` and share stable event-id deduplication semantics.
+
+## 26. V21 Task Priority Compatibility Contract
+
+This contract is active in the current delivery candidate but is not a statement that V21 is deployed.
+
+- `priority` in task, calendar, move, reschedule, and shared-resource responses is deprecated and represents the stored compatibility shadow only.
+- New task/clone responses use `5`. Existing task responses preserve historical stored values; update, move, and reschedule do not rewrite them.
+- Web and Android normalize a missing response field to `5`, send `5` on V20-compatible create, and resend a fetched/local shadow on V20-compatible update.
+- Deprecated settings policy objects are optional on V21 requests, accepted/ignored when present, and preserved by clients only when the V20 request shape is needed.
+- `priorityDecayApplied` remains a deprecated response field and is `false` for current reschedule behavior.
+- Removal of these wire fields is deferred until old APK and V20 rollback support explicitly end.
