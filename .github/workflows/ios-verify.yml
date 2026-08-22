@@ -66,15 +66,12 @@ jobs:
         working-directory: ios
         run: xcodegen generate --spec project.yml
 
-      - name: Check generated project drift when tracked
+      - name: Verify committed generated project parity
         shell: bash
         run: |
           set -euo pipefail
-          if git ls-files --error-unmatch ios/RocketFlow.xcodeproj/project.pbxproj >/dev/null 2>&1; then
-            git diff --exit-code -- ios/RocketFlow.xcodeproj
-          else
-            echo "::notice::RocketFlow.xcodeproj is generated-only; regeneration drift check is deferred until it is tracked."
-          fi
+          git ls-files --error-unmatch ios/RocketFlow.xcodeproj/project.pbxproj >/dev/null
+          git diff --exit-code -- ios/RocketFlow.xcodeproj
 
       - name: Resolve Swift packages
         run: |

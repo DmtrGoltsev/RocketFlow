@@ -47,8 +47,7 @@ scripts/Set-ProdBackupDownloadEnv.local.ps1
 .idea/
 *.iml
 
-# iOS/XcodeGen generated and local files
-/ios/RocketFlow.xcodeproj/
+# iOS local and generated build files
 /ios/DerivedData/
 /ios/Config/Local.xcconfig
 **/xcuserdata/
