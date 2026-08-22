@@ -3,6 +3,14 @@ import GRDB
 
 enum DatabaseSchema {
     static var migrator: DatabaseMigrator {
+        makeMigrator(includeFeaturePersistence: true)
+    }
+
+    static var preFeaturePersistenceMigrator: DatabaseMigrator {
+        makeMigrator(includeFeaturePersistence: false)
+    }
+
+    private static func makeMigrator(includeFeaturePersistence: Bool) -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1") { db in
             try createPlanningTables(in: db)
@@ -17,7 +25,159 @@ enum DatabaseSchema {
                 table.add(column: "serverDeleted", .boolean).notNull().defaults(to: false)
             }
         }
+        if includeFeaturePersistence {
+            migrator.registerMigration("v4-feature-persistence") { db in
+                try createFeaturePersistenceTables(in: db)
+            }
+        }
         return migrator
+    }
+
+    private static func createFeaturePersistenceTables(in db: Database) throws {
+        try db.create(table: "feature_account_leases") { table in
+            table.column("accountID", .text).primaryKey()
+            table.column("generation", .integer).notNull()
+            table.column("updatedAt", .text).notNull()
+        }
+
+        try db.create(table: "feature_accounts") { table in
+            table.column("accountID", .text).primaryKey()
+            table.column("generation", .integer).notNull()
+            table.column("createdAt", .text).notNull()
+            table.column("updatedAt", .text).notNull()
+        }
+
+        try db.create(table: "feature_calendar_ranges") { table in
+            table.column("accountID", .text).notNull()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("timezoneID", .text).notNull()
+            table.column("fromDate", .text).notNull()
+            table.column("toExclusive", .text).notNull()
+            table.column("payloadJSON", .blob).notNull()
+            table.column("updatedAt", .text).notNull()
+            table.primaryKey(["accountID", "timezoneID", "fromDate", "toExclusive"])
+        }
+
+        try db.create(table: "feature_focus_snapshots") { table in
+            table.column("accountID", .text).notNull()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("cacheKind", .text).notNull()
+            table.column("entityID", .text).notNull().defaults(to: "")
+            table.column("payloadJSON", .blob).notNull()
+            table.column("updatedAt", .text).notNull()
+            table.primaryKey(["accountID", "cacheKind", "entityID"])
+        }
+
+        try db.create(table: "feature_focus_actions") { table in
+            table.column("accountID", .text).notNull()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("actionID", .text).notNull()
+            table.column("kind", .text).notNull()
+            table.column("payloadJSON", .blob).notNull()
+            table.column("expectedVersion", .integer).notNull()
+            table.column("conflictAttempts", .integer).notNull().defaults(to: 0)
+            table.column("retryCount", .integer).notNull().defaults(to: 0)
+            table.column("nextRetryAt", .text)
+            table.column("lastErrorCode", .text)
+            table.column("sequence", .integer).notNull()
+            table.column("createdAt", .text).notNull()
+            table.column("updatedAt", .text).notNull()
+            table.primaryKey(["accountID", "actionID"])
+            table.uniqueKey(["accountID", "sequence"])
+        }
+        try db.create(
+            index: "feature_focus_actions_fifo",
+            on: "feature_focus_actions",
+            columns: ["accountID", "sequence", "createdAt", "actionID"]
+        )
+
+        try db.create(table: "feature_focus_terminal_issues") { table in
+            table.column("accountID", .text).notNull()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("issueID", .text).notNull()
+            table.column("payloadJSON", .blob).notNull()
+            table.column("createdAt", .text).notNull()
+            table.primaryKey(["accountID", "issueID"])
+        }
+
+        try db.create(table: "feature_task_reminders") { table in
+            table.column("accountID", .text).notNull()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("taskID", .text).notNull()
+            table.column("reminderID", .text).notNull()
+            table.column("payloadJSON", .blob).notNull()
+            table.column("taskState", .text).notNull()
+            table.column("updatedAt", .text).notNull()
+            table.primaryKey(["accountID", "taskID", "reminderID"])
+        }
+
+        try db.create(table: "feature_default_reminders") { table in
+            table.column("accountID", .text).primaryKey()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("payloadJSON", .blob).notNull()
+            table.column("updatedAt", .text).notNull()
+        }
+
+        try db.create(table: "feature_reminder_reconciliation") { table in
+            table.column("accountID", .text).primaryKey()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("reason", .text).notNull()
+            table.column("reconciledAt", .text).notNull()
+        }
+
+        try db.create(table: "feature_remote_notification_events") { table in
+            table.column("accountID", .text).notNull()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("eventID", .text).notNull()
+            table.column("seenAt", .text).notNull()
+            table.primaryKey(["accountID", "eventID"])
+        }
+        try db.create(
+            index: "feature_remote_notification_events_expiry",
+            on: "feature_remote_notification_events",
+            columns: ["accountID", "seenAt"]
+        )
+
+        try db.create(table: "feature_settings_snapshots") { table in
+            table.column("accountID", .text).primaryKey()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("payloadJSON", .blob).notNull()
+            table.column("updatedAt", .text).notNull()
+        }
+        try db.create(table: "feature_settings_pending") { table in
+            table.column("accountID", .text).primaryKey()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("payloadJSON", .blob).notNull()
+            table.column("updatedAt", .text).notNull()
+        }
+
+        try db.create(table: "feature_device_registration_state") { table in
+            table.column("accountID", .text).primaryKey()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("fcmToken", .text).notNull()
+            table.column("installationID", .text).notNull()
+            table.column("deviceName", .text)
+            table.column("registrationID", .text).notNull()
+            table.column("payloadJSON", .blob).notNull()
+            table.column("updatedAt", .text).notNull()
+        }
+
+        try db.create(table: "feature_installation_identity") { table in
+            table.column("accountID", .text).primaryKey()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("installationID", .text).notNull()
+            table.column("updatedAt", .text).notNull()
+        }
+
+        try db.create(table: "feature_persistence_corruptions") { table in
+            table.column("accountID", .text).notNull()
+                .references("feature_accounts", column: "accountID", onDelete: .cascade)
+            table.column("tableName", .text).notNull()
+            table.column("recordKey", .text).notNull()
+            table.column("code", .text).notNull()
+            table.column("detectedAt", .text).notNull()
+            table.primaryKey(["accountID", "tableName", "recordKey"])
+        }
     }
 
     private static func createPlanningTables(in db: Database) throws {
