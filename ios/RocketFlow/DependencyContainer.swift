@@ -8,14 +8,32 @@ final class DependencyContainer: ObservableObject {
 
     let apiBaseURL: URL
     let databaseQueue: DatabaseQueue?
+    let apiClient: APIClient
+    let sessionStore: any SessionStore
+    let authService: AuthService
+    let authSession: AuthSession
 
     init(
         apiBaseURL: URL? = nil,
-        databasePath: String = ":memory:"
+        databasePath: String = ":memory:",
+        transport: (any HTTPTransport)? = nil,
+        sessionStore: (any SessionStore)? = nil
     ) {
         let configuredValue = Bundle.main.object(forInfoDictionaryKey: Self.apiBaseURLInfoKey) as? String
-        self.apiBaseURL = apiBaseURL ?? Self.configuredAPIBaseURL(from: configuredValue)
+        let resolvedURL = apiBaseURL ?? Self.configuredAPIBaseURL(from: configuredValue)
+        let resolvedStore = sessionStore ?? KeychainSessionStore()
+        let client = APIClient(
+            baseURL: resolvedURL,
+            transport: transport ?? URLSessionTransport()
+        )
+        let service = AuthService(client: client)
+
+        self.apiBaseURL = resolvedURL
         databaseQueue = try? DatabaseQueue(path: databasePath)
+        apiClient = client
+        self.sessionStore = resolvedStore
+        authService = service
+        authSession = AuthSession(service: service, store: resolvedStore)
     }
 
     nonisolated static func configuredAPIBaseURL(from value: String?) -> URL {
