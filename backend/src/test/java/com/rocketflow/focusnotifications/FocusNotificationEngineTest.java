@@ -154,6 +154,40 @@ class FocusNotificationEngineTest {
     }
 
     @Test
+    void fcmFanoutIncludesAndroidAndIosDevicesWithoutChangingPayloadRoute() {
+        notificationProperties.getFcm().setEnabled(true);
+        DeviceRegistration androidDevice = device(candidate.userId());
+        DeviceRegistration iosDevice = device(candidate.userId());
+        iosDevice.setPlatform("ios");
+        iosDevice.setPushToken("ios-secret-token");
+        when(deviceRepository.findByUserIdInAndActiveTrueOrderByUserIdAscCreatedAtAsc(any()))
+                .thenReturn(List.of(androidDevice, iosDevice));
+        when(deliveryStore.claimNew(any(), eq(candidate.periodId()), eq(candidate.userId()), eq("fcm"),
+                any(), any(), any(), eq(now), any())).thenAnswer(this::claimedDelivery);
+        when(deviceRepository.findById(androidDevice.getId())).thenReturn(Optional.of(androidDevice));
+        when(deviceRepository.findById(iosDevice.getId())).thenReturn(Optional.of(iosDevice));
+        when(fcmSender.sendDataOnly(any(), any(), anyString(), any()))
+                .thenReturn(FcmSender.SendResult.sent("message-id"));
+
+        FocusNotificationEngine.RunSummary summary = engine.process();
+
+        assertThat(summary.sent()).isEqualTo(2);
+        ArgumentCaptor<DeviceRegistration> devices = ArgumentCaptor.forClass(DeviceRegistration.class);
+        verify(fcmSender, times(2)).sendDataOnly(
+                devices.capture(),
+                org.mockito.ArgumentMatchers.argThat(data ->
+                        "focus_reminder".equals(data.get("type"))
+                                && "focus".equals(data.get("route"))
+                                && candidate.periodId().toString().equals(data.get("periodId"))
+                ),
+                eq("focus-" + candidate.periodId()),
+                eq(Duration.ofMinutes(15))
+        );
+        assertThat(devices.getAllValues()).extracting(DeviceRegistration::getPlatform)
+                .containsExactly("android", "ios");
+    }
+
+    @Test
     void expiredWebPushResponseDeactivatesSubscription() {
         properties.getWebPush().setEnabled(true);
         WebPushSubscription subscription = subscription(candidate.userId());

@@ -1,6 +1,7 @@
 package com.rocketflow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -17,7 +18,7 @@ import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
 class FlywayMigrationTest {
 
     @Test
-    void appliesV1ThroughV21ToPostgres() throws Exception {
+    void appliesV1ThroughV22ToPostgres() throws Exception {
         try (EmbeddedPostgres postgres = EmbeddedPostgres.start()) {
             DataSource dataSource = postgres.getPostgresDatabase();
             Flyway flyway = flyway(dataSource);
@@ -26,15 +27,16 @@ class FlywayMigrationTest {
 
             try (Connection connection = dataSource.getConnection();
                  Statement statement = connection.createStatement()) {
-                assertEquals(21, count(statement, "select count(*) from flyway_schema_history where success"));
-                assertEquals("21", flyway.info().current().getVersion().getVersion());
+                assertEquals(22, count(statement, "select count(*) from flyway_schema_history where success"));
+                assertEquals("22", flyway.info().current().getVersion().getVersion());
                 assertV21CompatibilityMetadata(statement);
+                assertDevicePlatformConstraint(statement);
             }
         }
     }
 
     @Test
-    void upgradesV20ToV21WithoutChangingHistoricalPriorityData() throws Exception {
+    void upgradesV20ToLatestWithoutChangingHistoricalPriorityData() throws Exception {
         try (EmbeddedPostgres postgres = EmbeddedPostgres.start()) {
             DataSource dataSource = postgres.getPostgresDatabase();
             Flyway.configure()
@@ -95,13 +97,65 @@ class FlywayMigrationTest {
 
             try (Connection connection = dataSource.getConnection();
                  Statement statement = connection.createStatement()) {
-                assertEquals(21, count(statement, "select count(*) from flyway_schema_history where success"));
+                assertEquals(22, count(statement, "select count(*) from flyway_schema_history where success"));
                 assertEquals(9, count(statement, "select priority from tasks where id = '" + taskId + "'"));
                 assertEquals(9, count(statement, "select priority_before from task_reschedule_events where task_id = '" + taskId + "'"));
                 assertEquals(8, count(statement, "select priority_after from task_reschedule_events where task_id = '" + taskId + "'"));
                 assertEquals(1, count(statement, "select count(*) from task_reschedule_events where task_id = '" + taskId + "' and priority_decay_applied"));
                 assertEquals(1, count(statement, "select count(*) from user_settings where user_id = '" + userId + "' and green_priority_decay_enabled and green_priority_decay_threshold = 'month' and green_priority_decay_amount = 4 and red_priority_decay_enabled and red_priority_decay_threshold = 'day' and red_priority_decay_amount = 3"));
                 assertV21CompatibilityMetadata(statement);
+                assertDevicePlatformConstraint(statement);
+            }
+        }
+    }
+
+    @Test
+    void upgradesV21ToV22WithoutBreakingAndroidAndAcceptsIos() throws Exception {
+        try (EmbeddedPostgres postgres = EmbeddedPostgres.start()) {
+            DataSource dataSource = postgres.getPostgresDatabase();
+            Flyway.configure()
+                    .dataSource(dataSource)
+                    .locations("classpath:db/migration")
+                    .target("21")
+                    .load()
+                    .migrate();
+
+            UUID userId = UUID.randomUUID();
+            UUID androidDeviceId = UUID.randomUUID();
+            try (Connection connection = dataSource.getConnection();
+                 Statement statement = connection.createStatement()) {
+                statement.executeUpdate("""
+                        insert into users (id, email, display_name, timezone, active, created_at, updated_at)
+                        values ('%s', 'devices@example.com', 'Devices', 'UTC', true, now(), now())
+                        """.formatted(userId));
+                statement.executeUpdate("""
+                        insert into device_registrations (
+                            id, user_id, push_token, device_name, platform, active, created_at, updated_at
+                        ) values ('%s', '%s', 'android-token', 'Android', 'android', true, now(), now())
+                        """.formatted(androidDeviceId, userId));
+            }
+
+            Flyway flyway = flyway(dataSource);
+            flyway.migrate();
+
+            try (Connection connection = dataSource.getConnection();
+                 Statement statement = connection.createStatement()) {
+                assertEquals("22", flyway.info().current().getVersion().getVersion());
+                assertEquals(1, count(statement, "select count(*) from device_registrations where id = '"
+                        + androidDeviceId + "' and platform = 'android'"));
+                statement.executeUpdate("""
+                        insert into device_registrations (
+                            id, user_id, push_token, device_name, platform, active, created_at, updated_at
+                        ) values ('%s', '%s', 'ios-token', 'iPhone', 'ios', true, now(), now())
+                        """.formatted(UUID.randomUUID(), userId));
+                assertEquals(1, count(statement,
+                        "select count(*) from device_registrations where push_token = 'ios-token' and platform = 'ios'"));
+                assertThrows(java.sql.SQLException.class, () -> statement.executeUpdate("""
+                        insert into device_registrations (
+                            id, user_id, push_token, device_name, platform, active, created_at, updated_at
+                        ) values ('%s', '%s', 'unsupported-token', 'Other', 'windows', true, now(), now())
+                        """.formatted(UUID.randomUUID(), userId)));
+                assertDevicePlatformConstraint(statement);
             }
         }
     }
@@ -144,6 +198,15 @@ class FlywayMigrationTest {
                     'tasks_planned_time_idx',
                     'tasks_creator_user_id_idx'
                 )
+                """));
+    }
+
+    private void assertDevicePlatformConstraint(Statement statement) throws Exception {
+        assertEquals(1, count(statement, """
+                select count(*) from pg_constraint
+                where conname = 'device_registrations_platform_chk'
+                  and pg_get_constraintdef(oid) like '%android%'
+                  and pg_get_constraintdef(oid) like '%ios%'
                 """));
     }
 

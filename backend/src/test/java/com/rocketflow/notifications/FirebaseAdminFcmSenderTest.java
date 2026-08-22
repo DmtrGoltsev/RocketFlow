@@ -15,6 +15,7 @@ import org.mockito.ArgumentCaptor;
 
 import com.google.firebase.ErrorCode;
 import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.ApnsConfig;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -69,6 +70,63 @@ class FirebaseAdminFcmSenderTest {
         verify(firebaseMessaging).send(messageCaptor.capture());
         AndroidConfig androidConfig = field(messageCaptor.getValue(), "androidConfig");
         assertThat((Object) field(androidConfig, "ttl")).isEqualTo("86400s");
+    }
+
+    @Test
+    void sendsIosFocusPayloadThroughFcmWithBackgroundApnsContract() throws Exception {
+        FirebaseMessaging firebaseMessaging = org.mockito.Mockito.mock(FirebaseMessaging.class);
+        when(firebaseMessaging.send(any(Message.class))).thenReturn("message-id");
+        FirebaseAdminFcmSender sender = new FirebaseAdminFcmSender(firebaseMessaging);
+        DeviceRegistration iosDevice = device("ios-token");
+        iosDevice.setPlatform("ios");
+        Map<String, String> data = Map.of(
+                "type", "focus_reminder",
+                "periodId", UUID.randomUUID().toString(),
+                "eventId", UUID.randomUUID().toString(),
+                "route", "focus"
+        );
+
+        FcmSender.SendResult result = sender.sendDataOnly(
+                iosDevice, data, "focus-period", Duration.ofMinutes(15)
+        );
+
+        assertThat(result.successful()).isTrue();
+        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+        verify(firebaseMessaging).send(messageCaptor.capture());
+        Message message = messageCaptor.getValue();
+        assertThat((Object) field(message, "token")).isEqualTo("ios-token");
+        assertThat((Object) field(message, "data")).isEqualTo(data);
+        assertThat((Object) field(message, "androidConfig")).isNull();
+
+        ApnsConfig apnsConfig = field(message, "apnsConfig");
+        Map<String, String> headers = field(apnsConfig, "headers");
+        assertThat(headers).containsEntry("apns-priority", "5")
+                .containsEntry("apns-push-type", "background")
+                .containsEntry("apns-collapse-id", "focus-period");
+        assertThat(Long.parseLong(headers.get("apns-expiration"))).isPositive();
+        Map<String, Object> payload = field(apnsConfig, "payload");
+        assertThat(payload.get("aps")).isInstanceOfSatisfying(Map.class,
+                aps -> assertThat(aps.get("content-available")).isEqualTo(1));
+    }
+
+    @Test
+    void keepsLegacyDeepLinkDataPlatformNeutralForIos() throws Exception {
+        FirebaseMessaging firebaseMessaging = org.mockito.Mockito.mock(FirebaseMessaging.class);
+        when(firebaseMessaging.send(any(Message.class))).thenReturn("message-id");
+        FirebaseAdminFcmSender sender = new FirebaseAdminFcmSender(firebaseMessaging);
+        DeviceRegistration iosDevice = device("ios-token");
+        iosDevice.setPlatform("ios");
+        Map<String, String> data = Map.of("type", "task_reminder", "taskId", UUID.randomUUID().toString());
+
+        FcmSender.SendResult result = sender.send(
+                iosDevice, new NotificationPayload("Title", "Body", data)
+        );
+
+        assertThat(result.successful()).isTrue();
+        ArgumentCaptor<Message> messageCaptor = ArgumentCaptor.forClass(Message.class);
+        verify(firebaseMessaging).send(messageCaptor.capture());
+        assertThat((Object) field(messageCaptor.getValue(), "data")).isEqualTo(data);
+        assertThat((Object) field(messageCaptor.getValue(), "token")).isEqualTo("ios-token");
     }
 
     @Test
@@ -160,6 +218,7 @@ class FirebaseAdminFcmSenderTest {
     private DeviceRegistration device(String token) {
         DeviceRegistration device = new DeviceRegistration();
         device.setPushToken(token);
+        device.setPlatform("android");
         return device;
     }
 

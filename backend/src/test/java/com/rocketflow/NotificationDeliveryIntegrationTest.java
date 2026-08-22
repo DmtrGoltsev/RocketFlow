@@ -202,6 +202,60 @@ class NotificationDeliveryIntegrationTest {
     }
 
     @Test
+    void iosDeviceRegistrationNormalizesAndKeepsPlatformNeutralLifecycle() throws Exception {
+        Session owner = registerAndLogin("ios-owner@example.com", "iOS Owner");
+
+        String firstRegistration = registerDevice(
+                owner.accessToken(), "  IoS  ", " ios-token-a ", "iPhone", "ios-installation"
+        );
+        String deviceId = read(firstRegistration, "/id");
+        assertEquals("ios", read(firstRegistration, "/platform"));
+
+        String updatedRegistration = registerDevice(
+                owner.accessToken(), "IOS", "ios-token-b", "iPhone 17", "ios-installation"
+        );
+        assertEquals(deviceId, read(updatedRegistration, "/id"));
+        assertEquals("ios", read(updatedRegistration, "/platform"));
+
+        String deduplicatedRegistration = registerDevice(
+                owner.accessToken(), "ios", "ios-token-b", "iPhone 17 Pro", null
+        );
+        assertEquals(deviceId, read(deduplicatedRegistration, "/id"));
+        assertEquals(1, deviceRegistrationRepository.count());
+
+        DeviceRegistration registration = deviceRegistrationRepository.findById(UUID.fromString(deviceId)).orElseThrow();
+        assertEquals("ios", registration.getPlatform());
+        assertEquals("ios-token-b", registration.getPushToken());
+        assertEquals("ios-installation", registration.getInstallationId());
+        assertEquals("iPhone 17 Pro", registration.getDeviceName());
+
+        mockMvc.perform(delete("/api/devices/" + deviceId)
+                        .header("Authorization", "Bearer " + owner.accessToken()))
+                .andExpect(status().isNoContent());
+        assertFalse(deviceRegistrationRepository.findById(UUID.fromString(deviceId)).orElseThrow().isActive());
+    }
+
+    @Test
+    void deviceRegistrationRejectsBlankAndUnsupportedPlatforms() throws Exception {
+        Session owner = registerAndLogin("platform-owner@example.com", "Platform Owner");
+
+        for (String platform : List.of("   ", "windows")) {
+            mockMvc.perform(post("/api/devices")
+                            .header("Authorization", "Bearer " + owner.accessToken())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "platform": "%s",
+                                      "pushToken": "rejected-token"
+                                    }
+                                    """.formatted(platform)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("validation_error"));
+        }
+        assertEquals(0, deviceRegistrationRepository.count());
+    }
+
+    @Test
     void deviceRegistrationPrefersCurrentTokenAndRetiresSupersededInstallationRow() throws Exception {
         Session owner = registerAndLogin("owner@example.com", "Owner");
         Session otherUser = registerAndLogin("other@example.com", "Other");
@@ -354,6 +408,16 @@ class NotificationDeliveryIntegrationTest {
     }
 
     private String registerDevice(String accessToken, String pushToken, String deviceName, String installationId) throws Exception {
+        return registerDevice(accessToken, "android", pushToken, deviceName, installationId);
+    }
+
+    private String registerDevice(
+            String accessToken,
+            String platform,
+            String pushToken,
+            String deviceName,
+            String installationId
+    ) throws Exception {
         String installationIdField = installationId == null
                 ? "\"installationId\": null,"
                 : "\"installationId\": \"%s\",".formatted(installationId);
@@ -362,12 +426,12 @@ class NotificationDeliveryIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "platform": "android",
+                                  "platform": "%s",
                                   "pushToken": "%s",
                                   %s
                                   "deviceName": "%s"
                                 }
-                                """.formatted(pushToken, installationIdField, deviceName)))
+                                """.formatted(platform, pushToken, installationIdField, deviceName)))
                 .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse()

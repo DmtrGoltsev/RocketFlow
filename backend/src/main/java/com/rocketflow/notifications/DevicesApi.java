@@ -1,6 +1,7 @@
 package com.rocketflow.notifications;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.UUID;
 
 import jakarta.validation.constraints.NotBlank;
@@ -13,11 +14,16 @@ public final class DevicesApi {
     }
 
     public record RegisterDeviceRequest(
-            @NotBlank @Pattern(regexp = "android") String platform,
+            @NotBlank @Pattern(regexp = "android|ios") String platform,
             @NotBlank @Size(max = 1024) String pushToken,
             @Size(max = 120) String installationId,
             @Size(max = 120) String deviceName
     ) {
+        public RegisterDeviceRequest {
+            if (platform != null) {
+                platform = platform.trim().toLowerCase(Locale.ROOT);
+            }
+        }
     }
 
     public record DeviceRegistrationResponse(

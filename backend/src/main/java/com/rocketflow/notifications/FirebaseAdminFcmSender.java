@@ -1,10 +1,13 @@
 package com.rocketflow.notifications;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 
 import com.google.firebase.ErrorCode;
 import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.ApnsConfig;
+import com.google.firebase.messaging.Aps;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -45,19 +48,32 @@ public class FirebaseAdminFcmSender implements FcmSender {
             String collapseKey,
             Duration ttl
     ) {
+        Duration boundedTtl = boundedTtl(ttl);
+        Message.Builder messageBuilder = Message.builder()
+                .setToken(deviceRegistration.getPushToken())
+                .putAllData(data);
+
+        if ("ios".equals(deviceRegistration.getPlatform())) {
+            ApnsConfig.Builder apnsConfig = ApnsConfig.builder()
+                    .putHeader("apns-priority", "5")
+                    .putHeader("apns-push-type", "background")
+                    .putHeader("apns-expiration", String.valueOf(Instant.now().plus(boundedTtl).getEpochSecond()))
+                    .setAps(Aps.builder().setContentAvailable(true).build());
+            if (collapseKey != null && !collapseKey.isBlank()) {
+                apnsConfig.putHeader("apns-collapse-id", collapseKey);
+            }
+            messageBuilder.setApnsConfig(apnsConfig.build());
+            return deliverFocus(messageBuilder.build());
+        }
+
         AndroidConfig.Builder androidConfig = AndroidConfig.builder()
                 .setPriority(AndroidConfig.Priority.HIGH)
-                .setTtl(boundedTtl(ttl).toMillis());
+                .setTtl(boundedTtl.toMillis());
         if (collapseKey != null && !collapseKey.isBlank()) {
             androidConfig.setCollapseKey(collapseKey);
         }
 
-        Message message = Message.builder()
-                .setToken(deviceRegistration.getPushToken())
-                .putAllData(data)
-                .setAndroidConfig(androidConfig.build())
-                .build();
-        return deliverFocus(message);
+        return deliverFocus(messageBuilder.setAndroidConfig(androidConfig.build()).build());
     }
 
     private Duration boundedTtl(Duration ttl) {
