@@ -1,0 +1,4 @@
+// Copy to Local.xcconfig for an untracked machine-local override.
+// Keep the $() segment when using an HTTP or HTTPS URL in an xcconfig file.
+ROCKETFLOW_API_BASE_URL = http:/$()/127.0.0.1:8080/rocket-api
+

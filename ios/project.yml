@@ -1,0 +1,115 @@
+name: RocketFlow
+
+options:
+  minimumXcodeGenVersion: 2.46.0
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: en
+  defaultConfig: Debug
+
+configs:
+  Debug: debug
+  Release: release
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    exactVersion: 6.29.3
+
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    SWIFT_VERSION: "5.9"
+
+targets:
+  RocketFlow:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: RocketFlow
+        excludes:
+          - Resources/Info.plist
+          - Resources/RocketFlow.entitlements
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    dependencies:
+      - package: GRDB
+        product: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rocketflow.companion.ios
+        PRODUCT_NAME: RocketFlow
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_FILE: RocketFlow/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RocketFlow/Resources/RocketFlow.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  RocketFlowTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: RocketFlowTests
+    dependencies:
+      - target: RocketFlow
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rocketflow.companion.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  RocketFlowUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: RocketFlowUITests
+    dependencies:
+      - target: RocketFlow
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rocketflow.companion.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: RocketFlow
+
+schemes:
+  RocketFlow:
+    build:
+      targets:
+        RocketFlow: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - name: RocketFlowTests
+          parallelizable: true
+        - name: RocketFlowUITests
+          parallelizable: false
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  RocketFlow-CI:
+    build:
+      targets:
+        RocketFlow: all
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - name: RocketFlowTests
+          parallelizable: true
+        - name: RocketFlowUITests
+          parallelizable: false
+    analyze:
+      config: Debug

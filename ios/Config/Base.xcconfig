@@ -1,0 +1,4 @@
+// The empty expansion preserves the second slash because // starts an xcconfig comment.
+ROCKETFLOW_DEFAULT_API_BASE_URL = http:/$()/45.10.110.42/rocket-api
+ROCKETFLOW_API_BASE_URL = $(ROCKETFLOW_DEFAULT_API_BASE_URL)
+
