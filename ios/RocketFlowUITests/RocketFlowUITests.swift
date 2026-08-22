@@ -5,11 +5,14 @@ final class RocketFlowUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testBootstrapScreenLaunches() {
+    func testAuthScreenLaunches() {
         let app = XCUIApplication()
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["home.ready"].waitForExistence(timeout: 10))
+        let authScreen = app.scrollViews["auth.screen"]
+        XCTAssertTrue(authScreen.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.textFields["auth.email"].exists)
+        XCTAssertTrue(app.secureTextFields["auth.password"].exists)
+        XCTAssertTrue(app.buttons["auth.submit"].exists)
     }
 }
-

@@ -94,6 +94,7 @@ struct AuthView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .accessibilityIdentifier("auth.screen")
             }
             .safeAreaInset(edge: .bottom) {
                 Button {
