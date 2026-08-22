@@ -12,4 +12,18 @@ final class DependencyContainerTests: XCTestCase {
         XCTAssertEqual(container.apiBaseURL, expectedURL)
         XCTAssertNotNil(container.databaseQueue)
     }
+
+    func testConfiguredAPIBaseURLAcceptsProductionHTTPURL() {
+        let url = DependencyContainer.configuredAPIBaseURL(
+            from: "http://45.10.110.42/rocket-api"
+        )
+
+        XCTAssertEqual(url.absoluteString, "http://45.10.110.42/rocket-api")
+    }
+
+    func testConfiguredAPIBaseURLFallsBackForInvalidValue() {
+        let url = DependencyContainer.configuredAPIBaseURL(from: "not a URL")
+
+        XCTAssertEqual(url.absoluteString, "http://45.10.110.42/rocket-api")
+    }
 }

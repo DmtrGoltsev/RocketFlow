@@ -5,28 +5,28 @@ import GRDB
 @MainActor
 final class DependencyContainer: ObservableObject {
     static let apiBaseURLInfoKey = "RocketFlowAPIBaseURL"
-    static let fallbackAPIBaseURL = URL(string: "http://45.10.110.42/rocket-api")!
 
     let apiBaseURL: URL
     let databaseQueue: DatabaseQueue?
 
     init(
-        apiBaseURL: URL = DependencyContainer.configuredAPIBaseURL(),
+        apiBaseURL: URL? = nil,
         databasePath: String = ":memory:"
     ) {
-        self.apiBaseURL = apiBaseURL
+        let configuredValue = Bundle.main.object(forInfoDictionaryKey: Self.apiBaseURLInfoKey) as? String
+        self.apiBaseURL = apiBaseURL ?? Self.configuredAPIBaseURL(from: configuredValue)
         databaseQueue = try? DatabaseQueue(path: databasePath)
     }
 
-    private static func configuredAPIBaseURL(bundle: Bundle = .main) -> URL {
+    nonisolated static func configuredAPIBaseURL(from value: String?) -> URL {
         guard
-            let value = bundle.object(forInfoDictionaryKey: apiBaseURLInfoKey) as? String,
+            let value,
             let url = URL(string: value),
             let scheme = url.scheme,
             ["http", "https"].contains(scheme.lowercased()),
             url.host != nil
         else {
-            return fallbackAPIBaseURL
+            return URL(string: "http://45.10.110.42/rocket-api")!
         }
 
         return url
