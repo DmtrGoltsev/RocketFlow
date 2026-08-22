@@ -16,7 +16,7 @@ Use this together with:
 
 ## Project Status
 
-Current delivery candidate (`2026-08-22`):
+Current V21 production delivery (`2026-08-22`):
 
 - backend, web, and Android retire task priority from UI, editing, validation, business behavior, sorting, and settings while retaining `LEGACY_TASK_PRIORITY=5` as an opaque compatibility shadow for old APK/V20 rollback support
 - old task/settings wire fields remain accepted and ignored or preserved in responses; hidden policy values and historical task/reschedule values are retained without product effect
@@ -28,8 +28,10 @@ Current delivery candidate (`2026-08-22`):
 - current evidence is backend 142/142, web 61/61 with build/audit PASS, and Android 90/90 with `assembleDebug`, lint (`0` errors, `34` existing warnings), and debug Android-test APK assembly PASS; these are checkpoint counts, not permanent suite requirements
 - dedicated visual QA passed all scroll-restoration scenarios, parent fallback after anchor deletion, and intentional tab reset; a later IME rerun passed portrait, landscape Title, and landscape Details editing with the keyboard open
 - the existing helper jointly promotes the V21 backend and V20+V21-compatible web artifact; Android follows separately after Flyway `>=21` and readiness pass; application rollback accepts a V20-or-newer schema and promotes a V20 artifact that is forward-compatible with V21 without decreasing Flyway history
-- production has not received this delivery: deployed source/release and Flyway remain the V20 facts below; signed/debug-certificate and superseded unsigned APK history is unchanged
-- canonical delivery and future rollout contract: `docs/68-scroll-and-priority-retirement-delivery.md`
+- production backend and web are jointly deployed from source `50a63270ae094fe08ee57b945be0930cb1115dfe` as release `sha-50a63270ae09`; GitHub Actions run [32551808905](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32551808905) succeeded and Flyway reached `V21` (`21/21`)
+- authenticated production API smoke passed register/login/folder/goal/task/get/patch/delete/logout/final-health, including priority-shadow preservation, with `0` unexpected HTTP `5xx` responses
+- Android sideload `0.1.1` (`versionCode 2`) installed with `adb install -r`, preserved UID and `firstInstallTime`, cold-launched to Login, and recorded `0 / 0` crashes / ANRs
+- canonical delivery contract: `docs/68-scroll-and-priority-retirement-delivery.md`; canonical rollout evidence: `docs/69-v21-production-rollout.md`
 
 Weekly Focus production checkpoint (`2026-08-10`):
 
@@ -209,7 +211,7 @@ Wave C:
 - the historical `failed_backend_send` and apparent Firebase auth blockers were closed by the dependency-alignment fix documented in `docs/50-notification-runtime-clean-pass.md`
 - production backend/web rollout is recorded at release `sha-910c061de4af`, while Focus cadence and Web Push remain disabled
 - production notification certification is still open; no provider delivery is claimed
-- authenticated production smoke is still missing
+- authenticated V21 production API smoke is complete
 - no active subagents need to be resumed
 
 Known non-blocking note:
@@ -219,12 +221,11 @@ Known non-blocking note:
 
 ## Recommended Next Step
 
-The recorded V20 backend/web production deploy is complete. The next active gates are:
+The recorded V21 backend/web production deploy and Android sideload rollout are complete. The next active gates are:
 
-- jointly promote the V21-capable backend and V20+V21-compatible web artifact from a verified V20 baseline, require Flyway `>=21` and readiness, then roll out Android separately; do not claim deployment before production evidence is recorded
 - keep application rollback forward-schema compatible: require pre/post Flyway `>=20` with no history-count decrease, and require the target V20 artifact to tolerate retained V21 columns/defaults/history
-- complete authenticated production smoke and attach sanitized evidence
-- prepare an installable, correctly configured Android release artifact before claiming Android production delivery
+- require a fresh backup/recovery point and an explicit rollback task for future deployments; the one-time V21 waiver is not precedent
+- prepare Play Store signing/configuration before claiming a store production release; the current `0.1.1` evidence is direct sideload only
 - keep Focus cadence and Web Push disabled until controlled production provider smoke and notification certification pass
 - keep `docs/51-agent-notification-runtime-playbook.md` as the fallback local re-verification path for future regressions, not as the active gate
 

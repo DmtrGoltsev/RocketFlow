@@ -4,11 +4,11 @@ Last updated: 2026-08-22.
 
 ## Status boundary
 
-This document describes the current backend, web, and Android delivery candidate. It is not production rollout evidence.
+This document describes the backend, web, and Android V21 delivery contract and implementation evidence. Production rollout evidence is recorded separately in `docs/69-v21-production-rollout.md`.
 
-- Production remains on source `910c061de4af9395d9bb682624bd966b2977a738`, release `sha-910c061de4af`, with Flyway `V20` (`20/20`) until an approved deploy records different evidence.
-- `V21__retire_task_priority.sql`, the client changes, and the test counts below are current branch evidence only. Do not claim V21 is deployed.
-- The signed/debug-certificate and superseded unsigned APK history in `docs/production/rocketflow-live-status.md` is unchanged. Neither historical artifact contains this delivery unless a later artifact is explicitly built and recorded from the new source.
+- Production backend and web are jointly deployed from source `50a63270ae094fe08ee57b945be0930cb1115dfe` as release `sha-50a63270ae09`, with Flyway `V21` (`21/21`).
+- GitHub Actions run [32551808905](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32551808905) completed successfully; authenticated API smoke passed with `0` unexpected HTTP `5xx` responses.
+- Android `0.1.1` (`versionCode 2`) was rolled out by direct sideload and verified as recorded in `docs/69-v21-production-rollout.md`.
 
 ## Product contract
 
@@ -82,12 +82,15 @@ Portrait task editing retains the existing `AlertDialog`. In landscape below `60
 
 V21 does not update or delete rows, drop columns, remove constraints/indexes, or rewrite historical task, reschedule-event, or settings values.
 
-Required rollout order:
+Executed rollout order:
 
-1. Start from the current production preflight baseline, Flyway `>=20`.
-2. Require the backend/web artifact manifest to target Flyway `21` exactly, then use the existing `rocketflow-promote-latest` helper to jointly promote the backend and web artifacts.
-3. Require post-start Flyway `>=21`, then verify backend/web health, compatibility requests, deterministic ordering, and authenticated smoke. Joint promotion is safe because the new web is explicitly compatible with both V20 and V21 during the transition.
-4. Release Android separately only after the joint backend/web deploy gate is green.
+1. Preflight confirmed release `sha-910c061de4af` at Flyway `20`.
+2. Manifest `rocketflow-release-manifest-sha-50a63270ae09.json` targeted Flyway `21`; the existing helper jointly promoted backend and web.
+3. Post-start Flyway reached `21`, the service was active, backend/web symlinks resolved to release `sha-50a63270ae09`, and public backend/web checks returned HTTP `200`.
+4. Authenticated compatibility smoke passed, including priority-shadow preservation, with `0` unexpected HTTP `5xx` responses.
+5. Android `0.1.1` was installed separately with `adb install -r`; UID and `firstInstallTime` were preserved, cold launch passed, and captured crashes / ANRs were `0 / 0`.
+
+The rollout had no duplicate deployment and used no rollback. It proceeded under a user-approved one-time waiver without a fresh backup/recovery point; this is not precedent, and a future-deploy backup/rollback task was recorded in Obsidian.
 
 Application rollback is forward-schema rollback. The workflow starts from Flyway `>=20`, records the pre-rollback row count, and fails closed unless the target release has a readable manifest whose `flyway_history_min_rows` is a JSON integer `>=20` and `<=` that pre-count. Equality to the pre-count and lower compatible values are accepted; missing/unreadable manifests, missing fields, string/boolean values, values below 20, and values above the pre-count are rejected. The approved backend/web target is then promoted jointly, after which Flyway must remain `>=20` and not decrease from the recorded count. A V20 target declaring minimum 20 is forward-compatible with retained schema V21 because V21 keeps the old columns, wire shape, constraints, historical values, and compatible defaults. The workflow must never run Flyway migrate/undo/repair, downgrade schema, or restore a database backup; database recovery remains a separate operator-approved procedure.
 
@@ -112,17 +115,17 @@ Visual/runtime evidence:
 
 The latest IME rerun did not repeat anchor or full logcat scenarios. The earlier dedicated anchor run remains passing, and the compact-form diff did not touch anchor restoration. Treat these as two complementary evidence sets rather than claiming one end-to-end rerun covered both.
 
-Counts are checkpoint evidence, not permanent suite requirements. Provider FCM/Web Push certification, authenticated production smoke, signed release APK creation, deploy, and post-deploy evidence remain separate gates.
+Counts are checkpoint evidence, not permanent suite requirements. Provider FCM/Web Push certification and Play Store production release remain separate gates. Production deploy, authenticated API smoke, and direct Android sideload evidence are recorded in `docs/69-v21-production-rollout.md`.
 
-## Release evidence required
+## Recorded release evidence
 
-Before claiming V21 production delivery, record:
+V21 production delivery is supported by:
 
-- deployed source SHA and `release_id`;
-- workflow run URL and approval/change record;
-- artifact manifest and checksum verification;
-- preflight Flyway count `>=20`, artifact manifest target `=21`, and post-start count `>=21`;
-- joint backend/web promotion timestamp and separate Android rollout timestamp;
-- authenticated compatibility smoke for create/update/settings/reschedule and ordering;
-- rollback target compatibility confirmation;
-- updated `docs/production/rocketflow-live-status.md` only after the deploy succeeds.
+- deployed source `50a63270ae094fe08ee57b945be0930cb1115dfe` and release `sha-50a63270ae09`;
+- successful workflow run [32551808905](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32551808905);
+- manifest `rocketflow-release-manifest-sha-50a63270ae09.json`, artifact `9470293960`, recorded ZIP SHA-256 `54b9994e...f49e`, and passing packaged checksums;
+- preflight Flyway `20`, manifest target `21`, and post-start Flyway `21`;
+- joint backend/web promotion followed by separate Android sideload rollout;
+- authenticated API smoke including compatibility-shadow preservation;
+- no duplicate deployment and no rollback;
+- current production truth in `docs/production/rocketflow-live-status.md`.
