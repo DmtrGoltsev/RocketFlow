@@ -17,14 +17,18 @@ final class EndpointTests: XCTestCase {
             requestID: requestID
         )
 
-        XCTAssertEqual(request.urlRequest.url?.path, "/rocket-api/tasks/name/with space")
+        let url = try XCTUnwrap(request.urlRequest.url)
+        let components = try XCTUnwrap(
+            URLComponents(url: url, resolvingAgainstBaseURL: false)
+        )
+
+        XCTAssertEqual(url.path, "/rocket-api/tasks/name/with space")
         XCTAssertEqual(
-            request.urlRequest.url?.percentEncodedPath,
+            components.percentEncodedPath,
             "/rocket-api/tasks/name%2Fwith%20space"
         )
         XCTAssertEqual(
-            URLComponents(url: try XCTUnwrap(request.urlRequest.url), resolvingAgainstBaseURL: false)?
-                .queryItems?.first?.value,
+            components.queryItems?.first?.value,
             "цель & план"
         )
         XCTAssertEqual(request.urlRequest.value(forHTTPHeaderField: "Authorization"), "Bearer access-token")
