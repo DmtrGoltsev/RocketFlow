@@ -113,7 +113,12 @@ actor AuthSession {
     }
 
     func logout() async {
-        let session = current ?? (try? await store.load())
+        let session: SessionSnapshot?
+        if let current {
+            session = current
+        } else {
+            session = try? await store.load()
+        }
         if let session {
             do {
                 try await service.logout(
@@ -162,14 +167,14 @@ actor AuthSession {
     }
 
     private func refreshedSession(expected: SessionSnapshot) async throws -> SessionSnapshot {
-        guard let current else {
+        guard let activeSession = current else {
             throw AuthSessionError.sessionMissing
         }
-        guard current.id == expected.id else {
+        guard activeSession.id == expected.id else {
             throw AuthSessionError.sessionReplaced
         }
-        if current.tokens.refreshToken != expected.tokens.refreshToken {
-            return current
+        if activeSession.tokens.refreshToken != expected.tokens.refreshToken {
+            return activeSession
         }
 
         let flight: RefreshFlight
