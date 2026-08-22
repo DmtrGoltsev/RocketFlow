@@ -13,6 +13,14 @@ enum EntityRelationType: String, Codable, CaseIterable, Sendable {
 }
 
 struct EntityReferenceDTO: Codable, Equatable, Sendable, Identifiable {
+    struct Identity: Equatable, Sendable {
+        let type: LinkedEntityType
+        let id: UUID
+        let title: String
+    }
+
+    private static let redactedPlaceholderID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+
     let type: LinkedEntityType
     let id: UUID
     let title: String
@@ -22,6 +30,96 @@ struct EntityReferenceDTO: Codable, Equatable, Sendable, Identifiable {
     let archived: Bool?
     let accessible: Bool
     let redacted: Bool
+
+    private let identityAvailable: Bool
+
+    var identity: Identity? {
+        guard identityAvailable else { return nil }
+        return Identity(type: type, id: id, title: title)
+    }
+
+    init(
+        type: LinkedEntityType,
+        id: UUID,
+        title: String,
+        subtitle: String?,
+        status: String?,
+        path: String?,
+        archived: Bool?,
+        accessible: Bool,
+        redacted: Bool
+    ) {
+        self.type = type
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.status = status
+        self.path = path
+        self.archived = archived
+        self.accessible = accessible
+        self.redacted = redacted
+        identityAvailable = !redacted
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case title
+        case subtitle
+        case status
+        case path
+        case archived
+        case accessible
+        case redacted
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedType = try container.decodeIfPresent(LinkedEntityType.self, forKey: .type)
+        let decodedID = try container.decodeIfPresent(UUID.self, forKey: .id)
+        let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
+        let isRedacted = try container.decodeIfPresent(Bool.self, forKey: .redacted) ?? false
+        let isAccessible = try container.decodeIfPresent(Bool.self, forKey: .accessible) ?? !isRedacted
+        let hasIdentity = !isRedacted && decodedType != nil && decodedID != nil && decodedTitle != nil
+
+        guard hasIdentity || isRedacted else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .id,
+                in: container,
+                debugDescription: "Non-redacted entity references require type, id, and title."
+            )
+        }
+
+        type = decodedType ?? .task
+        id = decodedID ?? Self.redactedPlaceholderID
+        title = decodedTitle ?? ""
+        subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        path = try container.decodeIfPresent(String.self, forKey: .path)
+        archived = try container.decodeIfPresent(Bool.self, forKey: .archived)
+        accessible = isRedacted ? false : isAccessible
+        redacted = isRedacted
+        identityAvailable = hasIdentity
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if identityAvailable {
+            try container.encode(type, forKey: .type)
+            try container.encode(id, forKey: .id)
+            try container.encode(title, forKey: .title)
+        } else {
+            try container.encodeNil(forKey: .type)
+            try container.encodeNil(forKey: .id)
+            try container.encodeNil(forKey: .title)
+        }
+        try container.encodeIfPresent(subtitle, forKey: .subtitle)
+        try container.encodeIfPresent(status, forKey: .status)
+        try container.encodeIfPresent(path, forKey: .path)
+        try container.encodeIfPresent(archived, forKey: .archived)
+        try container.encode(accessible, forKey: .accessible)
+        try container.encode(redacted, forKey: .redacted)
+    }
 }
 
 struct EntityLinkDTO: Codable, Equatable, Sendable, Identifiable {
