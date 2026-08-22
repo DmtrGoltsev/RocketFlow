@@ -7,14 +7,37 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		06D301DA1404C4929284AAEE /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 348D08E8335D968786FDDB69 /* AppStore.swift */; };
+		06DD4F80BF52E7128A8200A0 /* AuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56AA9A684DCBCD1AABAACA0A /* AuthModels.swift */; };
 		1CBEEF33FB5A2FB13B0089D1 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D7A6CFC34F0D63299DE7003F /* InfoPlist.strings */; };
+		1CED223473A214B89A5FED83 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1FFBD7D15848D99022D1E53 /* SessionStore.swift */; };
+		22020FD262F77B1E152C5D04 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D408E7D039D6E82506289E /* AuthService.swift */; };
 		22EA5E008C6CFC4553522E3E /* DependencyContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE023F905BC88C6FA5735CBD /* DependencyContainer.swift */; };
+		296611EB2338EE630E00FC7D /* Endpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2ABAD75C4207AF2420CDA5 /* Endpoint.swift */; };
+		2B949181D13EEEE441ED8AC0 /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D81218702A30759956E2DA /* APIClientTests.swift */; };
 		2E211E9DB19EE6EEF1E3D344 /* RocketFlowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59023D9A0F9FD5278FA72E4D /* RocketFlowApp.swift */; };
+		2EB6888E5C676C1986B9223E /* CalendarFocusSettingsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF38496DE5883031AE6798A /* CalendarFocusSettingsModels.swift */; };
+		3472D6FB5FDA67631945AE0B /* BackendModelDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F6413E6C63374BE6C28F3BE /* BackendModelDecodingTests.swift */; };
+		34D778663E495D55665F27DD /* EndpointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 547B1BAD2D88E951C841A6D1 /* EndpointTests.swift */; };
+		3D1C83645296107EE48EB714 /* RocketEndpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35C4CB302B34173471383D7D /* RocketEndpoints.swift */; };
+		3F9A6C0ADA369FDB7C63E1E5 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE4FFF5FC6B6ED85BDBD6A0 /* AuthViewModel.swift */; };
 		43ED2F8802C16F9F28AED706 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F026DE4AA71258E5653E4D1D /* GRDB */; };
+		5767C14693AD4B37A3F51231 /* AuthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643B167FC6EA997ADC8EC83C /* AuthSessionTests.swift */; };
+		689317FCDA77CBBB3DD69E3B /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06908261B9CC08E949485BBD /* APIError.swift */; };
+		689F11F187D53D2ED3B2F461 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0828622CC42A3B9C3F7356A /* APIClient.swift */; };
+		6C6A5D35A916F9722AD15F5A /* WireDateCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 447E7C12BDB0430F8AA67FB3 /* WireDateCodecTests.swift */; };
+		7555C70749FD8D289D687DC9 /* PlanningModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDBDD0E06B8CF5A67318B39 /* PlanningModels.swift */; };
+		7A3AF74D21A77C431CD1B2DB /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B70F426E85B0574DD2BBA29 /* SessionStoreTests.swift */; };
+		8F55831661AE38567EB3E1FD /* CollaborationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38DF1E960D8DFD022874A9E1 /* CollaborationModels.swift */; };
 		B9A1758FBEAE582C0AD5C39B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 715CCE1E6C9AEBC5BA408325 /* Assets.xcassets */; };
+		BDD404D1178B1D92ED578C6A /* WireDateCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCF434EDFB96E2FF18ECEF22 /* WireDateCodec.swift */; };
 		C7CC9DEB785CEEFA138EF8B2 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 7442F52B4A72AB716C9DBEDE /* Localizable.strings */; };
 		CBEA453F363156A4F51BB961 /* AppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962F9755C0F84AC51B722424 /* AppRootView.swift */; };
+		D890CAD5881138E04A8B792F /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D03D239A76F76D6C6EA4C3 /* AuthView.swift */; };
 		DAEC0B8849D0C079099D6220 /* RocketFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A01607700B5872A165553E /* RocketFlowUITests.swift */; };
+		DB0579CBFB7E5DB24EB13D75 /* AuthViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8254A6D8A780E7AA848A6144 /* AuthViewModelTests.swift */; };
+		E0643F2A7F0B80345A98D919 /* KeychainSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4DDFDDE2ABF8416A673D83 /* KeychainSessionStore.swift */; };
+		F54BC39EC08606339F817D88 /* AuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B3BF00F82BAC3154E28B47A /* AuthSession.swift */; };
 		FD3D67A65B967D035DD3A713 /* DependencyContainerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A27717B1BC9520C61C3B56 /* DependencyContainerTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -36,20 +59,43 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		06908261B9CC08E949485BBD /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		31B344AB40D7E0E5543A2C94 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
+		348D08E8335D968786FDDB69 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
+		35C4CB302B34173471383D7D /* RocketEndpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RocketEndpoints.swift; sourceTree = "<group>"; };
 		38A01607700B5872A165553E /* RocketFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RocketFlowUITests.swift; sourceTree = "<group>"; };
+		38DF1E960D8DFD022874A9E1 /* CollaborationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollaborationModels.swift; sourceTree = "<group>"; };
+		42D03D239A76F76D6C6EA4C3 /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		447E7C12BDB0430F8AA67FB3 /* WireDateCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireDateCodecTests.swift; sourceTree = "<group>"; };
+		4F2ABAD75C4207AF2420CDA5 /* Endpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Endpoint.swift; sourceTree = "<group>"; };
+		547B1BAD2D88E951C841A6D1 /* EndpointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointTests.swift; sourceTree = "<group>"; };
+		56AA9A684DCBCD1AABAACA0A /* AuthModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthModels.swift; sourceTree = "<group>"; };
+		57D408E7D039D6E82506289E /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
 		59023D9A0F9FD5278FA72E4D /* RocketFlowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RocketFlowApp.swift; sourceTree = "<group>"; };
+		5F6413E6C63374BE6C28F3BE /* BackendModelDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendModelDecodingTests.swift; sourceTree = "<group>"; };
+		643B167FC6EA997ADC8EC83C /* AuthSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionTests.swift; sourceTree = "<group>"; };
 		715CCE1E6C9AEBC5BA408325 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		75B9CDCD2AB590FE0D22C226 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		79A27717B1BC9520C61C3B56 /* DependencyContainerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyContainerTests.swift; sourceTree = "<group>"; };
+		7AF38496DE5883031AE6798A /* CalendarFocusSettingsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarFocusSettingsModels.swift; sourceTree = "<group>"; };
 		7F86CDC5448C6387BE2DAFD9 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		805D781FF7B82168A1E5E1F2 /* RocketFlowUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RocketFlowUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8254A6D8A780E7AA848A6144 /* AuthViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModelTests.swift; sourceTree = "<group>"; };
 		85F0E368D4EA6BA3B9C20115 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		8B70F426E85B0574DD2BBA29 /* SessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStoreTests.swift; sourceTree = "<group>"; };
 		94C5B5C03CC7F415055004DD /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		962F9755C0F84AC51B722424 /* AppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRootView.swift; sourceTree = "<group>"; };
+		9B3BF00F82BAC3154E28B47A /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
 		A9C093183EBAF8E137101852 /* RocketFlowTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RocketFlowTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AE023F905BC88C6FA5735CBD /* DependencyContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyContainer.swift; sourceTree = "<group>"; };
+		B1FFBD7D15848D99022D1E53 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		BCF434EDFB96E2FF18ECEF22 /* WireDateCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireDateCodec.swift; sourceTree = "<group>"; };
+		C0D81218702A30759956E2DA /* APIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
+		CCE4FFF5FC6B6ED85BDBD6A0 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
+		CE4DDFDDE2ABF8416A673D83 /* KeychainSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSessionStore.swift; sourceTree = "<group>"; };
+		F0828622CC42A3B9C3F7356A /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		FDA910906E3877068AD98914 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		FEDBDD0E06B8CF5A67318B39 /* PlanningModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningModels.swift; sourceTree = "<group>"; };
 		FF3F5FFE9879427D56BF2D06 /* RocketFlow.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RocketFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -86,12 +132,41 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		66CB0F25C300B357237CAE80 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				57D408E7D039D6E82506289E /* AuthService.swift */,
+				9B3BF00F82BAC3154E28B47A /* AuthSession.swift */,
+				42D03D239A76F76D6C6EA4C3 /* AuthView.swift */,
+				CCE4FFF5FC6B6ED85BDBD6A0 /* AuthViewModel.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
 		6C16693B7A426DF6FBC77FC4 /* RocketFlowTests */ = {
 			isa = PBXGroup;
 			children = (
+				C0D81218702A30759956E2DA /* APIClientTests.swift */,
+				643B167FC6EA997ADC8EC83C /* AuthSessionTests.swift */,
+				8254A6D8A780E7AA848A6144 /* AuthViewModelTests.swift */,
+				5F6413E6C63374BE6C28F3BE /* BackendModelDecodingTests.swift */,
 				79A27717B1BC9520C61C3B56 /* DependencyContainerTests.swift */,
+				547B1BAD2D88E951C841A6D1 /* EndpointTests.swift */,
+				8B70F426E85B0574DD2BBA29 /* SessionStoreTests.swift */,
+				447E7C12BDB0430F8AA67FB3 /* WireDateCodecTests.swift */,
 			);
 			path = RocketFlowTests;
+			sourceTree = "<group>";
+		};
+		7029C31FE7204E8C1AF682E0 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				F0828622CC42A3B9C3F7356A /* APIClient.swift */,
+				06908261B9CC08E949485BBD /* APIError.swift */,
+				4F2ABAD75C4207AF2420CDA5 /* Endpoint.swift */,
+				35C4CB302B34173471383D7D /* RocketEndpoints.swift */,
+			);
+			path = Networking;
 			sourceTree = "<group>";
 		};
 		84FB90A2445E27483AF99CF5 /* Config */ = {
@@ -115,11 +190,41 @@
 			isa = PBXGroup;
 			children = (
 				962F9755C0F84AC51B722424 /* AppRootView.swift */,
+				348D08E8335D968786FDDB69 /* AppStore.swift */,
 				AE023F905BC88C6FA5735CBD /* DependencyContainer.swift */,
 				59023D9A0F9FD5278FA72E4D /* RocketFlowApp.swift */,
+				E6BEE6311590F9804A1897D9 /* Core */,
+				CB23038EC25A2B5508F9B8DF /* Features */,
 				ED4E8AF4038679C0E2576D81 /* Resources */,
 			);
 			path = RocketFlow;
+			sourceTree = "<group>";
+		};
+		C13F9AB3980C3465019638F4 /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				CE4DDFDDE2ABF8416A673D83 /* KeychainSessionStore.swift */,
+				B1FFBD7D15848D99022D1E53 /* SessionStore.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		CB23038EC25A2B5508F9B8DF /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				66CB0F25C300B357237CAE80 /* Auth */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		E6BEE6311590F9804A1897D9 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				EDC9E7DBB24D2CDC66E7B62A /* Models */,
+				7029C31FE7204E8C1AF682E0 /* Networking */,
+				C13F9AB3980C3465019638F4 /* Security */,
+			);
+			path = Core;
 			sourceTree = "<group>";
 		};
 		ED4E8AF4038679C0E2576D81 /* Resources */ = {
@@ -130,6 +235,18 @@
 				7442F52B4A72AB716C9DBEDE /* Localizable.strings */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		EDC9E7DBB24D2CDC66E7B62A /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				56AA9A684DCBCD1AABAACA0A /* AuthModels.swift */,
+				7AF38496DE5883031AE6798A /* CalendarFocusSettingsModels.swift */,
+				38DF1E960D8DFD022874A9E1 /* CollaborationModels.swift */,
+				FEDBDD0E06B8CF5A67318B39 /* PlanningModels.swift */,
+				BCF434EDFB96E2FF18ECEF22 /* WireDateCodec.swift */,
+			);
+			path = Models;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -252,7 +369,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2B949181D13EEEE441ED8AC0 /* APIClientTests.swift in Sources */,
+				5767C14693AD4B37A3F51231 /* AuthSessionTests.swift in Sources */,
+				DB0579CBFB7E5DB24EB13D75 /* AuthViewModelTests.swift in Sources */,
+				3472D6FB5FDA67631945AE0B /* BackendModelDecodingTests.swift in Sources */,
 				FD3D67A65B967D035DD3A713 /* DependencyContainerTests.swift in Sources */,
+				34D778663E495D55665F27DD /* EndpointTests.swift in Sources */,
+				7A3AF74D21A77C431CD1B2DB /* SessionStoreTests.swift in Sources */,
+				6C6A5D35A916F9722AD15F5A /* WireDateCodecTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -260,9 +384,25 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				689F11F187D53D2ED3B2F461 /* APIClient.swift in Sources */,
+				689317FCDA77CBBB3DD69E3B /* APIError.swift in Sources */,
 				CBEA453F363156A4F51BB961 /* AppRootView.swift in Sources */,
+				06D301DA1404C4929284AAEE /* AppStore.swift in Sources */,
+				06DD4F80BF52E7128A8200A0 /* AuthModels.swift in Sources */,
+				22020FD262F77B1E152C5D04 /* AuthService.swift in Sources */,
+				F54BC39EC08606339F817D88 /* AuthSession.swift in Sources */,
+				D890CAD5881138E04A8B792F /* AuthView.swift in Sources */,
+				3F9A6C0ADA369FDB7C63E1E5 /* AuthViewModel.swift in Sources */,
+				2EB6888E5C676C1986B9223E /* CalendarFocusSettingsModels.swift in Sources */,
+				8F55831661AE38567EB3E1FD /* CollaborationModels.swift in Sources */,
 				22EA5E008C6CFC4553522E3E /* DependencyContainer.swift in Sources */,
+				296611EB2338EE630E00FC7D /* Endpoint.swift in Sources */,
+				E0643F2A7F0B80345A98D919 /* KeychainSessionStore.swift in Sources */,
+				7555C70749FD8D289D687DC9 /* PlanningModels.swift in Sources */,
+				3D1C83645296107EE48EB714 /* RocketEndpoints.swift in Sources */,
 				2E211E9DB19EE6EEF1E3D344 /* RocketFlowApp.swift in Sources */,
+				1CED223473A214B89A5FED83 /* SessionStore.swift in Sources */,
+				BDD404D1178B1D92ED578C6A /* WireDateCodec.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
