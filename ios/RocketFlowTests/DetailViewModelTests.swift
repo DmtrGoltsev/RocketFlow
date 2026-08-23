@@ -43,7 +43,7 @@ private actor DetailMutationStub: DetailMutationPerforming {
     func performDetailMutation(_ mutation: DetailMutation) async throws -> DetailMutationResult {
         received.append(mutation)
         switch behavior {
-        case let .result(result): result
+        case let .result(result): return result
         case let .failure(failure): throw failure
         case .genericFailure: throw DetailTestFailure.expected
         }

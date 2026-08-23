@@ -22,7 +22,7 @@ private actor EditorSaverStub: EditorSaving {
     func saveEditor(_ request: EditorSaveRequest) async throws -> EditorSaveResult {
         received.append(request)
         switch behavior {
-        case let .result(result): result
+        case let .result(result): return result
         case .failure: throw EditorSaveTestFailure.expected
         }
     }
