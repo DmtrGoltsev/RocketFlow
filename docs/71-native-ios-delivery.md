@@ -6,9 +6,9 @@ Checkpoint date: `2026-08-23`
 
 Branch: `codex/native-ios-companion`
 
-Canonical app-code/build source: `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3`
+Canonical behavior/build source: `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3`
 
-Documentation identity: this document is a living branch document. Its eventual docs-only commit SHA is intentionally separate from the app-code/build SHA above.
+Documentation identity: this is a living branch document. Canonical behavior/build evidence is SHA `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3` plus run `32655691351`. Separate Mac tooling evidence is commit A `a66b501f2a5ec8d8d25dc518a9fcd097e5ee1149` plus run `32669924719`. Later docs commit B records immutable A/run A; current docs HEAD may be newer than A and is not self-pinned. The Mac procedure proves A is an ancestor and that tooling paths have no changes after A.
 
 This document records the delivered native iOS repository state. It does not claim an App Store release, signed-device acceptance, production iOS push delivery, or completion of manual accessibility certification.
 
@@ -42,7 +42,7 @@ The normative behavior contract remains [`70-native-ios-parity-contract.md`](70-
 - `DEVELOPMENT_TEAM`: blank by design.
 - Push entitlement: `aps-environment=development`; the repository contains no Apple Team or provisioning profile.
 
-## Canonical CI evidence
+## Canonical behavior CI evidence
 
 Manual [iOS Verify run 32655691351](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32655691351), job `97233929959`, completed successfully for the canonical app source.
 
@@ -59,6 +59,33 @@ Manual [iOS Verify run 32655691351](https://github.com/DmtrGoltsev/RocketFlow/ac
 | Generated project artifact | `9497494432` |
 
 The xcresult proves automated test execution; it is not a substitute for signed-device notification, VoiceOver, Dynamic Type, or release-network evidence.
+
+## Mac tooling CI evidence
+
+Manual [iOS Verify run 32669924719](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32669924719), job `97269056380`, completed successfully at exact tooling SHA `a66b501f2a5ec8d8d25dc518a9fcd097e5ee1149`.
+
+| Check | Result |
+|---|---|
+| Mac handoff contracts | `174/174` PASS, `0` skipped |
+| XcodeGen `2.46.0` generation | PASS |
+| Generated project parity | PASS |
+| Swift package resolution and lock parity | PASS |
+| No-sign simulator build | PASS |
+| Unit tests | `540` passed / `0` failed |
+| UI tests | `2` passed / `0` failed |
+| Total tests | `542` passed / `0` failed |
+| `RocketFlow-xcresult` artifact | ID `9501177125`, `1,317,064` bytes |
+| `RocketFlow-xcodeproj-xcodegen-2.46.0` artifact | ID `9501179599`, `25,070` bytes |
+
+This run proves tooling commit A and its validation/build contract. It does not replace the earlier behavior SHA/run identity and does not prove physical-device installation.
+
+## Mac physical-device handoff
+
+The human procedure is [`72-native-ios-mac-device-handoff.md`](72-native-ios-mac-device-handoff.md). A complete prompt for a fresh Mac Codex task is [`ios-native-mac-codex-install-prompt.md`](ios-native-mac-codex-install-prompt.md).
+
+The handoff consumes four scripts under `ios/scripts`: `mac-preflight.sh`, `mac-verify.sh`, `mac-build-device.sh`, and `mac-install-device.sh`, with local configuration copied from `ios/Config/Device.xcconfig.example` to ignored and untracked `Device.xcconfig`. Tooling A identity is exactly `.github/workflows/ios-verify.yml`, `.gitignore`, the Device example, `mac-handoff-common.sh`, those four scripts, and `ios/scripts/tests/mac-handoff-tests.sh`; the workflow validation step runs syntax and expanded contract tests. The default is a signed personal `no-push` build; optional `push` remains a separate explicit mode. Valid tooling A must fail closed on iPhoneOS SDK >=16, exact endpoint/ATS, config/redaction, install mode, and signed bundle/codesign/entitlements, Team/application-id and embedded provisioning checks.
+
+The copyable prompt records tooling A SHA `a66b501f2a5ec8d8d25dc518a9fcd097e5ee1149` and canonical run `32669924719`. Docs commit B is not the verified tooling SHA and is intentionally not self-pinned. No physical-device build, install, launch, Apple signing, APNs/FCM delivery, or manual device smoke is claimed by this repository checkpoint.
 
 ## CI trigger policy
 
@@ -93,15 +120,17 @@ This checks out the latest branch state. To reproduce run `32655691351` exactly,
 
 ## API, signing, and push gates
 
-The current personal/internal configuration explicitly uses the HTTP API endpoint documented in the iOS README. A narrow host-only ATS exception is present; arbitrary HTTP loads are not enabled. Production HTTPS and removal of the exception are mandatory before public/App Store release.
+The current personal/internal configuration explicitly uses `http://45.10.110.42/rocket-api`. ATS is a strict allowlist: `NSExceptionDomains` contains only `45.10.110.42`, excludes subdomains, and forbids broad-load keys or additional exception domains. The Mac handoff forbids Local.xcconfig overrides and requires scripts to fail closed on this exact endpoint/ATS contract; any change is a security-review stop. Production HTTPS and removal of the exception are mandatory before public/App Store release.
 
-A signed physical-device build requires:
+A signed default no-push physical-device build requires:
 
-1. an Apple Developer Team and matching signing/provisioning configuration;
-2. a bundle identifier registered for the selected team, changing the repository default locally if required;
-3. development/production push capabilities appropriate to that profile;
-4. an ignored local `GoogleService-Info.plist` matching the Firebase app;
-5. Firebase/APNs credentials configured outside the repository.
+1. an Apple Account added through Xcode UI and an eligible Apple Developer Team;
+2. Team ID and a unique registered bundle identifier written only to ignored, untracked `ios/Config/Device.xcconfig` for the scripted build;
+3. a connected trusted iPhone and successful redacted pre-install validation of
+   iPhoneOS, Team/application-id, embedded provisioning/device match and signed
+   mode entitlements.
+
+Optional push additionally requires push-capable provisioning, a matching local `GoogleService-Info.plist` outside the repository or ignored and untracked, and Firebase/APNs credentials configured outside the repository.
 
 Firebase Messaging produces the FCM registration token sent to RocketFlow; the API integration does not send a raw APNs token. No credentials, plist contents, token values, or provisioning material belong in repository commits or delivery evidence.
 
@@ -128,5 +157,6 @@ The feature source contains Flyway/backend V22 support for `platform:"ios"` devi
 - production APNs/FCM registration and delivery;
 - production iOS API use over HTTPS;
 - final VoiceOver, largest Dynamic Type, orientation/IME, and notification-delivery evidence on physical supported devices.
+- a redacted Mac report proving signed no-push build, `devicectl` install/launch, and the documented device smoke checklist.
 
 Closing those gates requires external Apple/Firebase configuration, an evidenced backend/Flyway V22 production rollout, HTTPS, and archived device/manual accessibility results. Automated green CI alone must not be represented as App Store production readiness.

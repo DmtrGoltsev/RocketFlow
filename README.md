@@ -54,6 +54,8 @@ Core documents:
 - `docs/69-v21-production-rollout.md` - canonical V21 production rollout evidence for backend, web, authenticated API smoke, and Android sideload
 - `docs/70-native-ios-parity-contract.md` - normative Android/backend parity contract for the native iOS companion
 - `docs/71-native-ios-delivery.md` - canonical native iOS implementation, CI, build, and remaining-gates evidence
+- `docs/72-native-ios-mac-device-handoff.md` - human Mac/iPhone no-push and optional-push handoff boundaries
+- `docs/ios-native-mac-codex-install-prompt.md` - copyable orchestrated Codex prompt for Mac verification and personal iPhone installation
 
 Weekly Focus production checkpoint (`2026-08-10`):
 
@@ -81,7 +83,8 @@ Native iOS delivery checkpoint (`2026-08-23`):
 - Branch `codex/native-ios-companion` contains the native iOS 16+ companion; canonical app-code/build evidence is pinned to `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3`, independently of later docs-only commits. It has Planner, Calendar, and Focus tabs; native details/editors/sharing; GRDB offline sync and conflict recovery; local reminders; RU/EN localization; deep-link/process restoration; and account-scoped persistence leases.
 - Manual [iOS Verify run 32655691351](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32655691351) passed XcodeGen parity, package resolution/lock parity, no-sign simulator build, `540/540` unit tests, and `2/2` UI tests (`542` total). Canonical evidence and artifact IDs are recorded in `docs/71-native-ios-delivery.md`.
 - `ios/RocketFlow.xcodeproj` and its SwiftPM `Package.resolved` are committed and verified against XcodeGen `2.46.0`; the app uses Firebase `12.17.0` and GRDB `6.29.3`.
-- The repository is GO for clone/build/continue on a Mac and simulator verification. Device/App Store readiness still requires an Apple Team and signing, local ignored `GoogleService-Info.plist`, APNs/Firebase credentials, production deployment of the candidate V22 iOS device-registration migration/backend, HTTPS, and device/manual accessibility evidence.
+- The Mac handoff uses tooling commit A `a66b501f2a5ec8d8d25dc518a9fcd097e5ee1149`, proven by manual [iOS Verify run 32669924719](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32669924719), job `97269056380`, then a later docs commit B records immutable A/run A without self-pinning. Run A passed Mac contracts `174/174` with `0` skipped, XcodeGen/project/package/build gates, unit `540`/`0` failed, UI `2`/`0` failed, total `542`/`0` failed; artifacts are `RocketFlow-xcresult` ID `9501177125` (`1,317,064` bytes) and `RocketFlow-xcodeproj-xcodegen-2.46.0` ID `9501179599` (`25,070` bytes). A includes `.github/workflows/ios-verify.yml`, `.gitignore`, `ios/Config/Device.xcconfig.example`, every current Mac handoff script/test listed in `docs/72-native-ios-mac-device-handoff.md`, and the workflow validation step. A Mac uses the latest candidate/docs HEAD, proves A is an ancestor, and verifies no identity-path changes after A; docs HEAD is not required to equal A.
+- The repository is GO for clone/build/continue on a Mac and simulator verification. Device/App Store readiness still requires an Apple Team and signing, a local `GoogleService-Info.plist` outside the repository or proven ignored and untracked, APNs/Firebase credentials, production deployment of the candidate V22 iOS device-registration migration/backend, HTTPS, and device/manual accessibility evidence.
 - Production remains backend/web source `50a63270ae094fe08ee57b945be0930cb1115dfe` at Flyway `V21`; candidate V22 is not deployed and production DB state was not re-inspected for this documentation checkpoint.
 
 Current verification status:
@@ -94,7 +97,7 @@ Current verification status:
 - local end-to-end notification runtime proof `reminder -> push -> tap -> task open` is green on the owned backend + emulator path from `docs/50-notification-runtime-clean-pass.md`
 - GitHub Actions `backend-verify` now runs backend tests, backend image build, and a temporary `postgres:16`-backed container health smoke
 - GitHub Actions `web-verify` and `android-verify` exist as repository gates
-- GitHub Actions `ios-verify` is green at the canonical iOS SHA and verifies generated-project parity, resolved-package lock parity, no-sign simulator build, unit tests, and UI tests
+- GitHub Actions `ios-verify` is separately green for canonical behavior SHA/run `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3`/`32655691351` and Mac tooling SHA/run `a66b501f2a5ec8d8d25dc518a9fcd097e5ee1149`/`32669924719`; the latter also verifies the expanded handoff contracts
 - web and Android lanes are still build-only gates, not runtime or release certification
 
 Current notification/runtime status:
