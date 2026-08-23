@@ -15,6 +15,10 @@ private actor EditorSaverStub: EditorSaving {
     let behavior: Behavior
     private var received: [EditorSaveRequest] = []
 
+    init(behavior: Behavior) {
+        self.behavior = behavior
+    }
+
     func saveEditor(_ request: EditorSaveRequest) async throws -> EditorSaveResult {
         received.append(request)
         switch behavior {

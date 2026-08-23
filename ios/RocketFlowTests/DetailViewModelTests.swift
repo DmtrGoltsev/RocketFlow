@@ -14,6 +14,10 @@ private actor DetailLoaderStub: DetailLoading {
 
     let behavior: Behavior
 
+    init(behavior: Behavior) {
+        self.behavior = behavior
+    }
+
     func loadDetail(_ reference: DetailEntityReference) async throws -> DetailLoadResult {
         switch behavior {
         case let .result(result): result
@@ -342,9 +346,10 @@ final class DetailViewModelTests: XCTestCase {
         pending: Bool = false,
         origin: DetailOriginTab = .home,
         performer: any DetailMutationPerforming = DetailMutationStub(),
-        recorder: DetailNavigationRecorder = DetailNavigationRecorder()
+        recorder: DetailNavigationRecorder? = nil
     ) -> DetailViewModel {
-        DetailViewModel(
+        let recorder = recorder ?? DetailNavigationRecorder()
+        return DetailViewModel(
             reference: content.reference,
             origin: origin,
             loader: DetailLoaderStub(

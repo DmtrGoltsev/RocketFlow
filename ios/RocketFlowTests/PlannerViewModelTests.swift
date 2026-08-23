@@ -499,9 +499,10 @@ final class PlannerViewModelTests: XCTestCase {
         loader: any PlannerLoading,
         performer: any PlannerActionPerforming = PlannerActionStub(),
         scrollState: PlannerScrollStateController? = nil,
-        recorder: PlannerNavigationRecorder = PlannerNavigationRecorder()
+        recorder: PlannerNavigationRecorder? = nil
     ) -> PlannerViewModel {
-        PlannerViewModel(
+        let recorder = recorder ?? PlannerNavigationRecorder()
+        return PlannerViewModel(
             accountID: accountID,
             language: .ru,
             loader: loader,
