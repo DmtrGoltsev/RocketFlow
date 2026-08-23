@@ -222,8 +222,12 @@ enum PlanningPersistence {
             let goalLocalID = goalIDs[dto.id] ?? dto.id
             if rebasePending { try rebasePendingMutation(.goal, localID: goalLocalID, version: dto.version, in: db) }
             guard try canApplyRemote(.goal, localID: goalLocalID, in: db) else { continue }
-            let folderID = folderIDs[dto.folderId]
-                ?? (try localID(forRemoteID: dto.folderId, entityType: .folder, in: db))
+            let folderID: UUID
+            if let mappedFolderID = folderIDs[dto.folderId] {
+                folderID = mappedFolderID
+            } else {
+                folderID = try localID(forRemoteID: dto.folderId, entityType: .folder, in: db)
+            }
             try GoalRecord(dto: dto, localID: goalLocalID, folderLocalID: folderID).save(db)
             try saveMapping(.goal, localID: goalLocalID, remoteID: dto.id, in: db)
         }
@@ -233,8 +237,12 @@ enum PlanningPersistence {
             let taskLocalID = taskIDs[dto.id] ?? dto.id
             if rebasePending { try rebasePendingMutation(.task, localID: taskLocalID, version: dto.version, in: db) }
             guard try canApplyRemote(.task, localID: taskLocalID, in: db) else { continue }
-            let goalID = goalIDs[dto.goalId]
-                ?? (try localID(forRemoteID: dto.goalId, entityType: .goal, in: db))
+            let goalID: UUID
+            if let mappedGoalID = goalIDs[dto.goalId] {
+                goalID = mappedGoalID
+            } else {
+                goalID = try localID(forRemoteID: dto.goalId, entityType: .goal, in: db)
+            }
             try TaskRecord(dto: dto, localID: taskLocalID, goalLocalID: goalID).save(db)
             try replaceTaskChildren(dto, taskLocalID: taskLocalID, in: db)
             try saveMapping(.task, localID: taskLocalID, remoteID: dto.id, in: db)
@@ -246,8 +254,12 @@ enum PlanningPersistence {
                 let ideaLocalID = ideaIDs[dto.id] ?? dto.id
                 if rebasePending { try rebasePendingMutation(.idea, localID: ideaLocalID, version: dto.version, in: db) }
                 guard try canApplyRemote(.idea, localID: ideaLocalID, in: db) else { continue }
-                let folderID = folderIDs[dto.folderId]
-                    ?? (try localID(forRemoteID: dto.folderId, entityType: .folder, in: db))
+                let folderID: UUID
+                if let mappedFolderID = folderIDs[dto.folderId] {
+                    folderID = mappedFolderID
+                } else {
+                    folderID = try localID(forRemoteID: dto.folderId, entityType: .folder, in: db)
+                }
                 try IdeaRecord(dto: dto, localID: ideaLocalID, folderLocalID: folderID).save(db)
                 try saveMapping(.idea, localID: ideaLocalID, remoteID: dto.id, in: db)
             }
@@ -266,8 +278,12 @@ enum PlanningPersistence {
                 let noteLocalID = try localID(forRemoteID: dto.id, entityType: .note, in: db)
                 if rebasePending { try rebasePendingMutation(.note, localID: noteLocalID, version: dto.version, in: db) }
                 guard try canApplyRemote(.note, localID: noteLocalID, in: db) else { continue }
-                let folderID = folderIDs[dto.folderId]
-                    ?? (try localID(forRemoteID: dto.folderId, entityType: .folder, in: db))
+                let folderID: UUID
+                if let mappedFolderID = folderIDs[dto.folderId] {
+                    folderID = mappedFolderID
+                } else {
+                    folderID = try localID(forRemoteID: dto.folderId, entityType: .folder, in: db)
+                }
                 try NoteRecord(dto: dto, localID: noteLocalID, folderLocalID: folderID).save(db)
                 try saveMapping(.note, localID: noteLocalID, remoteID: dto.id, in: db)
             }
