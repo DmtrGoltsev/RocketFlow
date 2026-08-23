@@ -119,7 +119,7 @@ private actor EngineTestNetwork: NetworkMonitoring {
 
     func changes() async -> AsyncStream<Bool> {
         let initial = connected
-        AsyncStream { continuation in
+        return AsyncStream { continuation in
             continuation.yield(initial)
             continuation.finish()
         }
