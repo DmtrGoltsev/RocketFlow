@@ -7,12 +7,13 @@ final class AppNavigationUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.otherElements["app.authenticated"].waitForExistence(timeout: 8))
-        let plannerTab = app.buttons["tab.planner"]
-        let calendarTab = app.buttons["tab.calendar"]
-        let focusTab = app.buttons["tab.focus"]
+        let tabButtons = app.tabBars.buttons
+        let plannerTab = tabButtons["Главная"]
+        let calendarTab = tabButtons["Календарь"]
+        let focusTab = tabButtons["Фокус"]
         XCTAssertTrue(plannerTab.waitForExistence(timeout: 3))
-        XCTAssertTrue(calendarTab.exists)
-        XCTAssertTrue(focusTab.exists)
+        XCTAssertTrue(calendarTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(focusTab.waitForExistence(timeout: 3))
 
         calendarTab.tap()
         XCTAssertTrue(app.scrollViews["calendar.screen"].waitForExistence(timeout: 5))
