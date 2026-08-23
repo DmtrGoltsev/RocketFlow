@@ -37,7 +37,7 @@ actor AppFCMRegistrationTokenProvider: FCMRegistrationTokenProviding {
     func update(token: String?) {
         let normalized = token?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalized, !normalized.isEmpty else { return }
-        token = normalized
+        self.token = normalized
         continuations.values.forEach { $0.yield(normalized) }
     }
 
