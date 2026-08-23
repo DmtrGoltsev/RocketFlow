@@ -1392,10 +1392,20 @@ expect_failure_matching "push rejects embedded Firebase mismatch" "bundle identi
 
 app_symlink="$TEMP_ROOT/RocketFlow-Symlink.app"
 if ln -s "$no_push_app" "$app_symlink" 2>/dev/null && [[ -L "$app_symlink" ]]; then
-  expect_failure_matching "installer rejects symlink app" "symlink or reparse" \
-    env PATH="$MOCK_PATH" MOCK_XCRUN_ARGS="$MOCK_XCRUN_ARGS" \
-      MOCK_CODESIGN_ARGS="$MOCK_CODESIGN_ARGS" MOCK_SIGNED_MODE=no-push \
-      bash "$SCRIPTS/mac-install-device.sh" --device "$DEVICE_ID" --config "$valid_config" --app "$app_symlink"
+  if LAST_OUTPUT="$(env PATH="$MOCK_PATH" MOCK_XCRUN_ARGS="$MOCK_XCRUN_ARGS" \
+    MOCK_CODESIGN_ARGS="$MOCK_CODESIGN_ARGS" MOCK_SIGNED_MODE=no-push \
+    bash "$SCRIPTS/mac-install-device.sh" --device "$DEVICE_ID" \
+      --config "$valid_config" --app "$app_symlink" 2>&1)"; then
+    fail "installer rejects symlink app (unexpected success)"
+  fi
+  case "$LAST_OUTPUT" in
+    *"symlink or reparse"*|*"Built app must be a regular directory."*)
+      pass "installer rejects symlink app"
+      ;;
+    *)
+      fail "installer rejects symlink app (unexpected error contract)"
+      ;;
+  esac
 else
   skip "installer rejects symlink app" "filesystem does not expose symlinks"
 fi
