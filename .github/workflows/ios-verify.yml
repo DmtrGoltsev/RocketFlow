@@ -2,15 +2,11 @@ name: iOS Verify
 
 on:
   push:
-    paths:
-      - "ios/**"
-      - ".github/workflows/ios-verify.yml"
-      - ".gitignore"
+    branches:
+      - master
   pull_request:
-    paths:
-      - "ios/**"
-      - ".github/workflows/ios-verify.yml"
-      - ".gitignore"
+    branches:
+      - master
   workflow_dispatch:
 
 permissions:
