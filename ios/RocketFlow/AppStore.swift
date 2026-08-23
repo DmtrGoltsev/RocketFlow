@@ -1,6 +1,8 @@
 import Combine
 import Foundation
 
+typealias AppDeepLinkLocalIDResolver = @Sendable (UUID) async throws -> UUID?
+
 @MainActor
 final class AppSerialTaskChain {
     private var current: Task<Void, Never>?
@@ -70,6 +72,7 @@ final class AppStore: ObservableObject, AuthSubmitting {
     private weak var dependencies: DependencyContainer?
     private let launchUser: UserDTO?
     private let restorationPersistence: any AppRestorationPersisting
+    private let deepLinkLocalIDResolver: AppDeepLinkLocalIDResolver?
     private var planningRepository: (any PlanningRepository)?
     private var syncEngine: SyncEngine?
     private var planningRemote: APIPlanningRemote?
@@ -108,13 +111,15 @@ final class AppStore: ObservableObject, AuthSubmitting {
         dependencies: DependencyContainer? = nil,
         launchUser: UserDTO? = nil,
         languageStore: AppLanguageStore = .shared,
-        restorationPersistence: any AppRestorationPersisting = AppRestorationUserDefaultsStore()
+        restorationPersistence: any AppRestorationPersisting = AppRestorationUserDefaultsStore(),
+        deepLinkLocalIDResolver: AppDeepLinkLocalIDResolver? = nil
     ) {
         self.authSession = authSession
         self.dependencies = dependencies
         self.launchUser = launchUser
         self.languageStore = languageStore
         self.restorationPersistence = restorationPersistence
+        self.deepLinkLocalIDResolver = deepLinkLocalIDResolver
         planningRepository = dependencies?.planningRepository
         syncEngine = dependencies?.syncEngine
         planningRemote = dependencies?.planningRemote
@@ -891,7 +896,11 @@ final class AppStore: ObservableObject, AuthSubmitting {
         }
         guard sequence == deepLinkSequence else { return }
         if case let .resolved(resolution) = result {
-            await applyDeepLinkResolution(resolution, lease: lease)
+            await applyDeepLinkResolution(
+                resolution,
+                lease: lease,
+                sequence: sequence
+            )
         }
     }
 
@@ -929,16 +938,22 @@ final class AppStore: ObservableObject, AuthSubmitting {
 
     private func applyDeepLinkResolution(
         _ resolution: DeepLinkResolution,
-        lease: AppRuntimeLease
+        lease: AppRuntimeLease,
+        sequence: UInt64? = nil
     ) async {
         guard currentRuntimeLease == lease else { return }
         let localID: UUID?
         if case let .task(taskID, _) = resolution.destination {
-            localID = try? await dependencies?.taskDeepLinkRegistry.localID(for: taskID)
+            if let deepLinkLocalIDResolver {
+                localID = try? await deepLinkLocalIDResolver(taskID)
+            } else {
+                localID = try? await dependencies?.taskDeepLinkRegistry.localID(for: taskID)
+            }
         } else {
             localID = nil
         }
         guard currentRuntimeLease == lease else { return }
+        if let sequence, sequence != deepLinkSequence { return }
         navigation.applyDeepLink(resolution, localTaskID: localID)
     }
 

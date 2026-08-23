@@ -948,12 +948,50 @@ final class AppIntegrationDependencyTests: XCTestCase {
         let container = makeContainer()
         let store = container.makeAppStore(launchUser: appIntegrationUser(id: UUID()))
         await store.restoreIfNeeded()
+        let missingTaskID = UUID()
 
         await store.receiveDeepLink(URL(string: "rocketflow://focus")!)
-        await store.receiveDeepLink(URL(string: "rocketflow://planner")!)
+        XCTAssertEqual(store.navigation.selectedTab, .focus)
+
+        await store.receiveDeepLink(
+            URL(string: "rocketflow://task/\(missingTaskID.uuidString)")!
+        )
 
         XCTAssertEqual(store.navigation.selectedTab, .planner)
         XCTAssertEqual(store.navigation.plannerPath, [])
+    }
+
+    func testBlockedOldTaskMappingCannotOverwriteNewerWarmFocusLink() async throws {
+        let container = makeContainer()
+        let resolver = AppIntegrationBlockingDeepLinkLocalIDResolver()
+        let user = appIntegrationUser(id: UUID())
+        let store = AppStore(
+            authSession: container.authSession,
+            dependencies: container,
+            launchUser: user,
+            languageStore: container.languageStore,
+            deepLinkLocalIDResolver: { taskID in
+                await resolver.resolve(taskID)
+            }
+        )
+        await store.restoreIfNeeded()
+        let runtime = try XCTUnwrap(store.activeRuntime)
+        let taskID = try await seedPlanningTask(runtime: runtime, title: "Older task link")
+        let oldTaskLink = Task {
+            await store.receiveDeepLink(
+                URL(string: "rocketflow://task/\(taskID.uuidString)")!
+            )
+        }
+        await resolver.waitUntilResolutionStarted()
+
+        await store.receiveDeepLink(URL(string: "rocketflow://focus")!)
+        XCTAssertEqual(store.navigation.selectedTab, .focus)
+
+        await resolver.release()
+        await oldTaskLink.value
+
+        XCTAssertEqual(store.navigation.selectedTab, .focus)
+        XCTAssertEqual(store.navigation.focusPath, [])
     }
 
     private var appIntegrationAPIURL: URL {
@@ -1521,6 +1559,36 @@ private actor AppIntegrationNotificationCleanerRecorder: AccountNotificationClea
     func resumeNotifications(accountID: UUID, timeZone: TimeZone) async throws {}
 
     func suspendedAccounts() -> [UUID] { suspended }
+}
+
+private actor AppIntegrationBlockingDeepLinkLocalIDResolver {
+    private var resolutionStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func resolve(_ taskID: UUID) async -> UUID? {
+        resolutionStarted = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+        return taskID
+    }
+
+    func waitUntilResolutionStarted() async {
+        guard !resolutionStarted else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        let continuation = releaseContinuation
+        releaseContinuation = nil
+        continuation?.resume()
+    }
 }
 
 private actor AppIntegrationBackgroundScheduler: BackgroundRefreshScheduling {
