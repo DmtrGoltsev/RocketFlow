@@ -69,7 +69,9 @@ struct EntityLinksSection: View {
             }
         } else if let issue = model.issue {
             Label(issueTitle(issue.kind), systemImage: issueSymbol(issue.kind))
-                .foregroundStyle(issue.kind == .offline ? .secondary : .red)
+                .foregroundStyle(
+                    issue.kind == .offline ? Color.secondary : Color.red
+                )
             if issue.kind == .offline || issue.kind == .unavailable {
                 Button(model.copy.retry) { Task { await model.load() } }
             }

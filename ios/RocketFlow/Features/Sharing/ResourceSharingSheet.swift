@@ -72,7 +72,9 @@ struct ResourceSharingSheet: View {
         } else if let issue = model.issue {
             Section {
                 Label(issueTitle(issue.kind), systemImage: issueSymbol(issue.kind))
-                    .foregroundStyle(issue.kind == .offline ? .secondary : .red)
+                    .foregroundStyle(
+                        issue.kind == .offline ? Color.secondary : Color.red
+                    )
                 if model.canManage && (issue.kind == .offline || issue.kind == .unavailable) {
                     Button(model.copy.retry) { Task { await model.load() } }
                 }
