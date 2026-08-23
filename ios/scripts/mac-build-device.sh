@@ -2,7 +2,14 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+case "$SCRIPT_SOURCE" in
+  */*) SCRIPT_PARENT="${SCRIPT_SOURCE%/*}" ;;
+  *) SCRIPT_PARENT="." ;;
+esac
+SCRIPT_DIR="$(cd "$SCRIPT_PARENT" && pwd -P)" \
+  || { printf 'error: Script directory could not be physically canonicalized.\n' >&2; exit 1; }
+unset SCRIPT_SOURCE SCRIPT_PARENT
 # shellcheck source=mac-handoff-common.sh
 source "$SCRIPT_DIR/mac-handoff-common.sh"
 
@@ -86,8 +93,10 @@ verify_security_ignores
 validate_source_api_contract
 derived_data="$(validate_derived_data_path "$derived_data")" || exit $?
 
-team="$(xcconfig_value "$config" DEVELOPMENT_TEAM)"
-bundle="$(xcconfig_value "$config" PRODUCT_BUNDLE_IDENTIFIER)"
+team="$(xcconfig_value "$config" DEVELOPMENT_TEAM)" \
+  || handoff_die "Device xcconfig Team ID could not be read."
+bundle="$(xcconfig_value "$config" PRODUCT_BUNDLE_IDENTIFIER)" \
+  || handoff_die "Device xcconfig bundle identifier could not be read."
 if [[ "$mode" == "push" ]]; then
   firebase_plist="$(canonical_sensitive_input "$firebase_plist" "Firebase plist")" || exit $?
   validate_push_contract "$firebase_plist" "$bundle"
@@ -124,7 +133,7 @@ done
 verify_xcodegen_version
 
 mkdir -p "$derived_data"
-temporary_root="$(create_private_temp_dir rocketflow-device-build)"
+temporary_root="$(create_private_temp_dir rocketflow-device-build)" || exit $?
 trap 'cleanup_private_temp_dir "$temporary_root"' EXIT
 snapshot="$temporary_root/ios"
 build_log="$temporary_root/xcodebuild.log"
@@ -165,7 +174,7 @@ capture_command "$build_log" "${build_command[@]}" || status=$?
 [[ "$status" -eq 0 ]] \
   || handoff_die "Signed device build failed (exit $status). Fix the Apple Account in Xcode, then repeat this script."
 
-app="$(newest_device_app "$derived_data")"
+app="$(newest_device_app "$derived_data")" || handoff_die "Signed app discovery failed."
 [[ -n "$app" && -d "$app" ]] || handoff_die "The signed RocketFlow.app was not found in DerivedData."
 verify_signed_app "$app" "$bundle" "$team" "$device" "$mode" "$temporary_root"
 

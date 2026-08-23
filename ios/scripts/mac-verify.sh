@@ -2,7 +2,14 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+case "$SCRIPT_SOURCE" in
+  */*) SCRIPT_PARENT="${SCRIPT_SOURCE%/*}" ;;
+  *) SCRIPT_PARENT="." ;;
+esac
+SCRIPT_DIR="$(cd "$SCRIPT_PARENT" && pwd -P)" \
+  || { printf 'error: Script directory could not be physically canonicalized.\n' >&2; exit 1; }
+unset SCRIPT_SOURCE SCRIPT_PARENT
 # shellcheck source=mac-handoff-common.sh
 source "$SCRIPT_DIR/mac-handoff-common.sh"
 
@@ -68,10 +75,14 @@ verify_security_ignores
 validate_source_api_contract
 
 if [[ "$dry_run" == true ]]; then
+  package_resolution="enabled"
+  tests="enabled"
+  [[ "$skip_packages" == true ]] && package_resolution="skipped"
+  [[ "$build_only" == true ]] && tests="skipped"
   handoff_note "DRY-RUN simulator verification validated"
   handoff_note "project_generation=temporary"
-  handoff_note "package_resolution=$([[ "$skip_packages" == true ]] && printf skipped || printf enabled)"
-  handoff_note "tests=$([[ "$build_only" == true ]] && printf skipped || printf enabled)"
+  handoff_note "package_resolution=$package_resolution"
+  handoff_note "tests=$tests"
   handoff_note "signing=disabled"
   exit 0
 fi
@@ -83,7 +94,7 @@ done
 verify_xcodegen_version
 mkdir -p "$derived_data"
 
-temporary_root="$(create_private_temp_dir rocketflow-mac-verify)"
+temporary_root="$(create_private_temp_dir rocketflow-mac-verify)" || exit $?
 trap 'cleanup_private_temp_dir "$temporary_root"' EXIT
 snapshot="$temporary_root/ios"
 prepare_ios_snapshot "$snapshot" no-push
@@ -121,14 +132,14 @@ if [[ "$build_only" == true ]]; then
     -destination "$destination" \
     -derivedDataPath "$derived_data" \
     -clonedSourcePackagesDirPath "$source_packages" \
-    "${package_flags[@]}" \
+    ${package_flags[@]+"${package_flags[@]}"} \
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGN_IDENTITY=""
 else
   require_command python3
   if [[ -z "$simulator" ]]; then
-    simulator="$(select_simulator_identifier)"
+    simulator="$(select_simulator_identifier)" || exit $?
   fi
   xcodebuild test \
     -project "$snapshot/RocketFlow.xcodeproj" \
@@ -136,7 +147,7 @@ else
     -destination "platform=iOS Simulator,id=$simulator" \
     -derivedDataPath "$derived_data" \
     -clonedSourcePackagesDirPath "$source_packages" \
-    "${package_flags[@]}" \
+    ${package_flags[@]+"${package_flags[@]}"} \
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGN_IDENTITY=""

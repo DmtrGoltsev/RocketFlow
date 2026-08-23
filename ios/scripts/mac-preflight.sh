@@ -2,7 +2,14 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+case "$SCRIPT_SOURCE" in
+  */*) SCRIPT_PARENT="${SCRIPT_SOURCE%/*}" ;;
+  *) SCRIPT_PARENT="." ;;
+esac
+SCRIPT_DIR="$(cd "$SCRIPT_PARENT" && pwd -P)" \
+  || { printf 'error: Script directory could not be physically canonicalized.\n' >&2; exit 1; }
+unset SCRIPT_SOURCE SCRIPT_PARENT
 # shellcheck source=mac-handoff-common.sh
 source "$SCRIPT_DIR/mac-handoff-common.sh"
 
@@ -85,7 +92,8 @@ git -C "$REPO_ROOT" ls-files --error-unmatch \
   ios/RocketFlow.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved \
   >/dev/null || handoff_die "Generated project and package lock must be tracked."
 
-bundle="$(xcconfig_value "$config" PRODUCT_BUNDLE_IDENTIFIER)"
+bundle="$(xcconfig_value "$config" PRODUCT_BUNDLE_IDENTIFIER)" \
+  || handoff_die "Device xcconfig bundle identifier could not be read."
 if [[ "$mode" == "push" ]]; then
   firebase_plist="$(canonical_sensitive_input "$firebase_plist" "Firebase plist")" || exit $?
   validate_push_contract "$firebase_plist" "$bundle"
@@ -103,7 +111,7 @@ for command_name in git mktemp python3 rsync stat xcode-select xcodebuild xcodeg
   require_command "$command_name"
 done
 
-private_dir="$(create_private_temp_dir rocketflow-preflight)"
+private_dir="$(create_private_temp_dir rocketflow-preflight)" || exit $?
 trap 'cleanup_private_temp_dir "$private_dir"' EXIT
 status=0
 capture_command "$private_dir/xcode-select.log" xcode-select -p || status=$?

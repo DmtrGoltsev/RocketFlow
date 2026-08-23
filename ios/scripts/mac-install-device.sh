@@ -2,7 +2,14 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+case "$SCRIPT_SOURCE" in
+  */*) SCRIPT_PARENT="${SCRIPT_SOURCE%/*}" ;;
+  *) SCRIPT_PARENT="." ;;
+esac
+SCRIPT_DIR="$(cd "$SCRIPT_PARENT" && pwd -P)" \
+  || { printf 'error: Script directory could not be physically canonicalized.\n' >&2; exit 1; }
+unset SCRIPT_SOURCE SCRIPT_PARENT
 # shellcheck source=mac-handoff-common.sh
 source "$SCRIPT_DIR/mac-handoff-common.sh"
 
@@ -81,14 +88,16 @@ validate_device_identifier "$device"
 validate_mode "$mode"
 config="$(canonical_sensitive_input "$config" "Device xcconfig")" || exit $?
 validate_device_config "$config"
-bundle="$(xcconfig_value "$config" PRODUCT_BUNDLE_IDENTIFIER)"
-team="$(xcconfig_value "$config" DEVELOPMENT_TEAM)"
+bundle="$(xcconfig_value "$config" PRODUCT_BUNDLE_IDENTIFIER)" \
+  || handoff_die "Device xcconfig bundle identifier could not be read."
+team="$(xcconfig_value "$config" DEVELOPMENT_TEAM)" \
+  || handoff_die "Device xcconfig Team ID could not be read."
 derived_data="$(validate_derived_data_path "$derived_data")" || exit $?
 verify_security_ignores
 validate_source_api_contract
 
 if [[ -z "$app" ]]; then
-  app="$(newest_device_app "$derived_data")"
+  app="$(newest_device_app "$derived_data")" || handoff_die "Signed app discovery failed."
 fi
 [[ -n "$app" ]] || handoff_die "A built .app directory is required."
 app="$(canonical_existing_directory "$app" "Built app")" || exit $?
@@ -108,7 +117,7 @@ require_macos
 for command_name in codesign mktemp python3 security stat xcrun; do
   require_command "$command_name"
 done
-private_dir="$(create_private_temp_dir rocketflow-device-install)"
+private_dir="$(create_private_temp_dir rocketflow-device-install)" || exit $?
 trap 'cleanup_private_temp_dir "$private_dir"' EXIT
 
 verify_signed_app "$app" "$bundle" "$team" "$device" "$mode" "$private_dir"
