@@ -195,17 +195,18 @@ final class PlannerViewModel: ObservableObject {
         language: AppLanguage,
         loader: any PlannerLoading,
         actionPerformer: any PlannerActionPerforming,
-        scrollState: PlannerScrollStateController = PlannerScrollStateController(),
+        scrollState: PlannerScrollStateController? = nil,
         processScrollState: PlannerScrollRestorableState? = nil,
         onNavigate: @escaping @MainActor (PlannerNavigationIntent) -> Void
     ) {
         self.language = language
         self.loader = loader
         self.actionPerformer = actionPerformer
-        self.scrollState = scrollState
+        let resolvedScrollState = scrollState ?? PlannerScrollStateController()
+        self.scrollState = resolvedScrollState
         self.onNavigate = onNavigate
 
-        let restored = scrollState.activate(
+        let restored = resolvedScrollState.activate(
             accountID: accountID,
             processState: processScrollState
         )
