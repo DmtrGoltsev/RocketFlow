@@ -172,7 +172,7 @@ final class PlannerViewModel: ObservableObject {
     @Published private(set) var actionError: String?
     @Published private(set) var isPerformingAction = false
 
-    let language: AppLanguage
+    @Published private(set) var language: AppLanguage
 
     private let loader: any PlannerLoading
     private let actionPerformer: any PlannerActionPerforming
@@ -216,6 +216,10 @@ final class PlannerViewModel: ObservableObject {
     }
 
     var copy: PlannerCopy { PlannerCopy(language: language) }
+
+    func setLanguage(_ language: AppLanguage) {
+        self.language = language
+    }
     var isInitialLoading: Bool { phase == .loading && snapshot == nil }
     var showsOfflineState: Bool { phase == .offline }
     var showsErrorState: Bool { phase == .error }

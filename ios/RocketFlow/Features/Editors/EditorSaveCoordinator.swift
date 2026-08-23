@@ -36,15 +36,25 @@ final class EditorSaveCoordinator: ObservableObject {
             onComplete(navigation(for: result))
         } catch is CancellationError {
             state = .idle
+        } catch let failure as EditorReminderFailure {
+            state = .reminderError(failure)
         } catch {
             state = .error
         }
     }
 
     func resetError() {
-        if state == .error || state == .networkRequired {
+        switch state {
+        case .error, .networkRequired, .reminderError:
             state = .idle
+        case .idle, .saving, .saved, .pending:
+            break
         }
+    }
+
+    func abandonOperation(_ operationID: UUID) async {
+        guard let recovery = saver as? any EditorOperationRecoveryManaging else { return }
+        await recovery.abandonEditorOperation(operationID)
     }
 
     private func navigation(for result: EditorSaveResult) -> DetailNavigationResult {

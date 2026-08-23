@@ -4,16 +4,21 @@ import SwiftUI
 struct AppRootView: View {
     @EnvironmentObject private var dependencies: DependencyContainer
     @EnvironmentObject private var appStore: AppStore
+    @EnvironmentObject private var languageStore: AppLanguageStore
+
+    private var copy: AppIntegrationCopy {
+        AppIntegrationCopy(language: languageStore.language)
+    }
 
     var body: some View {
         Group {
             switch appStore.state {
             case .launching:
-                ProgressView("Загрузка…")
+                ProgressView(copy.loading)
                     .accessibilityIdentifier("app.launching")
             case let .configurationError(message):
                 blockingState(
-                    title: "Ошибка конфигурации",
+                    title: copy.configurationError,
                     message: message,
                     symbol: "wrench.and.screwdriver",
                     actionTitle: nil,
@@ -22,15 +27,15 @@ struct AppRootView: View {
                 .accessibilityIdentifier("app.configuration.error")
             case let .cleanupRequired(message):
                 blockingState(
-                    title: "Требуется очистка локальных данных",
+                    title: copy.cleanupRequired,
                     message: message,
                     symbol: "lock.shield",
-                    actionTitle: "Повторить очистку",
+                    actionTitle: copy.retryCleanup,
                     action: { Task { await appStore.retryPrivacyCleanup() } }
                 )
                 .accessibilityIdentifier("app.cleanup.required")
             case .signedOut:
-                AuthView(submitter: appStore)
+                AuthView(submitter: appStore, languageStore: languageStore)
             case let .authenticated(user):
                 authenticated(user: user, offline: false)
             case let .offline(user):
@@ -70,16 +75,16 @@ struct AppRootView: View {
 
     @ViewBuilder
     private func authenticated(user: UserDTO, offline: Bool) -> some View {
-        let copy = AppIntegrationCopy(language: user.language)
         if appStore.runtimeReady,
            let runtime = dependencies.activeRuntime,
            runtime.user.id == user.id {
             AuthenticatedAppView(
                 appStore: appStore,
                 runtime: runtime,
+                languageStore: languageStore,
                 offline: offline
             )
-            .id(user.id)
+            .id(runtime.lease.runtimeID)
         } else {
             VStack(spacing: 12) {
                 ProgressView()

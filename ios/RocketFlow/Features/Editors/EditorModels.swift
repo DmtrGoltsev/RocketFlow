@@ -18,6 +18,7 @@ enum EditorField: String, CaseIterable, Hashable, Sendable {
     case recurrenceWeekdays
     case recurrenceDayOfMonth
     case recurrenceEnd
+    case reminder
     case checklist
     case tagName
     case tagColor
@@ -34,6 +35,7 @@ enum EditorValidationIssue: Equatable, Sendable {
     case recurrenceAnchorWeekdayRequired
     case recurrenceDayInvalid
     case recurrenceAnchorDayRequired
+    case reminderOneShotInPast
     case recurrenceEndInvalid
 }
 
@@ -188,6 +190,31 @@ struct TagEditorItemDraft: Equatable, Identifiable, Sendable {
     var assigned: Bool
 }
 
+struct TaskReminderEditorDraft: Equatable, Sendable {
+    let id: UUID
+    var triggerAt: Date
+    var repeatRule: TaskReminderRepeat
+    var anchorAt: Date
+
+    init(
+        id: UUID = UUID(),
+        triggerAt: Date,
+        repeatRule: TaskReminderRepeat = .none,
+        anchorAt: Date? = nil
+    ) {
+        self.id = id
+        self.triggerAt = triggerAt
+        self.repeatRule = repeatRule
+        self.anchorAt = anchorAt ?? triggerAt
+    }
+}
+
+enum TaskReminderEditorMutation: Equatable, Sendable {
+    case preserveOrDefault
+    case remove
+    case upsert(TaskReminderEditorDraft)
+}
+
 struct TaskEditorDraft: Equatable, Sendable {
     var title: String
     var description: String
@@ -199,6 +226,36 @@ struct TaskEditorDraft: Equatable, Sendable {
     var recurrence: TaskRecurrenceEditorDraft
     var checklist: [ChecklistEditorItemDraft]
     var tags: [TagEditorItemDraft]
+    var reminder: TaskReminderEditorMutation
+    var operationID: UUID
+
+    init(
+        title: String,
+        description: String,
+        status: DetailTaskStatus,
+        type: DetailTaskType,
+        effort: Int,
+        plannedAt: Date?,
+        dueAt: Date?,
+        recurrence: TaskRecurrenceEditorDraft,
+        checklist: [ChecklistEditorItemDraft],
+        tags: [TagEditorItemDraft],
+        reminder: TaskReminderEditorMutation = .preserveOrDefault,
+        operationID: UUID = UUID()
+    ) {
+        self.title = title
+        self.description = description
+        self.status = status
+        self.type = type
+        self.effort = effort
+        self.plannedAt = plannedAt
+        self.dueAt = dueAt
+        self.recurrence = recurrence
+        self.checklist = checklist
+        self.tags = tags
+        self.reminder = reminder
+        self.operationID = operationID
+    }
 
     mutating func addChecklistItem(text: String = "") {
         checklist.append(ChecklistEditorItemDraft(text: text))
@@ -323,6 +380,38 @@ struct TaskEditorPayload: Equatable, Sendable {
     let recurrence: TaskRecurrenceEditorPayload?
     let checklist: [ChecklistEditorPayload]
     let tagIDs: [UUID]
+    let reminder: TaskReminderEditorMutation
+    let operationID: UUID
+
+    init(
+        mutationScope: TaskEditorMutationScope,
+        title: String,
+        description: String,
+        status: DetailTaskStatus,
+        type: DetailTaskType,
+        effort: Int,
+        plannedAt: Date?,
+        dueAt: Date?,
+        recurrence: TaskRecurrenceEditorPayload?,
+        checklist: [ChecklistEditorPayload],
+        tagIDs: [UUID],
+        reminder: TaskReminderEditorMutation = .preserveOrDefault,
+        operationID: UUID = UUID()
+    ) {
+        self.mutationScope = mutationScope
+        self.title = title
+        self.description = description
+        self.status = status
+        self.type = type
+        self.effort = effort
+        self.plannedAt = plannedAt
+        self.dueAt = dueAt
+        self.recurrence = recurrence
+        self.checklist = checklist
+        self.tagIDs = tagIDs
+        self.reminder = reminder
+        self.operationID = operationID
+    }
 }
 
 struct IdeaEditorPayload: Equatable, Sendable {
@@ -383,11 +472,24 @@ enum EditorSaveState: Equatable, Sendable {
     case saved
     case pending
     case networkRequired
+    case reminderError(EditorReminderFailure)
     case error
+}
+
+enum EditorReminderFailure: Error, Equatable, Sendable {
+    case oneShotInPast
+    case authorizationDenied
+    case schedulingFailed
+    case operationIdentityReused
 }
 
 protocol EditorSaving: Sendable {
     func saveEditor(_ request: EditorSaveRequest) async throws -> EditorSaveResult
+}
+
+protocol EditorOperationRecoveryManaging: Sendable {
+    func abandonEditorOperation(_ operationID: UUID) async
+    func clearEditorOperations() async
 }
 
 protocol EditorTagCreating: Sendable {

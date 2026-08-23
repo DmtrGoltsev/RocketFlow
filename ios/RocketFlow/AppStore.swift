@@ -60,13 +60,16 @@ final class AppStore: ObservableObject, AuthSubmitting {
     @Published private(set) var persistenceError: String?
     @Published private(set) var pushConfigurationDiagnostic: String?
     @Published private(set) var lifecycleState: LifecycleState = .inactive
+    @Published private(set) var restoredCalendarState: CalendarRestorationState?
     @Published var navigation = AppNavigationState()
 
     let plannerScrollState = PlannerScrollStateController()
+    let languageStore: AppLanguageStore
 
     private let authSession: AuthSession
     private weak var dependencies: DependencyContainer?
     private let launchUser: UserDTO?
+    private let restorationPersistence: any AppRestorationPersisting
     private var planningRepository: (any PlanningRepository)?
     private var syncEngine: SyncEngine?
     private var planningRemote: APIPlanningRemote?
@@ -74,11 +77,15 @@ final class AppStore: ObservableObject, AuthSubmitting {
     private let lifecycleTasks = AppSerialTaskChain()
     private var featureSyncTask: Task<AppFeatureSyncOutcome, Never>?
     private var featureSyncID: UUID?
+    private var languageReconcileTask: Task<Void, Never>?
+    private var restorationSession: AppRestorationSession?
+    private var restorationTask: Task<AppRestorationActivation, Never>?
     private var didRestore = false
     private var didBindExternalEvents = false
     private var authenticationGeneration: UInt64 = 0
     private var pendingCleanupUserID: UUID?
-    private var pendingDeepLinks: [(URL, NavigationOrigin)] = []
+    private var pendingDeepLinks: [(URL, NavigationOrigin, UInt64)] = []
+    private var deepLinkSequence: UInt64 = 0
     private var pendingRemoteNotifications: [([String: String], Bool)] = []
 
     var isReachabilityMonitoringActive: Bool { reachabilityTask != nil }
@@ -99,11 +106,15 @@ final class AppStore: ObservableObject, AuthSubmitting {
     init(
         authSession: AuthSession,
         dependencies: DependencyContainer? = nil,
-        launchUser: UserDTO? = nil
+        launchUser: UserDTO? = nil,
+        languageStore: AppLanguageStore = .shared,
+        restorationPersistence: any AppRestorationPersisting = AppRestorationUserDefaultsStore()
     ) {
         self.authSession = authSession
         self.dependencies = dependencies
         self.launchUser = launchUser
+        self.languageStore = languageStore
+        self.restorationPersistence = restorationPersistence
         planningRepository = dependencies?.planningRepository
         syncEngine = dependencies?.syncEngine
         planningRemote = dependencies?.planningRemote
@@ -122,6 +133,7 @@ final class AppStore: ObservableObject, AuthSubmitting {
 
         let generation = authenticationGeneration
         if let launchUser {
+            languageStore.setLanguage(launchUser.language)
             state = .authenticated(launchUser)
             await prepareApplication(for: launchUser, sync: false, generation: generation)
             return
@@ -133,9 +145,12 @@ final class AppStore: ObservableObject, AuthSubmitting {
         case .signedOut:
             state = .signedOut
         case let .authenticated(user):
+            languageStore.setLanguage(user.language)
             state = .authenticated(user)
             await prepareApplication(for: user, sync: true, generation: generation)
         case let .offline(user):
+            // Offline session metadata may lag a previously accepted settings write.
+            // The durable app preference remains authoritative until the server is reachable.
             state = .offline(user)
             await prepareApplication(for: user, sync: false, generation: generation)
         }
@@ -149,6 +164,7 @@ final class AppStore: ObservableObject, AuthSubmitting {
         do {
             let user = try await authSession.login(email: email, password: password)
             try requireCurrent(generation)
+            languageStore.setLanguage(user.language)
             navigation.resetForAccountTransition()
             state = .authenticated(user)
             await prepareApplication(for: user, sync: true, generation: generation)
@@ -185,6 +201,7 @@ final class AppStore: ObservableObject, AuthSubmitting {
                 language: language
             )
             try requireCurrent(generation)
+            languageStore.setLanguage(user.language)
             navigation.resetForAccountTransition()
             state = .authenticated(user)
             await prepareApplication(for: user, sync: true, generation: generation)
@@ -272,6 +289,45 @@ final class AppStore: ObservableObject, AuthSubmitting {
 
     func retrySync() async {
         await manualSync()
+    }
+
+    func appLanguageDidChange(_ language: AppLanguage) {
+        guard languageStore.language == language,
+              let runtime = dependencies?.activeRuntime,
+              runtimeReady else {
+            return
+        }
+        let lease = runtime.lease
+        languageReconcileTask?.cancel()
+        languageReconcileTask = Task { [weak self] in
+            do {
+                try Task.checkCancellation()
+                try await runtime.reconcileReminders(reason: .settingsChange)
+                try Task.checkCancellation()
+                guard self?.currentRuntimeLease == lease else { return }
+            } catch is CancellationError {
+                return
+            } catch let api as APIError where api.isUnauthorized {
+                await self?.handleUnauthorized(for: lease)
+            } catch {
+                // Foreground/settings reconciliation will retry without replacing
+                // the accepted app language or presenting a persistence failure.
+                return
+            }
+        }
+    }
+
+    func calendarRestorationState(for lease: AppRuntimeLease) -> CalendarRestorationState? {
+        currentRuntimeLease == lease ? restoredCalendarState : nil
+    }
+
+    func calendarRestorationDidChange(
+        _ state: CalendarRestorationState,
+        for lease: AppRuntimeLease
+    ) {
+        guard currentRuntimeLease == lease, let restorationSession else { return }
+        restoredCalendarState = state
+        restorationSession.calendarMutationHandler()(state)
     }
 
     func retryPersistence() async {
@@ -377,13 +433,15 @@ final class AppStore: ObservableObject, AuthSubmitting {
     }
 
     func receiveDeepLink(_ url: URL, origin: NavigationOrigin = .planner) async {
+        deepLinkSequence &+= 1
+        let sequence = deepLinkSequence
         guard let lease = currentRuntimeLease,
               runtimeReady,
               await dependencies?.taskDeepLinkRegistry.isReady(for: lease) == true else {
-            enqueueDeepLink(url, origin: origin)
+            enqueueDeepLink(url, origin: origin, sequence: sequence)
             return
         }
-        await processDeepLink(url, origin: origin, lease: lease)
+        await processDeepLink(url, origin: origin, sequence: sequence, lease: lease)
     }
 
     func handleRemoteNotification(
@@ -463,6 +521,7 @@ final class AppStore: ObservableObject, AuthSubmitting {
         remotePullWarnings = []
         pendingRemoteNotifications = []
         pendingDeepLinks = []
+        deepLinkSequence = 0
         pushConfigurationDiagnostic = nil
         lifecycleState = .inactive
         navigation.resetForAccountTransition()
@@ -547,12 +606,15 @@ final class AppStore: ObservableObject, AuthSubmitting {
             guard let runtime = dependencies.activeRuntime, runtime.lease == lease else {
                 throw CancellationError()
             }
+            try await restoreRuntimeState(
+                for: runtime,
+                generation: generation
+            )
+            try requireCurrent(generation, lease: lease)
             await runtime.startDeviceTokenObservation(
                 provider: dependencies.fcmTokenProvider,
                 deviceName: AppDeviceInfo.name
             )
-            try requireCurrent(generation, lease: lease)
-            try? await runtime.reconcileReminders(reason: .launch)
             try requireCurrent(generation, lease: lease)
 
             if shouldSync {
@@ -567,21 +629,129 @@ final class AppStore: ObservableObject, AuthSubmitting {
 
             pushConfigurationDiagnostic = await dependencies.pushConfigurationDiagnostic()
             runtimeReady = true
-            await drainPendingExternalEvents(lease: lease)
+            do {
+                _ = try await runtime.resumeNotificationsAfterRuntimeReady(
+                    allowNetwork: shouldSync
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error where AppUnauthorizedErrorClassifier.isUnauthorized(error) {
+                await handleUnauthorized(for: lease)
+                throw CancellationError()
+            } catch {
+                // Durable reminder rows remain available for the next lifecycle retry.
+            }
             try requireCurrent(generation, lease: lease)
-
             if let resolution = await dependencies.deepLinkCoordinator
-                .authenticationDidSucceed(language: user.language) {
+                .authenticationDidSucceed(language: languageStore.language) {
                 try requireCurrent(generation, lease: lease)
                 await applyDeepLinkResolution(resolution, lease: lease)
             }
+            try requireCurrent(generation, lease: lease)
+            await drainPendingExternalEvents(lease: lease)
+            try requireCurrent(generation, lease: lease)
         } catch is CancellationError {
             return
         } catch {
             guard generation == authenticationGeneration else { return }
-            await cancelRuntimeTasksAndWait()
+            await cancelRuntimeTasksAndWait(clearRestoration: false)
             runtimeReady = false
             persistenceError = String(describing: error)
+        }
+    }
+
+    private func restoreRuntimeState(
+        for runtime: AppUserRuntime,
+        generation: UInt64
+    ) async throws {
+        let lease = runtime.lease
+        let session = AppRestorationSession(
+            accountID: runtime.user.id,
+            persistence: restorationPersistence,
+            leaseID: lease.runtimeID
+        )
+        restorationSession = session
+        installRestorationHandler(from: session)
+
+        let accountID = runtime.user.id
+        let repository = runtime.planningRepository
+        let validity = runtime.validity
+        let validator = AppRestorationRouteValidator { route, requestedAccountID in
+            guard requestedAccountID == accountID else { return false }
+            do {
+                try await validity.require(lease)
+                let snapshot = try await repository.snapshot()
+                try await validity.require(lease)
+                return Self.restorationRouteExists(route, in: snapshot)
+            } catch {
+                return false
+            }
+        }
+        let task = Task {
+            await session.restore(
+                accountTimezone: runtime.user.timezone,
+                routeValidator: validator
+            )
+        }
+        restorationTask = task
+        let activation = await task.value
+        if restorationSession === session {
+            restorationTask = nil
+        }
+
+        try requireCurrent(generation, lease: lease)
+        guard restorationSession === session,
+              activation.shouldApplyToRuntime,
+              session.canApply(activation) else {
+            return
+        }
+
+        var restoredNavigation = activation.navigation
+        restoredNavigation.installRestorationMutationHandler(
+            session.navigationMutationHandler()
+        )
+        navigation = restoredNavigation
+        restoredCalendarState = activation.calendar
+    }
+
+    private func installRestorationHandler(from session: AppRestorationSession) {
+        var state = navigation
+        state.installRestorationMutationHandler(session.navigationMutationHandler())
+        navigation = state
+    }
+
+    private func detachRestoration(clearPersisted: Bool) async {
+        let task = restorationTask
+        restorationTask = nil
+        task?.cancel()
+        if clearPersisted {
+            restorationSession?.clear()
+        } else {
+            restorationSession?.detachPreservingSnapshot()
+        }
+        restorationSession = nil
+        restoredCalendarState = nil
+        navigation.removeRestorationMutationHandler()
+        await task?.value
+    }
+
+    private nonisolated static func restorationRouteExists(
+        _ route: AppRestorableRoute,
+        in snapshot: PlanningSnapshot
+    ) -> Bool {
+        let reference: DetailEntityReference
+        switch route {
+        case let .detail(value, _), let .links(value, _):
+            reference = value
+        case .settings:
+            return true
+        }
+        switch reference.kind {
+        case .folder: return snapshot.folders.contains { $0.id == reference.id }
+        case .goal: return snapshot.goals.contains { $0.id == reference.id }
+        case .task: return snapshot.tasks.contains { $0.id == reference.id }
+        case .idea: return snapshot.ideas.contains { $0.id == reference.id }
+        case .note: return snapshot.notes.contains { $0.id == reference.id }
         }
     }
 
@@ -702,22 +872,24 @@ final class AppStore: ObservableObject, AuthSubmitting {
     private func processDeepLink(
         _ url: URL,
         origin: NavigationOrigin,
+        sequence: UInt64,
         lease: AppRuntimeLease
     ) async {
         guard currentRuntimeLease == lease, runtimeReady, let dependencies else {
-            enqueueDeepLink(url, origin: origin)
+            enqueueDeepLink(url, origin: origin, sequence: sequence)
             return
         }
         let result = await dependencies.deepLinkCoordinator.receive(
             url,
             authenticated: true,
             origin: origin,
-            language: stateUser?.language ?? .ru
+            language: languageStore.language
         )
         guard currentRuntimeLease == lease else {
-            enqueueDeepLink(url, origin: origin)
+            enqueueDeepLink(url, origin: origin, sequence: sequence)
             return
         }
+        guard sequence == deepLinkSequence else { return }
         if case let .resolved(resolution) = result {
             await applyDeepLinkResolution(resolution, lease: lease)
         }
@@ -740,12 +912,18 @@ final class AppStore: ObservableObject, AuthSubmitting {
 
         let deepLinks = pendingDeepLinks
         pendingDeepLinks.removeAll()
-        for (url, origin) in deepLinks {
+        for (url, origin, sequence) in deepLinks {
             guard currentRuntimeLease == lease else {
-                enqueueDeepLink(url, origin: origin)
+                enqueueDeepLink(url, origin: origin, sequence: sequence)
                 return
             }
-            await processDeepLink(url, origin: origin, lease: lease)
+            guard sequence == deepLinkSequence else { continue }
+            await processDeepLink(
+                url,
+                origin: origin,
+                sequence: sequence,
+                lease: lease
+            )
         }
     }
 
@@ -794,17 +972,22 @@ final class AppStore: ObservableObject, AuthSubmitting {
         return authenticationGeneration
     }
 
-    private func cancelRuntimeTasksAndWait() async {
+    private func cancelRuntimeTasksAndWait(clearRestoration: Bool = true) async {
         let reachability = reachabilityTask
         reachabilityTask = nil
         let feature = featureSyncTask
         featureSyncTask = nil
         featureSyncID = nil
+        let language = languageReconcileTask
+        languageReconcileTask = nil
         reachability?.cancel()
         feature?.cancel()
+        language?.cancel()
         await lifecycleTasks.cancelAndWait()
+        await detachRestoration(clearPersisted: clearRestoration)
         await reachability?.value
         _ = await feature?.value
+        await language?.value
     }
 
     private func requestUnauthorizedSignout(for lease: AppRuntimeLease?) {
@@ -827,8 +1010,12 @@ final class AppStore: ObservableObject, AuthSubmitting {
         generation == authenticationGeneration && currentRuntimeLease == lease
     }
 
-    private func enqueueDeepLink(_ url: URL, origin: NavigationOrigin) {
-        pendingDeepLinks.append((url, origin))
+    private func enqueueDeepLink(
+        _ url: URL,
+        origin: NavigationOrigin,
+        sequence: UInt64
+    ) {
+        pendingDeepLinks.append((url, origin, sequence))
         if pendingDeepLinks.count > 32 {
             pendingDeepLinks.removeFirst(pendingDeepLinks.count - 32)
         }

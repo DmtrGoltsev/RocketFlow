@@ -9,6 +9,73 @@ enum TaskReminderRepeat: String, Codable, CaseIterable, Sendable {
     case monthly
 }
 
+struct TaskReminderCopy: Sendable {
+    let reminder: String
+    let mode: String
+    let accountDefault: String
+    let keepCurrent: String
+    let disabled: String
+    let custom: String
+    let fireAt: String
+    let repeatRule: String
+    let noRepeat: String
+    let hourly: String
+    let daily: String
+    let weekly: String
+    let monthly: String
+    let loading: String
+    let unavailable: String
+    let openTaskBody: String
+
+    init(language: AppLanguage) {
+        if language == .ru {
+            reminder = "Напоминание"
+            mode = "Режим напоминания"
+            accountDefault = "Настройка аккаунта"
+            keepCurrent = "Без изменений"
+            disabled = "Выключено"
+            custom = "Своё"
+            fireAt = "Дата и время"
+            repeatRule = "Повтор"
+            noRepeat = "Без повтора"
+            hourly = "Каждый час"
+            daily = "Ежедневно"
+            weekly = "Еженедельно"
+            monthly = "Ежемесячно"
+            loading = "Загрузка"
+            unavailable = "Напоминание недоступно"
+            openTaskBody = "Открыть задачу в RocketFlow."
+        } else {
+            reminder = "Reminder"
+            mode = "Reminder mode"
+            accountDefault = "Account default"
+            keepCurrent = "Keep current"
+            disabled = "Off"
+            custom = "Custom"
+            fireAt = "Date and time"
+            repeatRule = "Repeat"
+            noRepeat = "No repeat"
+            hourly = "Hourly"
+            daily = "Daily"
+            weekly = "Weekly"
+            monthly = "Monthly"
+            loading = "Loading"
+            unavailable = "Reminder unavailable"
+            openTaskBody = "Open this task in RocketFlow."
+        }
+    }
+
+    func repeatTitle(_ value: TaskReminderRepeat) -> String {
+        switch value {
+        case .none: noRepeat
+        case .hourly: hourly
+        case .daily: daily
+        case .weekly: weekly
+        case .monthly: monthly
+        }
+    }
+}
+
 struct LocalTaskReminder: Codable, Equatable, Sendable, Identifiable {
     let id: UUID
     let accountID: UUID
@@ -62,6 +129,19 @@ struct TaskReminderReconciliationItem: Equatable, Sendable {
     let taskState: ReminderTaskState
 }
 
+struct TaskReminderPlanningSnapshot: Equatable, Sendable {
+    let taskID: UUID
+    let title: String
+    let taskState: ReminderTaskState
+}
+
+protocol TaskReminderPlanningSnapshotProviding: Sendable {
+    func planningTask(
+        accountID: UUID,
+        taskID: UUID
+    ) async throws -> TaskReminderPlanningSnapshot?
+}
+
 enum ReminderReconcileReason: String, Sendable {
     case launch
     case foreground
@@ -93,6 +173,52 @@ struct UserNotificationRequestValue: Equatable, Sendable {
     let timeZoneIdentifier: String?
     let userInfo: [String: String]
     let timeSensitive: Bool
+    let calendarTrigger: UserNotificationCalendarTriggerValue?
+
+    init(
+        identifier: String,
+        title: String,
+        body: String,
+        fireDate: Date?,
+        timeZoneIdentifier: String?,
+        userInfo: [String: String],
+        timeSensitive: Bool,
+        calendarTrigger: UserNotificationCalendarTriggerValue? = nil
+    ) {
+        self.identifier = identifier
+        self.title = title
+        self.body = body
+        self.fireDate = fireDate
+        self.timeZoneIdentifier = timeZoneIdentifier
+        self.userInfo = userInfo
+        self.timeSensitive = timeSensitive
+        self.calendarTrigger = calendarTrigger
+    }
+}
+
+struct UserNotificationCalendarTriggerValue: Equatable, Sendable {
+    let timeZoneIdentifier: String
+    let year: Int?
+    let month: Int?
+    let day: Int?
+    let weekday: Int?
+    let hour: Int?
+    let minute: Int?
+    let second: Int?
+    let repeats: Bool
+
+    var dateComponents: DateComponents {
+        var value = DateComponents()
+        value.timeZone = TimeZone(identifier: timeZoneIdentifier)
+        value.year = year
+        value.month = month
+        value.day = day
+        value.weekday = weekday
+        value.hour = hour
+        value.minute = minute
+        value.second = second
+        return value
+    }
 }
 
 protocol UserNotificationCenterServing: Sendable {
@@ -152,7 +278,12 @@ final class SystemUserNotificationCenter: UserNotificationCenterServing, @unchec
         }
 
         let trigger: UNNotificationTrigger?
-        if let fireDate = request.fireDate {
+        if let calendarTrigger = request.calendarTrigger {
+            trigger = UNCalendarNotificationTrigger(
+                dateMatching: calendarTrigger.dateComponents,
+                repeats: calendarTrigger.repeats
+            )
+        } else if let fireDate = request.fireDate {
             var calendar = Calendar(identifier: .gregorian)
             if let identifier = request.timeZoneIdentifier, let timezone = TimeZone(identifier: identifier) {
                 calendar.timeZone = timezone
@@ -185,6 +316,10 @@ protocol TaskReminderStoreServing: Sendable {
     func saveDefault(_ reminder: DefaultTaskReminder) async throws
     func clearDefault(accountID: UUID) async throws
     func clear(accountID: UUID) async throws
+}
+
+protocol TaskReminderReading: Sendable {
+    func reminder(taskID: UUID) async throws -> LocalTaskReminder?
 }
 
 extension TaskReminderStoreServing {
@@ -242,6 +377,13 @@ actor InMemoryTaskReminderStore: TaskReminderStoreServing {
 
 protocol AccountNotificationClearing: Sendable {
     func clear(accountID: UUID) async throws
+    func suspendNotifications(accountID: UUID) async
+    func resumeNotifications(accountID: UUID, timeZone: TimeZone) async throws
+}
+
+extension AccountNotificationClearing {
+    func suspendNotifications(accountID: UUID) async {}
+    func resumeNotifications(accountID: UUID, timeZone: TimeZone) async throws {}
 }
 
 struct NoopAccountNotificationCleaner: AccountNotificationClearing {
@@ -250,6 +392,17 @@ struct NoopAccountNotificationCleaner: AccountNotificationClearing {
 
 enum TaskReminderSchedule {
     static let defaultOffsetMinutes = 60
+    static let maximumPendingTaskRequests = 48
+
+    // iOS permits 64 pending notifications. RocketFlow reserves 16 slots for
+    // non-task notifications and rolls exact occurrences on lifecycle reconciliation.
+    static func occurrenceLimit(for repeatRule: TaskReminderRepeat) -> Int {
+        switch repeatRule {
+        case .none: 1
+        case .hourly, .daily: 16
+        case .weekly, .monthly: 12
+        }
+    }
 
     static func materializeDefault(
         accountID: UUID,
@@ -279,7 +432,7 @@ enum TaskReminderSchedule {
         timeZone: TimeZone
     ) -> Date? {
         guard reminder.enabled else { return nil }
-        if reminder.triggerAt >= now { return reminder.triggerAt }
+        if reminder.triggerAt > now { return reminder.triggerAt }
         guard reminder.repeatRule != .none else { return nil }
 
         var calendar = Calendar(identifier: .gregorian)
@@ -299,6 +452,50 @@ enum TaskReminderSchedule {
         case .monthly:
             return nextAnchoredMonth(anchor: anchor, now: now, calendar: calendar)
         }
+    }
+
+    static func notificationTrigger(
+        for _: LocalTaskReminder,
+        fireDate: Date,
+        timeZone: TimeZone
+    ) -> UserNotificationCalendarTriggerValue {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = timeZone
+        let values = calendar.dateComponents(
+            [.year, .month, .day, .weekday, .hour, .minute, .second],
+            from: fireDate
+        )
+        return UserNotificationCalendarTriggerValue(
+            timeZoneIdentifier: timeZone.identifier,
+            year: values.year,
+            month: values.month,
+            day: values.day,
+            weekday: nil,
+            hour: values.hour,
+            minute: values.minute,
+            second: values.second,
+            repeats: false
+        )
+    }
+
+    static func occurrenceDates(
+        for reminder: LocalTaskReminder,
+        now: Date,
+        timeZone: TimeZone,
+        limit: Int
+    ) -> [Date] {
+        guard limit > 0 else { return [] }
+        var values: [Date] = []
+        var threshold = now
+        while values.count < limit,
+              let next = nextFireDate(for: reminder, now: threshold, timeZone: timeZone) {
+            guard values.last != next else { break }
+            values.append(next)
+            guard reminder.repeatRule != .none else { break }
+            threshold = next.addingTimeInterval(0.001)
+        }
+        return values
     }
 
     private static func advanced(
@@ -363,73 +560,120 @@ enum TaskReminderSchedule {
     }
 }
 
+enum TaskReminderSchedulingError: Error, Equatable, Sendable {
+    case authorizationDenied
+    case authorizationRequestFailed
+    case expired
+    case pendingLimitReached
+}
+
 actor TaskReminderScheduler {
     private let center: any UserNotificationCenterServing
     private let store: any TaskReminderStoreServing
+    private let planning: (any TaskReminderPlanningSnapshotProviding)?
     private let now: @Sendable () -> Date
+    private let notificationBody: @Sendable () async -> String
 
     init(
         center: any UserNotificationCenterServing,
         store: any TaskReminderStoreServing,
-        now: @escaping @Sendable () -> Date = Date.init
+        planning: (any TaskReminderPlanningSnapshotProviding)? = nil,
+        now: @escaping @Sendable () -> Date = Date.init,
+        notificationBody: @escaping @Sendable () async -> String = {
+            "Open this task in RocketFlow."
+        }
     ) {
         self.center = center
         self.store = store
+        self.planning = planning ?? (store as? any TaskReminderPlanningSnapshotProviding)
         self.now = now
+        self.notificationBody = notificationBody
     }
 
     func schedule(
         _ reminder: LocalTaskReminder,
         taskState: ReminderTaskState,
-        timeZone: TimeZone
+        timeZone: TimeZone,
+        occurrenceLimit: Int? = nil
     ) async throws -> TaskReminderScheduleResult {
-        let identifier = Self.identifier(for: reminder)
         guard taskState.canNotify else {
-            await center.remove(identifiers: [identifier])
-            try await store.remove(accountID: reminder.accountID, taskID: reminder.taskID, reminderID: reminder.id)
+            try await erase(reminder)
             return .removedForTaskState(taskState)
         }
+        try await store.save(reminder, taskState: taskState)
+        await suspend(reminder)
         guard reminder.enabled else {
-            await center.remove(identifiers: [identifier])
             return .disabled
         }
-        guard let fireDate = TaskReminderSchedule.nextFireDate(
+        let requestedLimit = occurrenceLimit
+            ?? TaskReminderSchedule.occurrenceLimit(for: reminder.repeatRule)
+        let taskPendingCount = await center.pendingIdentifiers().filter {
+            $0.hasPrefix(Self.rootPrefix)
+        }.count
+        let available = max(
+            TaskReminderSchedule.maximumPendingTaskRequests - taskPendingCount,
+            0
+        )
+        let dates = TaskReminderSchedule.occurrenceDates(
             for: reminder,
             now: now(),
-            timeZone: timeZone
-        ) else {
-            await center.remove(identifiers: [identifier])
-            try await store.remove(accountID: reminder.accountID, taskID: reminder.taskID, reminderID: reminder.id)
-            return .expired
+            timeZone: timeZone,
+            limit: min(requestedLimit, available)
+        )
+        guard !dates.isEmpty else {
+            if TaskReminderSchedule.nextFireDate(for: reminder, now: now(), timeZone: timeZone) == nil {
+                try await store.remove(
+                    accountID: reminder.accountID,
+                    taskID: reminder.taskID,
+                    reminderID: reminder.id
+                )
+                return .expired
+            }
+            throw TaskReminderSchedulingError.pendingLimitReached
         }
 
-        let advanced = LocalTaskReminder(
-            id: reminder.id,
-            accountID: reminder.accountID,
-            taskID: reminder.taskID,
-            taskTitle: reminder.taskTitle,
-            triggerAt: fireDate,
-            repeatRule: reminder.repeatRule,
-            enabled: reminder.enabled,
-            anchorAt: reminder.anchorAt
-        )
-        try await store.save(advanced, taskState: taskState)
-        try await center.add(
-            UserNotificationRequestValue(
-                identifier: identifier,
-                title: reminder.taskTitle,
-                body: "Open this task in RocketFlow.",
+        switch await center.authorizationState() {
+        case .authorized, .provisional, .ephemeral:
+            break
+        case .denied:
+            throw TaskReminderSchedulingError.authorizationDenied
+        case .notDetermined:
+            do {
+                guard try await center.requestAuthorization() else {
+                    throw TaskReminderSchedulingError.authorizationDenied
+                }
+            } catch let error as TaskReminderSchedulingError {
+                throw error
+            } catch {
+                throw TaskReminderSchedulingError.authorizationRequestFailed
+            }
+        }
+
+        let body = await notificationBody()
+        for fireDate in dates {
+            let calendarTrigger = TaskReminderSchedule.notificationTrigger(
+                for: reminder,
                 fireDate: fireDate,
-                timeZoneIdentifier: timeZone.identifier,
-                userInfo: [
-                    "type": "task_reminder",
-                    "taskId": reminder.taskID.uuidString.lowercased(),
-                    "deepLink": "rocketflow://task/\(reminder.taskID.uuidString.lowercased())"
-                ],
-                timeSensitive: true
+                timeZone: timeZone
             )
-        )
-        return .scheduled(fireDate)
+            try await center.add(
+                UserNotificationRequestValue(
+                    identifier: Self.occurrenceIdentifier(for: reminder, fireDate: fireDate),
+                    title: reminder.taskTitle,
+                    body: body,
+                    fireDate: fireDate,
+                    timeZoneIdentifier: timeZone.identifier,
+                    userInfo: [
+                        "type": "task_reminder",
+                        "taskId": reminder.taskID.uuidString.lowercased(),
+                        "deepLink": "rocketflow://task/\(reminder.taskID.uuidString.lowercased())"
+                    ],
+                    timeSensitive: true,
+                    calendarTrigger: calendarTrigger
+                )
+            )
+        }
+        return .scheduled(dates[0])
     }
 
     func reconcile(
@@ -437,60 +681,145 @@ actor TaskReminderScheduler {
         timeZone: TimeZone,
         reason: ReminderReconcileReason
     ) async throws -> [UUID: TaskReminderScheduleResult] {
-        let items = try await store.reconciliationItems(accountID: accountID)
+        let stored = try await store.reconciliationItems(accountID: accountID)
+        await suspendNotifications(accountID: accountID)
+
+        var prepared: [TaskReminderReconciliationItem] = []
         var results: [UUID: TaskReminderScheduleResult] = [:]
-        var desiredIdentifiers = Set<String>()
-        for item in items {
-            if item.taskState.canNotify && item.reminder.enabled {
-                desiredIdentifiers.insert(Self.identifier(for: item.reminder))
+        for item in stored {
+            guard let planning else {
+                prepared.append(item)
+                continue
             }
+            guard let task = try await planning.planningTask(
+                accountID: accountID,
+                taskID: item.reminder.taskID
+            ) else {
+                try await erase(item.reminder)
+                results[item.reminder.id] = .removedForTaskState(.missing)
+                continue
+            }
+            let refreshed = LocalTaskReminder(
+                id: item.reminder.id,
+                accountID: item.reminder.accountID,
+                taskID: item.reminder.taskID,
+                taskTitle: task.title,
+                triggerAt: item.reminder.triggerAt,
+                repeatRule: item.reminder.repeatRule,
+                enabled: item.reminder.enabled,
+                anchorAt: item.reminder.anchorAt
+            )
+            prepared.append(TaskReminderReconciliationItem(
+                reminder: refreshed,
+                taskState: task.taskState
+            ))
+        }
+
+        let schedulableCount = prepared.filter {
+            $0.taskState.canNotify && $0.reminder.enabled
+        }.count
+        let fairLimit = schedulableCount == 0
+            ? 1
+            : max(TaskReminderSchedule.maximumPendingTaskRequests / schedulableCount, 1)
+        for item in prepared {
+            let limit = min(
+                TaskReminderSchedule.occurrenceLimit(for: item.reminder.repeatRule),
+                fairLimit
+            )
             results[item.reminder.id] = try await schedule(
                 item.reminder,
                 taskState: item.taskState,
-                timeZone: timeZone
+                timeZone: timeZone,
+                occurrenceLimit: limit
             )
         }
-
-        let prefix = Self.accountPrefix(accountID)
-        let pendingIdentifiers = await center.pendingIdentifiers()
-        let obsolete = pendingIdentifiers.filter {
-            $0.hasPrefix(prefix) && !desiredIdentifiers.contains($0)
-        }
-        if !obsolete.isEmpty { await center.remove(identifiers: Array(obsolete)) }
         _ = reason
         return results
     }
 
     func cancel(_ reminder: LocalTaskReminder) async throws {
-        await center.remove(identifiers: [Self.identifier(for: reminder)])
-        try await store.remove(accountID: reminder.accountID, taskID: reminder.taskID, reminderID: reminder.id)
+        try await erase(reminder)
     }
 
-    func cancelAll(accountID: UUID) async throws {
-        let storedIdentifiers = Set(
-            try await store.reminders(accountID: accountID).map(Self.identifier)
-        )
-        let prefix = Self.accountPrefix(accountID)
+    func cancelTask(accountID: UUID, taskID: UUID) async throws {
+        let reminders = try await store.reminders(accountID: accountID).filter { $0.taskID == taskID }
+        let prefix = Self.taskPrefix(accountID: accountID, taskID: taskID)
         let pendingIdentifiers = await center.pendingIdentifiers().filter { $0.hasPrefix(prefix) }
         let deliveredIdentifiers = await center.deliveredIdentifiers().filter { $0.hasPrefix(prefix) }
-        let identifiers = storedIdentifiers
-            .union(pendingIdentifiers)
-            .union(deliveredIdentifiers)
+        let identifiers = pendingIdentifiers.union(deliveredIdentifiers)
         if !identifiers.isEmpty {
             await center.remove(identifiers: Array(identifiers))
         }
+        for reminder in reminders {
+            try await store.remove(accountID: reminder.accountID, taskID: reminder.taskID, reminderID: reminder.id)
+        }
+    }
+
+    func cancelAll(accountID: UUID) async throws {
+        await suspendNotifications(accountID: accountID)
         try await store.clear(accountID: accountID)
     }
 
+    func suspendNotifications(accountID: UUID) async {
+        let prefix = Self.accountPrefix(accountID)
+        let pendingIdentifiers = await center.pendingIdentifiers().filter { $0.hasPrefix(prefix) }
+        let deliveredIdentifiers = await center.deliveredIdentifiers().filter { $0.hasPrefix(prefix) }
+        let identifiers = pendingIdentifiers.union(deliveredIdentifiers)
+        if !identifiers.isEmpty {
+            await center.remove(identifiers: Array(identifiers))
+        }
+    }
+
+    func resumeNotifications(accountID: UUID, timeZone: TimeZone) async throws {
+        _ = try await reconcile(
+            accountID: accountID,
+            timeZone: timeZone,
+            reason: .settingsChange
+        )
+    }
+
+    private func suspend(_ reminder: LocalTaskReminder) async {
+        let base = Self.identifier(for: reminder)
+        let pending = await center.pendingIdentifiers().filter {
+            $0 == base || $0.hasPrefix(base + ".")
+        }
+        let delivered = await center.deliveredIdentifiers().filter {
+            $0 == base || $0.hasPrefix(base + ".")
+        }
+        let identifiers = pending.union(delivered)
+        if !identifiers.isEmpty {
+            await center.remove(identifiers: Array(identifiers))
+        }
+    }
+
+    private func erase(_ reminder: LocalTaskReminder) async throws {
+        await suspend(reminder)
+        try await store.remove(
+            accountID: reminder.accountID,
+            taskID: reminder.taskID,
+            reminderID: reminder.id
+        )
+    }
+
     static func identifier(for reminder: LocalTaskReminder) -> String {
-        accountPrefix(reminder.accountID)
-            + reminder.taskID.uuidString.lowercased() + "."
+        taskPrefix(accountID: reminder.accountID, taskID: reminder.taskID)
             + reminder.id.uuidString.lowercased()
     }
 
-    static func accountPrefix(_ accountID: UUID) -> String {
-        "rocketflow.task-reminder.\(accountID.uuidString.lowercased())."
+    static func occurrenceIdentifier(for reminder: LocalTaskReminder, fireDate: Date) -> String {
+        let milliseconds = Int64((fireDate.timeIntervalSince1970 * 1_000).rounded())
+        return identifier(for: reminder) + "." + String(milliseconds)
     }
+
+    static func taskPrefix(accountID: UUID, taskID: UUID) -> String {
+        accountPrefix(accountID) + taskID.uuidString.lowercased() + "."
+    }
+
+    static func accountPrefix(_ accountID: UUID) -> String {
+        rootPrefix + accountID.uuidString.lowercased() + "."
+    }
+
+    private static let rootPrefix = "rocketflow.task-reminder."
 }
 
 extension TaskReminderScheduler: AccountNotificationClearing {

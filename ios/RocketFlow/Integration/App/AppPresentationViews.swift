@@ -38,6 +38,7 @@ struct AppPresentationHost: View {
     let route: AppPresentationRoute
     let runtime: AppUserRuntime
     @ObservedObject var appStore: AppStore
+    @ObservedObject var languageStore: AppLanguageStore
 
     @ViewBuilder
     var body: some View {
@@ -47,13 +48,15 @@ struct AppPresentationHost: View {
                 route: editorRoute,
                 origin: origin,
                 runtime: runtime,
-                appStore: appStore
+                appStore: appStore,
+                languageStore: languageStore
             )
         case let .sharing(reference, _):
             AppSharingHost(
                 reference: reference,
                 runtime: runtime,
-                appStore: appStore
+                appStore: appStore,
+                languageStore: languageStore
             )
         case let .command(kind, reference, origin):
             AppCommandHost(
@@ -61,10 +64,15 @@ struct AppPresentationHost: View {
                 reference: reference,
                 origin: origin,
                 runtime: runtime,
-                appStore: appStore
+                appStore: appStore,
+                languageStore: languageStore
             )
         case .focusCadence:
-            AppFocusCadenceHost(runtime: runtime, appStore: appStore)
+            AppFocusCadenceHost(
+                runtime: runtime,
+                appStore: appStore,
+                languageStore: languageStore
+            )
         }
     }
 }
@@ -96,11 +104,12 @@ private struct AppEditorHost: View {
     let origin: DetailOriginTab
     let runtime: AppUserRuntime
     @ObservedObject var appStore: AppStore
+    @ObservedObject var languageStore: AppLanguageStore
 
     @State private var resolution: AppEditorResolution?
     @State private var isOnline = false
     @State private var errorText: String?
-    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: runtime.user.language) }
+    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: languageStore.language) }
 
     var body: some View {
         Group {
@@ -110,7 +119,8 @@ private struct AppEditorHost: View {
                     context: editorContext,
                     isOnline: isOnline,
                     runtime: runtime,
-                    appStore: appStore
+                    appStore: appStore,
+                    languageStore: languageStore
                 )
             } else if let errorText {
                 NavigationStack {
@@ -148,7 +158,7 @@ private struct AppEditorHost: View {
             case let .edit(reference):
                 resolution = try await editResolution(reference)
             case let .editIdeaHistory(ideaID, noteID):
-                let seed = try await runtime.plannerDetailsActions.editorSeed(
+                let seed = try await runtime.reminderEditorSeedLoader.editorSeed(
                     for: .editIdeaHistory(ideaID: ideaID, noteID: noteID)
                 )
                 guard case let .ideaHistory(draft, loadedIdeaID) = seed else {
@@ -241,7 +251,7 @@ private struct AppEditorHost: View {
     }
 
     private func editResolution(_ reference: DetailEntityReference) async throws -> AppEditorResolution {
-        let seed = try await runtime.plannerDetailsActions.editorSeed(for: .edit(reference))
+        let seed = try await runtime.reminderEditorSeedLoader.editorSeed(for: .edit(reference))
         switch seed {
         case let .folder(draft, parentID): return .folder(.edit(reference), parentID, draft)
         case let .goal(draft, folderID): return .goal(.edit(reference), folderID, draft)
@@ -260,6 +270,7 @@ private struct AppResolvedEditorView: View {
     let resolution: AppEditorResolution
     let runtime: AppUserRuntime
     @ObservedObject var appStore: AppStore
+    @ObservedObject private var languageStore: AppLanguageStore
     @StateObject private var coordinator: EditorSaveCoordinator
 
     init(
@@ -267,16 +278,18 @@ private struct AppResolvedEditorView: View {
         context: EditorContext,
         isOnline: Bool,
         runtime: AppUserRuntime,
-        appStore: AppStore
+        appStore: AppStore,
+        languageStore: AppLanguageStore
     ) {
         self.resolution = resolution
         self.runtime = runtime
         self.appStore = appStore
+        _languageStore = ObservedObject(wrappedValue: languageStore)
         _coordinator = StateObject(
             wrappedValue: EditorSaveCoordinator(
                 context: context,
                 isOnline: isOnline,
-                saver: runtime.plannerDetailsActions,
+                saver: runtime.reminderEditorActions,
                 onComplete: appStore.handleDetailNavigation
             )
         )
@@ -291,7 +304,7 @@ private struct AppResolvedEditorView: View {
                     mode: mode,
                     parentFolderID: parentID,
                     initialDraft: draft,
-                    language: runtime.user.language,
+                    language: languageStore.language,
                     coordinator: coordinator,
                     onCancel: appStore.dismissPresentation
                 )
@@ -300,7 +313,7 @@ private struct AppResolvedEditorView: View {
                     mode: mode,
                     folderID: folderID,
                     initialDraft: draft,
-                    language: runtime.user.language,
+                    language: languageStore.language,
                     coordinator: coordinator,
                     onCancel: appStore.dismissPresentation
                 )
@@ -312,7 +325,7 @@ private struct AppResolvedEditorView: View {
                     initialIsInFocus: focused,
                     access: access,
                     timezone: TimeZone(identifier: runtime.user.timezone) ?? TimeZone(secondsFromGMT: 0)!,
-                    language: runtime.user.language,
+                    language: languageStore.language,
                     coordinator: coordinator,
                     tagCreator: runtime.plannerDetailsActions,
                     focusUpdater: runtime.plannerDetailsActions,
@@ -323,7 +336,7 @@ private struct AppResolvedEditorView: View {
                     mode: mode,
                     folderID: folderID,
                     initialDraft: draft,
-                    language: runtime.user.language,
+                    language: languageStore.language,
                     coordinator: coordinator,
                     onCancel: appStore.dismissPresentation
                 )
@@ -332,7 +345,7 @@ private struct AppResolvedEditorView: View {
                     mode: mode,
                     ideaID: ideaID,
                     initialDraft: draft,
-                    language: runtime.user.language,
+                    language: languageStore.language,
                     coordinator: coordinator,
                     onCancel: appStore.dismissPresentation
                 )
@@ -341,7 +354,7 @@ private struct AppResolvedEditorView: View {
                     mode: mode,
                     folderID: folderID,
                     initialDraft: draft,
-                    language: runtime.user.language,
+                    language: languageStore.language,
                     coordinator: coordinator,
                     onCancel: appStore.dismissPresentation
                 )
@@ -354,13 +367,19 @@ private struct AppResolvedEditorView: View {
 @MainActor
 private struct AppFocusCadenceHost: View {
     @StateObject private var model: FocusViewModel
+    @ObservedObject private var languageStore: AppLanguageStore
 
-    init(runtime: AppUserRuntime, appStore: AppStore) {
+    init(
+        runtime: AppUserRuntime,
+        appStore: AppStore,
+        languageStore: AppLanguageStore
+    ) {
+        _languageStore = ObservedObject(wrappedValue: languageStore)
         _model = StateObject(
             wrappedValue: FocusViewModel(
                 accountID: runtime.user.id,
                 timezone: runtime.user.timezone,
-                language: runtime.user.language,
+                language: languageStore.language,
                 repository: runtime.focusActions,
                 onOpenTask: { appStore.openTask($0, origin: .focus) },
                 onUnauthorized: { Task { await appStore.handleUnauthorized(for: runtime.lease) } }
@@ -368,7 +387,10 @@ private struct AppFocusCadenceHost: View {
         )
     }
 
-    var body: some View { FocusCadenceSettingsView(model: model) }
+    var body: some View {
+        FocusCadenceSettingsView(model: model)
+            .onChange(of: languageStore.language) { model.setLanguage($0) }
+    }
 }
 
 @MainActor
@@ -376,9 +398,10 @@ private struct AppSharingHost: View {
     let reference: DetailEntityReference
     let runtime: AppUserRuntime
     @ObservedObject var appStore: AppStore
+    @ObservedObject var languageStore: AppLanguageStore
     @State private var model: ResourceSharingViewModel?
     @State private var errorText: String?
-    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: runtime.user.language) }
+    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: languageStore.language) }
 
     var body: some View {
         Group {
@@ -396,6 +419,7 @@ private struct AppSharingHost: View {
             }
         }
         .task { await load() }
+        .onChange(of: languageStore.language) { model?.setLanguage($0) }
     }
 
     private func load() async {
@@ -414,7 +438,7 @@ private struct AppSharingHost: View {
             )
             model = ResourceSharingViewModel(
                 context: context,
-                language: runtime.user.language,
+                language: languageStore.language,
                 service: runtime.sharingActions,
                 onCopyToken: { UIPasteboard.general.string = $0 },
                 onShareToken: { AppSystemSharePresenter.present(text: $0) },
@@ -465,13 +489,14 @@ private struct AppCommandHost: View {
     let origin: DetailOriginTab
     let runtime: AppUserRuntime
     @ObservedObject var appStore: AppStore
+    @ObservedObject var languageStore: AppLanguageStore
 
     @State private var candidates: [AppCommandCandidate] = []
     @State private var selectedParentID: UUID?
     @State private var plannedAt = Date()
     @State private var isWorking = false
     @State private var errorText: String?
-    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: runtime.user.language) }
+    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: languageStore.language) }
 
     var body: some View {
         NavigationStack {

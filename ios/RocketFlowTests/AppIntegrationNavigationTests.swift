@@ -129,6 +129,33 @@ final class AppIntegrationNavigationTests: XCTestCase {
         XCTAssertEqual(state, AppNavigationState())
     }
 
+    func testRestorationMutationHandlerReceivesDeepLinkAndPathChanges() {
+        let recorder = AppNavigationMutationRecorder()
+        let serverID = UUID(uuidString: "10000000-0000-0000-0000-000000000099")!
+        var state = AppNavigationState()
+        state.installRestorationMutationHandler { recorder.capture($0) }
+
+        state.setPath(
+            [.detail(DetailEntityReference(kind: .goal, id: goalID), origin: .home)],
+            for: .planner
+        )
+        state.applyDeepLink(
+            DeepLinkResolution(
+                destination: .task(taskID: serverID, origin: .calendar),
+                errorMessage: nil
+            ),
+            localTaskID: taskID
+        )
+
+        let mutations = recorder.values()
+        XCTAssertEqual(mutations.count, 2)
+        XCTAssertEqual(mutations.last?.selectedTab, .calendar)
+        XCTAssertEqual(
+            mutations.last?.calendarPath,
+            [.detail(DetailEntityReference(kind: .task, id: taskID), origin: .calendar)]
+        )
+    }
+
     func testAuthenticatedLaunchArgumentDoesNotChangeDefaultLaunch() {
         XCTAssertEqual(AppLaunchConfiguration.current(arguments: []), .production)
         XCTAssertNotNil(
@@ -159,6 +186,23 @@ final class AppIntegrationNavigationTests: XCTestCase {
         await fulfillment(of: [navigationStarted], timeout: 1)
         await gate.release()
         await fulfillment(of: [navigationFinished], timeout: 1)
+    }
+}
+
+private final class AppNavigationMutationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var states: [AppNavigationState] = []
+
+    func capture(_ state: AppNavigationState) {
+        lock.lock()
+        states.append(state)
+        lock.unlock()
+    }
+
+    func values() -> [AppNavigationState] {
+        lock.lock()
+        defer { lock.unlock() }
+        return states
     }
 }
 

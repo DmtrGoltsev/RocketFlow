@@ -23,7 +23,7 @@ final class ResourceSharingViewModel: ObservableObject {
     @Published var tokenInput = ""
 
     let context: SharingResourceContext
-    let language: AppLanguage
+    @Published private(set) var language: AppLanguage
 
     private let service: any SharingFeatureServing
     private let now: @Sendable () -> Date
@@ -57,6 +57,10 @@ final class ResourceSharingViewModel: ObservableObject {
     }
 
     var copy: SharingCopy { SharingCopy(language: language) }
+
+    func setLanguage(_ language: AppLanguage) {
+        self.language = language
+    }
     var canManage: Bool { context.canManage }
     var isBusy: Bool { phase == .loading || isMutating }
     var canCreateShareLink: Bool {

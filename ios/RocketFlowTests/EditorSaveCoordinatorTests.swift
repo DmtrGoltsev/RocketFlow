@@ -10,6 +10,7 @@ private actor EditorSaverStub: EditorSaving {
     enum Behavior: Sendable {
         case result(EditorSaveResult)
         case failure
+        case reminderFailure(EditorReminderFailure)
     }
 
     let behavior: Behavior
@@ -24,6 +25,7 @@ private actor EditorSaverStub: EditorSaving {
         switch behavior {
         case let .result(result): return result
         case .failure: throw EditorSaveTestFailure.expected
+        case let .reminderFailure(failure): throw failure
         }
     }
 
@@ -165,6 +167,24 @@ final class EditorSaveCoordinatorTests: XCTestCase {
             )
         )
         XCTAssertEqual(coordinator.state, .error)
+        coordinator.resetError()
+        XCTAssertEqual(coordinator.state, .idle)
+    }
+
+    func testReminderFailureHasDistinctVisibleAndResettableState() async {
+        let coordinator = makeCoordinator(
+            saver: EditorSaverStub(behavior: .reminderFailure(.authorizationDenied))
+        )
+
+        await coordinator.save(
+            .folder(
+                mode: .create,
+                parentFolderID: nil,
+                payload: FolderEditorPayload(name: "Folder", description: "")
+            )
+        )
+
+        XCTAssertEqual(coordinator.state, .reminderError(.authorizationDenied))
         coordinator.resetError()
         XCTAssertEqual(coordinator.state, .idle)
     }

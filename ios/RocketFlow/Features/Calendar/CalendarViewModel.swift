@@ -86,13 +86,14 @@ final class CalendarViewModel: ObservableObject {
     @Published private(set) var lastFailure: CalendarLoadFailure?
     @Published private(set) var localTaskIDsByMarkerID: [UUID: UUID] = [:]
 
-    let language: AppLanguage
+    @Published private(set) var language: AppLanguage
     let accountTimezone: String
 
     private let accountID: UUID
     private let loader: any CalendarLoading
     private let now: () -> Date
     private let onUnauthorized: () -> Void
+    private let onRestorationStateChanged: (CalendarRestorationState) -> Void
     private var requestGeneration: UInt64 = 0
 
     init(
@@ -101,7 +102,9 @@ final class CalendarViewModel: ObservableObject {
         language: AppLanguage,
         loader: any CalendarLoading,
         now: @escaping () -> Date = Date.init,
-        onUnauthorized: @escaping () -> Void = {}
+        onUnauthorized: @escaping () -> Void = {},
+        restorationState: CalendarRestorationState? = nil,
+        onRestorationStateChanged: @escaping (CalendarRestorationState) -> Void = { _ in }
     ) {
         self.accountID = accountID
         self.accountTimezone = accountTimezone
@@ -109,13 +112,28 @@ final class CalendarViewModel: ObservableObject {
         self.loader = loader
         self.now = now
         self.onUnauthorized = onUnauthorized
+        self.onRestorationStateChanged = onRestorationStateChanged
 
         let today = CalendarDateMath.today(now: now(), timezoneIdentifier: accountTimezone)
-        visibleMonth = CalendarMonth(containing: today)
-        selectedDate = today
+        if
+            let restorationState,
+            let restoredMonth = restorationState.validatedVisibleMonth(
+                accountTimezone: accountTimezone
+            )
+        {
+            visibleMonth = restoredMonth
+            selectedDate = restorationState.selectedDate
+        } else {
+            visibleMonth = CalendarMonth(containing: today)
+            selectedDate = today
+        }
     }
 
     var copy: CalendarCopy { CalendarCopy(language: language) }
+
+    func setLanguage(_ language: AppLanguage) {
+        self.language = language
+    }
     var gridDays: [CalendarGridDay] { CalendarDateMath.grid(for: visibleMonth) }
     var monthTitle: String { CalendarDateMath.monthTitle(visibleMonth, language: language) }
     var selectedDateTitle: String { CalendarDateMath.fullDateTitle(selectedDate, language: language) }
@@ -123,6 +141,13 @@ final class CalendarViewModel: ObservableObject {
     var displayTimezone: String { response?.timezone ?? accountTimezone }
     var isLoading: Bool { phase == .loading }
     var isOffline: Bool { phase == .offline }
+    var restorationState: CalendarRestorationState {
+        CalendarRestorationState(
+            timezoneIdentifier: accountTimezone,
+            visibleMonth: visibleMonth,
+            selectedDate: selectedDate
+        )
+    }
 
     var selectedMarkers: [CalendarMarkerDTO] {
         CalendarMarkerOrdering.sorted(
@@ -203,16 +228,21 @@ final class CalendarViewModel: ObservableObject {
         response = nil
         localTaskIDsByMarkerID = [:]
         lastFailure = nil
+        persistRestorationState()
         await reload()
     }
 
     func select(_ date: LocalDate) async {
         selectedDate = date
-        guard !visibleMonth.contains(date) else { return }
+        guard !visibleMonth.contains(date) else {
+            persistRestorationState()
+            return
+        }
         visibleMonth = CalendarMonth(containing: date)
         response = nil
         localTaskIDsByMarkerID = [:]
         lastFailure = nil
+        persistRestorationState()
         await reload()
     }
 
@@ -225,9 +255,13 @@ final class CalendarViewModel: ObservableObject {
             response = nil
             localTaskIDsByMarkerID = [:]
             lastFailure = nil
+            persistRestorationState()
             await reload()
-        } else if response == nil {
-            await reload()
+        } else {
+            persistRestorationState()
+            if response == nil {
+                await reload()
+            }
         }
     }
 
@@ -237,5 +271,9 @@ final class CalendarViewModel: ObservableObject {
             timezoneIdentifier: displayTimezone,
             language: language
         )
+    }
+
+    private func persistRestorationState() {
+        onRestorationStateChanged(restorationState)
     }
 }

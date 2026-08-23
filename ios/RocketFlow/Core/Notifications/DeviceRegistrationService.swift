@@ -179,9 +179,21 @@ protocol DeviceRegistrationServicing: Sendable {
 }
 
 actor DeviceRegistrationService: DeviceRegistrationServicing {
+    private enum SyncFlightOutcome: @unchecked Sendable {
+        case success(DeviceRegistrationSyncResult)
+        case failure(any Error)
+
+        func value() throws -> DeviceRegistrationSyncResult {
+            switch self {
+            case let .success(value): return value
+            case let .failure(error): throw error
+            }
+        }
+    }
+
     private struct SyncFlight {
         let id: UUID
-        let task: Task<DeviceRegistrationSyncResult, Error>
+        var waiters: [UUID: AsyncStream<SyncFlightOutcome>.Continuation]
     }
 
     private let remote: any DeviceRegistrationRemoteServing
@@ -224,21 +236,47 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
     }
 
     func sync(accountID: UUID, deviceName: String?) async throws -> DeviceRegistrationSyncResult {
-        if let existing = syncFlights[accountID] {
-            return try await existing.task.value
+        if syncFlights[accountID] != nil {
+            return try await waitForCurrentFlight(accountID: accountID)
         }
         let id = UUID()
-        let task = Task {
-            try await self.performSync(accountID: accountID, deviceName: deviceName)
-        }
-        syncFlights[accountID] = SyncFlight(id: id, task: task)
+        syncFlights[accountID] = SyncFlight(id: id, waiters: [:])
         do {
-            let result = try await task.value
-            removeFlight(id: id, accountID: accountID)
+            let result = try await performSync(accountID: accountID, deviceName: deviceName)
+            finishFlight(
+                id: id,
+                accountID: accountID,
+                outcome: .success(result)
+            )
             return result
         } catch {
-            removeFlight(id: id, accountID: accountID)
+            finishFlight(
+                id: id,
+                accountID: accountID,
+                outcome: .failure(error)
+            )
             throw error
+        }
+    }
+
+    private func waitForCurrentFlight(accountID: UUID) async throws -> DeviceRegistrationSyncResult {
+        guard var flight = syncFlights[accountID] else {
+            throw CancellationError()
+        }
+        let waiterID = UUID()
+        let channel = AsyncStream<SyncFlightOutcome>.makeStream()
+        flight.waiters[waiterID] = channel.continuation
+        syncFlights[accountID] = flight
+
+        return try await withTaskCancellationHandler {
+            for await outcome in channel.stream {
+                removeWaiter(waiterID, accountID: accountID)
+                return try outcome.value()
+            }
+            removeWaiter(waiterID, accountID: accountID)
+            throw CancellationError()
+        } onCancel: {
+            channel.continuation.finish()
         }
     }
 
@@ -246,8 +284,11 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
         try Task.checkCancellation()
 
         guard await tokenProvider.isConfigured() else { return .tokenUnavailable }
+        try Task.checkCancellation()
         let retry = try await retryStore.pending(accountID: accountID)
+        try Task.checkCancellation()
         let providedToken = try await tokenProvider.currentToken()
+        try Task.checkCancellation()
         let currentToken = providedToken?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nonEmpty
@@ -263,9 +304,11 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
         } else {
             installationID = try await installation.installationID()
         }
+        try Task.checkCancellation()
         let requestedName = deviceName?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         let normalizedName = requestedName ?? (usingPersistedRetry ? retry?.deviceName : nil)
         let existing = try await store.snapshot()
+        try Task.checkCancellation()
 
         if let existing,
            existing.accountID == accountID,
@@ -282,6 +325,7 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
                     retry: retry
                 )
             } else {
+                try Task.checkCancellation()
                 try await retryStore.clear(accountID: accountID)
             }
             return .unchanged(existing.registration)
@@ -305,10 +349,13 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
                     deviceName: normalizedName
                 )
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let api as APIError where api.isUnauthorized {
             await clearForTerminalUnauthorized(accountID: accountID)
             throw api
         } catch {
+            try Task.checkCancellation()
             try await recordRetry(pending)
             throw error
         }
@@ -323,7 +370,10 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
                     registration: registration
                 )
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
+            try Task.checkCancellation()
             try await recordRetry(pending)
             throw error
         }
@@ -344,31 +394,46 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
                 retry: cleanupRetry
             )
         } else {
+            try Task.checkCancellation()
             try await retryStore.clear(accountID: accountID)
         }
         return .registered(registration)
     }
 
     func unregister(accountID: UUID) async throws -> DeviceRegistrationSyncResult {
-        if let flight = syncFlights[accountID] {
-            _ = try? await flight.task.value
-            removeFlight(id: flight.id, accountID: accountID)
+        if syncFlights[accountID] != nil {
+            do {
+                _ = try await waitForCurrentFlight(accountID: accountID)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Registration failure does not prevent an explicit unregister attempt.
+            }
         }
+        try Task.checkCancellation()
         guard let existing = try await store.snapshot(), existing.accountID == accountID else {
+            try Task.checkCancellation()
             try? await retryStore.clear(accountID: accountID)
+            try Task.checkCancellation()
             try? await terminalCleaner.clear(accountID: accountID)
             return .unregistered
         }
         do {
             try await remote.delete(registrationID: existing.registration.id)
+            try Task.checkCancellation()
         } catch let api as APIError where api.statusCode == 404 {
             // A missing server registration is already the requested state.
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let api as APIError where api.isUnauthorized {
             await clearForTerminalUnauthorized(accountID: accountID)
             throw api
         }
+        try Task.checkCancellation()
         try await store.clear()
+        try Task.checkCancellation()
         try await retryStore.clear(accountID: accountID)
+        try Task.checkCancellation()
         try await terminalCleaner.clear(accountID: accountID)
         return .unregistered
     }
@@ -380,11 +445,15 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
     ) async throws -> Bool {
         do {
             try await remote.delete(registrationID: registrationID)
+            try Task.checkCancellation()
             try await retryStore.clear(accountID: accountID)
             return true
         } catch let api as APIError where api.statusCode == 404 {
+            try Task.checkCancellation()
             try await retryStore.clear(accountID: accountID)
             return true
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let api as APIError where api.isUnauthorized {
             await clearForTerminalUnauthorized(accountID: accountID)
             throw api
@@ -395,7 +464,9 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
     }
 
     private func recordRetry(_ pending: PendingDeviceRegistrationRetry) async throws {
+        try Task.checkCancellation()
         try await retryStore.save(pending)
+        try Task.checkCancellation()
         await retryScheduler.scheduleDeviceRegistrationRetry(accountID: pending.accountID)
     }
 
@@ -405,9 +476,23 @@ actor DeviceRegistrationService: DeviceRegistrationServicing {
         try? await terminalCleaner.clear(accountID: accountID)
     }
 
-    private func removeFlight(id: UUID, accountID: UUID) {
-        guard syncFlights[accountID]?.id == id else { return }
+    private func finishFlight(
+        id: UUID,
+        accountID: UUID,
+        outcome: SyncFlightOutcome
+    ) {
+        guard let flight = syncFlights[accountID], flight.id == id else { return }
         syncFlights.removeValue(forKey: accountID)
+        for continuation in flight.waiters.values {
+            continuation.yield(outcome)
+            continuation.finish()
+        }
+    }
+
+    private func removeWaiter(_ waiterID: UUID, accountID: UUID) {
+        guard var flight = syncFlights[accountID] else { return }
+        flight.waiters.removeValue(forKey: waiterID)
+        syncFlights[accountID] = flight
     }
 }
 

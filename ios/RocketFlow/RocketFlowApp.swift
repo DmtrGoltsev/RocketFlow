@@ -4,19 +4,31 @@ import SwiftUI
 struct RocketFlowApp: App {
     @UIApplicationDelegateAdaptor(RocketFlowAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var languageStore: AppLanguageStore
     @StateObject private var dependencies: DependencyContainer
     @StateObject private var appStore: AppStore
 
     @MainActor
     init() {
         let launchConfiguration = AppLaunchConfiguration.current()
+        let languageStore = AppLanguageStore()
         let dependencies: DependencyContainer
+        let restorationPersistence: any AppRestorationPersisting
         switch launchConfiguration {
         case .production:
-            dependencies = DependencyContainer(registerBackgroundTasks: true)
+            restorationPersistence = AppRestorationUserDefaultsStore()
+            dependencies = DependencyContainer(
+                languageStore: languageStore,
+                registerBackgroundTasks: true
+            )
         case .authenticatedUITest:
+            let defaults = UserDefaults(
+                suiteName: "rocketflow.ui-test-restoration.\(UUID().uuidString)"
+            ) ?? .standard
+            restorationPersistence = AppRestorationUserDefaultsStore(defaults: defaults)
             dependencies = DependencyContainer(
                 apiBaseURL: URL(string: "https://ui-test.invalid/rocket-api")!,
+                languageStore: languageStore,
                 sessionStore: InMemorySessionStore(),
                 databaseOpener: { _ in try AppDatabase.inMemory() },
                 networkMonitor: FixedNetworkMonitor(connected: false),
@@ -25,10 +37,12 @@ struct RocketFlowApp: App {
                 registerBackgroundTasks: false
             )
         }
+        _languageStore = StateObject(wrappedValue: languageStore)
         _dependencies = StateObject(wrappedValue: dependencies)
         _appStore = StateObject(
             wrappedValue: dependencies.makeAppStore(
-                launchUser: launchConfiguration.launchUser
+                launchUser: launchConfiguration.launchUser,
+                restorationPersistence: restorationPersistence
             )
         )
     }
@@ -39,11 +53,16 @@ struct RocketFlowApp: App {
                 AppRootView()
                     .environmentObject(dependencies)
                     .environmentObject(appStore)
+                    .environmentObject(languageStore)
+                    .environment(\.locale, Locale(identifier: languageStore.localeIdentifier))
 
                 if appStore.shouldShowPersistenceRecovery,
                    let error = appStore.persistenceError {
                     VStack(alignment: .leading, spacing: 8) {
-                        Label("Локальные данные недоступны", systemImage: "externaldrive.badge.exclamationmark")
+                        Label(
+                            AppIntegrationCopy(language: languageStore.language).localDataUnavailable,
+                            systemImage: "externaldrive.badge.exclamationmark"
+                        )
                             .font(.headline)
                         Text(error)
                             .font(.caption)
@@ -52,7 +71,10 @@ struct RocketFlowApp: App {
                         Button {
                             Task { await appStore.retryPersistence() }
                         } label: {
-                            Label("Повторить", systemImage: "arrow.clockwise")
+                            Label(
+                                AppIntegrationCopy(language: languageStore.language).retry,
+                                systemImage: "arrow.clockwise"
+                            )
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -78,6 +100,9 @@ struct RocketFlowApp: App {
                 @unknown default:
                     appStore.scheduleLifecycle(.inactive)
                 }
+            }
+            .onChange(of: languageStore.language) { language in
+                appStore.appLanguageDidChange(language)
             }
             .onOpenURL { url in
                 Task { await appStore.receiveDeepLink(url) }

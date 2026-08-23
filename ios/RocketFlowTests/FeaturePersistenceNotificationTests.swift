@@ -329,6 +329,157 @@ final class FeaturePersistenceNotificationTests: XCTestCase {
         XCTAssertTrue(storedA.allSatisfy { $0.accountID == accountA })
         XCTAssertTrue(storedB.allSatisfy { $0.accountID == accountB })
     }
+
+    func testPlanningSnapshotReflectsPulledTitleTerminalArchiveAndDeleteState() async throws {
+        let database = try AppDatabase.inMemory()
+        let accountID = UUID()
+        let folderID = UUID()
+        let goalID = UUID()
+        let taskID = UUID()
+        let timestamp = WireDateCodec.encode(Date(timeIntervalSince1970: 1_787_001_200))
+        let store = try GRDBTaskReminderStore(database: database, accountID: accountID)
+        try database.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO folders (id, name, createdAt, updatedAt)
+                    VALUES (?, 'Folder', ?, ?)
+                    """,
+                arguments: [folderID.featurePersistenceKey, timestamp, timestamp]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO goals (id, folderID, name, status, createdAt, updatedAt)
+                    VALUES (?, ?, 'Goal', 'todo', ?, ?)
+                    """,
+                arguments: [goalID.featurePersistenceKey, folderID.featurePersistenceKey, timestamp, timestamp]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO tasks (id, goalID, title, type, status, createdAt, updatedAt)
+                    VALUES (?, ?, 'Pulled title', 'green', 'todo', ?, ?)
+                    """,
+                arguments: [taskID.featurePersistenceKey, goalID.featurePersistenceKey, timestamp, timestamp]
+            )
+        }
+
+        var snapshot = try await store.planningTask(accountID: accountID, taskID: taskID)
+        XCTAssertEqual(snapshot, TaskReminderPlanningSnapshot(
+            taskID: taskID,
+            title: "Pulled title",
+            taskState: .active
+        ))
+
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE tasks SET title = 'Done title', status = 'done' WHERE id = ?",
+                arguments: [taskID.featurePersistenceKey]
+            )
+        }
+        snapshot = try await store.planningTask(accountID: accountID, taskID: taskID)
+        XCTAssertEqual(snapshot?.title, "Done title")
+        XCTAssertEqual(snapshot?.taskState, .done)
+
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE tasks SET status = 'todo', archived = 1 WHERE id = ?",
+                arguments: [taskID.featurePersistenceKey]
+            )
+        }
+        snapshot = try await store.planningTask(accountID: accountID, taskID: taskID)
+        XCTAssertEqual(snapshot?.taskState, .archived)
+
+        try database.write { db in
+            try db.execute(
+                sql: "DELETE FROM tasks WHERE id = ?",
+                arguments: [taskID.featurePersistenceKey]
+            )
+        }
+        snapshot = try await store.planningTask(accountID: accountID, taskID: taskID)
+        XCTAssertNil(snapshot)
+    }
+
+    func testPulledTerminalAndDeletedTasksCancelDurableReminderDuringReconcile() async throws {
+        let database = try AppDatabase.inMemory()
+        let accountID = UUID()
+        let folderID = UUID()
+        let goalID = UUID()
+        let taskID = UUID()
+        let now = Date(timeIntervalSince1970: 1_787_001_200)
+        let timestamp = WireDateCodec.encode(now)
+        let store = try GRDBTaskReminderStore(database: database, accountID: accountID)
+        let center = FeatureNotificationCenterStub()
+        let scheduler = TaskReminderScheduler(center: center, store: store, now: { now })
+        let reminder = LocalTaskReminder(
+            id: UUID(),
+            accountID: accountID,
+            taskID: taskID,
+            taskTitle: "Stale local title",
+            triggerAt: now.addingTimeInterval(24 * 60 * 60),
+            repeatRule: .daily
+        )
+        try database.write { db in
+            try db.execute(
+                sql: "INSERT INTO folders (id, name, createdAt, updatedAt) VALUES (?, 'Folder', ?, ?)",
+                arguments: [folderID.featurePersistenceKey, timestamp, timestamp]
+            )
+            try db.execute(
+                sql: "INSERT INTO goals (id, folderID, name, status, createdAt, updatedAt) VALUES (?, ?, 'Goal', 'todo', ?, ?)",
+                arguments: [goalID.featurePersistenceKey, folderID.featurePersistenceKey, timestamp, timestamp]
+            )
+            try db.execute(
+                sql: "INSERT INTO tasks (id, goalID, title, type, status, createdAt, updatedAt) VALUES (?, ?, 'Pulled active title', 'green', 'todo', ?, ?)",
+                arguments: [taskID.featurePersistenceKey, goalID.featurePersistenceKey, timestamp, timestamp]
+            )
+        }
+        try await store.save(reminder, taskState: .active)
+
+        _ = try await scheduler.reconcile(accountID: accountID, timeZone: .current, reason: .foreground)
+        var requests = await center.requests()
+        XCTAssertTrue(requests.allSatisfy { $0.title == "Pulled active title" })
+
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE tasks SET status = 'cancelled' WHERE id = ?",
+                arguments: [taskID.featurePersistenceKey]
+            )
+        }
+        _ = try await scheduler.reconcile(accountID: accountID, timeZone: .current, reason: .foreground)
+        var reminders = try await store.reminders(accountID: accountID)
+        requests = await center.requests()
+        XCTAssertTrue(reminders.isEmpty)
+        XCTAssertTrue(requests.isEmpty)
+
+        try database.write { db in
+            try db.execute(
+                sql: "UPDATE tasks SET status = 'todo' WHERE id = ?",
+                arguments: [taskID.featurePersistenceKey]
+            )
+        }
+        try await store.save(reminder, taskState: .active)
+        _ = try await scheduler.reconcile(accountID: accountID, timeZone: .current, reason: .foreground)
+        try database.write { db in
+            try db.execute(sql: "DELETE FROM tasks WHERE id = ?", arguments: [taskID.featurePersistenceKey])
+        }
+
+        _ = try await scheduler.reconcile(accountID: accountID, timeZone: .current, reason: .foreground)
+        reminders = try await store.reminders(accountID: accountID)
+        requests = await center.requests()
+        XCTAssertTrue(reminders.isEmpty)
+        XCTAssertTrue(requests.isEmpty)
+    }
+}
+
+private actor FeatureNotificationCenterStub: UserNotificationCenterServing {
+    private var values: [String: UserNotificationRequestValue] = [:]
+
+    func authorizationState() -> NotificationAuthorizationState { .authorized }
+    func requestAuthorization() -> Bool { true }
+    func pendingIdentifiers() -> Set<String> { Set(values.keys) }
+    func add(_ request: UserNotificationRequestValue) { values[request.identifier] = request }
+    func remove(identifiers: [String]) {
+        for identifier in identifiers { values.removeValue(forKey: identifier) }
+    }
+    func requests() -> [UserNotificationRequestValue] { Array(values.values) }
 }
 
 private func featureNotificationTemporaryDatabaseURL() -> URL {

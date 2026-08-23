@@ -1,5 +1,12 @@
 import SwiftUI
 
+private enum TaskReminderDetailState {
+    case idle
+    case loading
+    case loaded(LocalTaskReminder?)
+    case failed
+}
+
 @MainActor
 struct FolderDetailView: View {
     @StateObject private var model: DetailViewModel
@@ -179,13 +186,22 @@ struct GoalDetailView: View {
 struct TaskDetailView: View {
     @StateObject private var model: DetailViewModel
     private let copy: DetailCopy
+    private let reminderCopy: TaskReminderCopy
     private let language: AppLanguage
+    private let reminderReader: (any TaskReminderReading)?
     @State private var pendingDelete = false
+    @State private var reminderState = TaskReminderDetailState.idle
 
-    init(model: DetailViewModel, language: AppLanguage) {
+    init(
+        model: DetailViewModel,
+        language: AppLanguage,
+        reminderReader: (any TaskReminderReading)? = nil
+    ) {
         _model = StateObject(wrappedValue: model)
         self.language = language
         copy = DetailCopy(language: language)
+        reminderCopy = TaskReminderCopy(language: language)
+        self.reminderReader = reminderReader
     }
 
     var body: some View {
@@ -216,6 +232,7 @@ struct TaskDetailView: View {
                         LabeledContent(copy.effort, value: String(task.effort))
                     }
                     datesSection(task)
+                    reminderSection
                     if let recurrence = task.recurrence {
                         Section(copy.recurrence) {
                             Text(recurrenceSummary(recurrence))
@@ -272,6 +289,9 @@ struct TaskDetailView: View {
                     DetailLinksSection(links: task.links, copy: copy)
                 }
                 .listStyle(.insetGrouped)
+                .task(id: task.id) {
+                    await loadReminder(taskID: task.id)
+                }
             } else {
                 fallback
             }
@@ -304,6 +324,57 @@ struct TaskDetailView: View {
                     LabeledContent(copy.dueDate, value: dateText(dueAt))
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var reminderSection: some View {
+        if reminderReader != nil {
+            Section(reminderCopy.reminder) {
+                switch reminderState {
+                case .idle, .loading:
+                    ProgressView(reminderCopy.loading)
+                case let .loaded(reminder?):
+                    LabeledContent(reminderCopy.fireAt, value: dateText(reminder.triggerAt))
+                    LabeledContent(
+                        reminderCopy.repeatRule,
+                        value: reminderCopy.repeatTitle(reminder.repeatRule)
+                    )
+                case .loaded(nil):
+                    Label(reminderCopy.disabled, systemImage: "bell.slash")
+                case .failed:
+                    Label(reminderCopy.unavailable, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityIdentifier("detail.task.reminder")
+            .accessibilityLabel(reminderCopy.reminder)
+            .accessibilityValue(reminderAccessibilityValue)
+        }
+    }
+
+    private func loadReminder(taskID: UUID) async {
+        guard let reminderReader else { return }
+        reminderState = .loading
+        do {
+            reminderState = .loaded(try await reminderReader.reminder(taskID: taskID))
+        } catch is CancellationError {
+            return
+        } catch {
+            reminderState = .failed
+        }
+    }
+
+    private var reminderAccessibilityValue: String {
+        switch reminderState {
+        case let .loaded(reminder?):
+            return "\(dateText(reminder.triggerAt)), \(reminderCopy.repeatTitle(reminder.repeatRule))"
+        case .loaded(nil):
+            return reminderCopy.disabled
+        case .idle, .loading:
+            return reminderCopy.loading
+        case .failed:
+            return reminderCopy.unavailable
         }
     }
 

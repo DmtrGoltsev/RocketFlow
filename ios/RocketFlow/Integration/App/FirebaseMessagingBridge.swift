@@ -50,6 +50,14 @@ enum AppFirebaseMessagingRuntime {
     static let tokenProvider = AppFCMRegistrationTokenProvider()
     static let missingConfigurationDiagnostic =
         "Push notifications are unavailable: GoogleService-Info.plist is not installed."
+
+    static func userFacingDiagnostic(
+        _ diagnostic: String,
+        language: AppLanguage
+    ) -> String {
+        guard diagnostic == missingConfigurationDiagnostic else { return diagnostic }
+        return AppLocalizationCopy(language: language).firebaseUnavailableDiagnostic
+    }
 }
 
 final class RocketFlowAppDelegate: NSObject, UIApplicationDelegate,

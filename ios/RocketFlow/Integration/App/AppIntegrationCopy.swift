@@ -20,6 +20,10 @@ struct AppIntegrationCopy: Sendable {
     let move: String
     let clone: String
     let reschedule: String
+    let configurationError: String
+    let cleanupRequired: String
+    let retryCleanup: String
+    let localDataUnavailable: String
 
     init(language: AppLanguage) {
         if language == .ru {
@@ -42,6 +46,10 @@ struct AppIntegrationCopy: Sendable {
             move = "Переместить"
             clone = "Клонировать"
             reschedule = "Перенести дату"
+            configurationError = "Ошибка конфигурации"
+            cleanupRequired = "Требуется очистка локальных данных"
+            retryCleanup = "Повторить очистку"
+            localDataUnavailable = "Локальные данные недоступны"
         } else {
             planner = "Planner"
             calendar = "Calendar"
@@ -62,6 +70,10 @@ struct AppIntegrationCopy: Sendable {
             move = "Move"
             clone = "Clone"
             reschedule = "Reschedule"
+            configurationError = "Configuration error"
+            cleanupRequired = "Local data cleanup required"
+            retryCleanup = "Retry cleanup"
+            localDataUnavailable = "Local data unavailable"
         }
     }
 }

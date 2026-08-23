@@ -246,6 +246,92 @@ final class CalendarViewModelTests: XCTestCase {
         XCTAssertEqual(ranges, [CalendarDateMath.range(for: CalendarMonth(year: 2026, month: 8))])
     }
 
+    func testValidRestorationUsesStoredMonthAndSelectedDay() {
+        let restored = CalendarRestorationState(
+            timezoneIdentifier: "Europe/Moscow",
+            visibleMonth: CalendarMonth(year: 2026, month: 5),
+            selectedDate: LocalDate(rawValue: "2026-05-19")!
+        )
+
+        let model = CalendarViewModel(
+            accountID: UUID(),
+            accountTimezone: "Europe/Moscow",
+            language: .en,
+            loader: ImmediateCalendarLoader(.markers([])),
+            now: { self.now },
+            restorationState: restored
+        )
+
+        XCTAssertEqual(model.visibleMonth, CalendarMonth(year: 2026, month: 5))
+        XCTAssertEqual(model.selectedDate, LocalDate(rawValue: "2026-05-19")!)
+        XCTAssertEqual(model.restorationState, restored)
+    }
+
+    func testRestorationFromDifferentTimezoneFallsBackToAccountLocalToday() {
+        let restored = CalendarRestorationState(
+            timezoneIdentifier: "Asia/Tokyo",
+            visibleMonth: CalendarMonth(year: 2026, month: 8),
+            selectedDate: LocalDate(rawValue: "2026-08-11")!
+        )
+
+        let model = CalendarViewModel(
+            accountID: UUID(),
+            accountTimezone: "America/Los_Angeles",
+            language: .en,
+            loader: ImmediateCalendarLoader(.markers([])),
+            now: { self.now },
+            restorationState: restored
+        )
+
+        XCTAssertEqual(model.visibleMonth, CalendarMonth(year: 2026, month: 8))
+        XCTAssertEqual(model.selectedDate, LocalDate(rawValue: "2026-08-10")!)
+        XCTAssertEqual(model.restorationState.timezoneIdentifier, "America/Los_Angeles")
+    }
+
+    func testEquivalentTimezoneAliasesKeepRestoredCalendarSelection() {
+        let restored = CalendarRestorationState(
+            timezoneIdentifier: "Etc/UTC",
+            visibleMonth: CalendarMonth(year: 2026, month: 5),
+            selectedDate: LocalDate(rawValue: "2026-05-19")!
+        )
+
+        let model = CalendarViewModel(
+            accountID: UUID(),
+            accountTimezone: "UTC",
+            language: .en,
+            loader: ImmediateCalendarLoader(.markers([])),
+            now: { self.now },
+            restorationState: restored
+        )
+
+        XCTAssertEqual(model.visibleMonth, CalendarMonth(year: 2026, month: 5))
+        XCTAssertEqual(model.selectedDate, LocalDate(rawValue: "2026-05-19")!)
+    }
+
+    func testCalendarMutationsEmitDurableRestorationHookBeforeLoadCompletes() async {
+        let loader = ControlledCalendarLoader()
+        var captured: [CalendarRestorationState] = []
+        let model = CalendarViewModel(
+            accountID: UUID(),
+            accountTimezone: "Europe/Moscow",
+            language: .en,
+            loader: loader,
+            now: { self.now },
+            onRestorationStateChanged: { captured.append($0) }
+        )
+
+        let move = Task { await model.moveMonth(by: 1) }
+        await waitForRequests(1, loader: loader)
+
+        XCTAssertEqual(captured.count, 1)
+        XCTAssertEqual(captured[0].visibleYear, 2026)
+        XCTAssertEqual(captured[0].visibleMonth, 9)
+        XCTAssertEqual(captured[0].selectedDate, LocalDate(rawValue: "2026-09-01")!)
+
+        await loader.complete(0, title: "September")
+        await move.value
+    }
+
     func testNavigationUsesResolvedLocalIDAndExposesActionOrUnavailableHint() async throws {
         let date = LocalDate(rawValue: "2026-08-10")!
         let backendTaskID = UUID()

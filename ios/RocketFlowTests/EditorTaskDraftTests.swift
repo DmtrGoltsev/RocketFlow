@@ -76,4 +76,70 @@ final class EditorTaskDraftTests: XCTestCase {
         XCTAssertEqual(ru.checklistToggleLabel(text: "Отчет", checked: false), "Отметить «Отчет» как выполненное")
         XCTAssertEqual(en.checklistDeleteLabel(text: "Report"), "Delete Report")
     }
+
+    func testTaskReminderDraftRoundTripsThroughPayload() throws {
+        let reminder = TaskReminderEditorDraft(
+            id: UUID(),
+            triggerAt: EditorTestFixtures.anchor,
+            repeatRule: .monthly
+        )
+        var draft = EditorTestFixtures.taskDraft()
+        draft.reminder = .upsert(reminder)
+
+        let payload = try XCTUnwrap(
+            EditorValidator.payload(
+                draft,
+                timezone: EditorTestFixtures.timezone,
+                now: EditorTestFixtures.anchor.addingTimeInterval(-60)
+            )
+        )
+
+        XCTAssertEqual(payload.reminder, .upsert(reminder))
+        XCTAssertEqual(payload.operationID, draft.operationID)
+    }
+
+    func testTaskPayloadExplicitInitializerKeepsSourceCompatibleDefaults() {
+        let payload = TaskEditorPayload(
+            mutationScope: .full,
+            title: "Task",
+            description: "",
+            status: .todo,
+            type: .green,
+            effort: 1,
+            plannedAt: nil,
+            dueAt: nil,
+            recurrence: nil,
+            checklist: [],
+            tagIDs: []
+        )
+
+        XCTAssertEqual(payload.reminder, .preserveOrDefault)
+    }
+
+    func testStatusOnlyPayloadNeverMutatesPersonalReminder() throws {
+        var draft = EditorTestFixtures.taskDraft()
+        draft.reminder = .remove
+
+        let payload = try XCTUnwrap(
+            EditorValidator.payload(
+                draft,
+                timezone: EditorTestFixtures.timezone,
+                scope: .statusOnly
+            )
+        )
+
+        XCTAssertEqual(payload.reminder, .preserveOrDefault)
+    }
+
+    func testTaskReminderCopyCoversRussianAndEnglishCadence() {
+        let ru = TaskReminderCopy(language: .ru)
+        let en = TaskReminderCopy(language: .en)
+
+        XCTAssertEqual(ru.repeatTitle(.none), "Без повтора")
+        XCTAssertEqual(ru.repeatTitle(.monthly), "Ежемесячно")
+        XCTAssertEqual(en.repeatTitle(.hourly), "Hourly")
+        XCTAssertEqual(en.repeatTitle(.weekly), "Weekly")
+        XCTAssertEqual(EditorCopy(language: .ru).reminderPermissionDenied, "Разрешите уведомления, чтобы включить напоминание")
+        XCTAssertEqual(EditorCopy(language: .en).reminderPast, "A one-time reminder must be scheduled in the future")
+    }
 }

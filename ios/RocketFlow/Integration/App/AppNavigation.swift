@@ -68,6 +68,32 @@ struct AppNavigationState: Equatable, Sendable {
     var focusPath: [AppRoute] = []
     var presentation: AppPresentation?
     var notice: String?
+    private var restorationMutationHandler: (@Sendable (AppNavigationState) -> Void)?
+
+    init(
+        selectedTab: AppTab = .planner,
+        plannerPath: [AppRoute] = [],
+        calendarPath: [AppRoute] = [],
+        focusPath: [AppRoute] = [],
+        presentation: AppPresentation? = nil,
+        notice: String? = nil
+    ) {
+        self.selectedTab = selectedTab
+        self.plannerPath = plannerPath
+        self.calendarPath = calendarPath
+        self.focusPath = focusPath
+        self.presentation = presentation
+        self.notice = notice
+    }
+
+    static func == (lhs: AppNavigationState, rhs: AppNavigationState) -> Bool {
+        lhs.selectedTab == rhs.selectedTab
+            && lhs.plannerPath == rhs.plannerPath
+            && lhs.calendarPath == rhs.calendarPath
+            && lhs.focusPath == rhs.focusPath
+            && lhs.presentation == rhs.presentation
+            && lhs.notice == rhs.notice
+    }
 
     func path(for tab: AppTab) -> [AppRoute] {
         switch tab {
@@ -78,53 +104,52 @@ struct AppNavigationState: Equatable, Sendable {
     }
 
     mutating func setPath(_ path: [AppRoute], for tab: AppTab) {
-        switch tab {
-        case .planner: plannerPath = path
-        case .calendar: calendarPath = path
-        case .focus: focusPath = path
-        }
+        assignPath(path, to: tab)
+        persistRestorationMutation()
     }
 
     mutating func select(_ tab: AppTab) {
         selectedTab = tab
+        persistRestorationMutation()
     }
 
     mutating func open(_ reference: DetailEntityReference, origin: DetailOriginTab) {
-        let tab = AppTab(origin: origin)
-        selectedTab = tab
-        append(.detail(reference, origin: origin), to: tab)
+        openWithoutPersisting(reference, origin: origin)
+        persistRestorationMutation()
     }
 
     mutating func openSettings() {
         selectedTab = .planner
         append(.settings, to: .planner)
+        persistRestorationMutation()
     }
 
     mutating func openLinks(_ reference: DetailEntityReference, origin: DetailOriginTab) {
-        let tab = AppTab(origin: origin)
-        selectedTab = tab
-        append(.links(reference, origin: origin), to: tab)
+        openLinksWithoutPersisting(reference, origin: origin)
+        persistRestorationMutation()
     }
 
     mutating func present(_ route: AppPresentationRoute) {
         presentation = AppPresentation(route: route)
+        persistRestorationMutation()
     }
 
     mutating func dismissPresentation() {
         presentation = nil
+        persistRestorationMutation()
     }
 
     mutating func handle(_ result: DetailNavigationResult) {
         switch result {
         case let .open(reference, origin):
             presentation = nil
-            open(reference, origin: origin)
+            openWithoutPersisting(reference, origin: origin)
         case let .present(route, origin):
             if case let .links(reference) = route {
                 presentation = nil
-                openLinks(reference, origin: origin)
+                openLinksWithoutPersisting(reference, origin: origin)
             } else {
-                present(detailPresentation(route, origin: origin))
+                presentation = AppPresentation(route: detailPresentation(route, origin: origin))
             }
         case let .deleted(destination):
             presentation = nil
@@ -136,6 +161,7 @@ struct AppNavigationState: Equatable, Sendable {
             presentation = nil
             selectedTab = AppTab(origin: origin)
         }
+        persistRestorationMutation()
     }
 
     mutating func applyDeepLink(
@@ -157,6 +183,7 @@ struct AppNavigationState: Equatable, Sendable {
                 presentation = nil
                 plannerPath = []
                 selectedTab = .planner
+                persistRestorationMutation()
                 return
             }
             let origin: DetailOriginTab
@@ -165,11 +192,12 @@ struct AppNavigationState: Equatable, Sendable {
             case .calendar: origin = .calendar
             case .focus: origin = .focus
             }
-            open(
+            openWithoutPersisting(
                 DetailEntityReference(kind: .task, id: localTaskID),
                 origin: origin
             )
         }
+        persistRestorationMutation()
     }
 
     mutating func resetForAccountTransition() {
@@ -179,12 +207,53 @@ struct AppNavigationState: Equatable, Sendable {
         focusPath = []
         presentation = nil
         notice = nil
+        persistRestorationMutation()
+    }
+
+    mutating func installRestorationMutationHandler(
+        _ handler: @escaping @Sendable (AppNavigationState) -> Void
+    ) {
+        restorationMutationHandler = handler
+    }
+
+    mutating func removeRestorationMutationHandler() {
+        restorationMutationHandler = nil
     }
 
     private mutating func append(_ route: AppRoute, to tab: AppTab) {
         var path = path(for: tab)
         if path.last != route { path.append(route) }
-        setPath(path, for: tab)
+        assignPath(path, to: tab)
+    }
+
+    private mutating func assignPath(_ path: [AppRoute], to tab: AppTab) {
+        switch tab {
+        case .planner: plannerPath = path
+        case .calendar: calendarPath = path
+        case .focus: focusPath = path
+        }
+    }
+
+    private mutating func openWithoutPersisting(
+        _ reference: DetailEntityReference,
+        origin: DetailOriginTab
+    ) {
+        let tab = AppTab(origin: origin)
+        selectedTab = tab
+        append(.detail(reference, origin: origin), to: tab)
+    }
+
+    private mutating func openLinksWithoutPersisting(
+        _ reference: DetailEntityReference,
+        origin: DetailOriginTab
+    ) {
+        let tab = AppTab(origin: origin)
+        selectedTab = tab
+        append(.links(reference, origin: origin), to: tab)
+    }
+
+    private func persistRestorationMutation() {
+        restorationMutationHandler?(self)
     }
 
     private func detailPresentation(
@@ -222,7 +291,7 @@ struct AppNavigationState: Equatable, Sendable {
         case let .originRoot(origin):
             let tab = AppTab(origin: origin)
             selectedTab = tab
-            setPath([], for: tab)
+            assignPath([], to: tab)
         case let .folder(id, origin):
             replacePath(
                 with: DetailEntityReference(kind: .folder, id: id),
@@ -259,6 +328,6 @@ struct AppNavigationState: Equatable, Sendable {
             if !path.isEmpty { path.removeLast() }
             path.append(.detail(reference, origin: origin))
         }
-        setPath(path, for: tab)
+        assignPath(path, to: tab)
     }
 }

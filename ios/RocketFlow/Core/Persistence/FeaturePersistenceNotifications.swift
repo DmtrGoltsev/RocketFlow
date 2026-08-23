@@ -6,7 +6,7 @@ struct FeatureReminderReconciliationState: Equatable, Sendable {
     let reconciledAt: Date
 }
 
-actor GRDBTaskReminderStore: TaskReminderStoreServing {
+actor GRDBTaskReminderStore: TaskReminderStoreServing, TaskReminderPlanningSnapshotProviding {
     private let database: AppDatabase
     private let lease: FeaturePersistenceLease
     private let now: @Sendable () -> Date
@@ -81,6 +81,35 @@ actor GRDBTaskReminderStore: TaskReminderStoreServing {
 
     func reminders(accountID: UUID) throws -> [LocalTaskReminder] {
         try reconciliationItems(accountID: accountID).map(\.reminder)
+    }
+
+    func planningTask(
+        accountID: UUID,
+        taskID: UUID
+    ) throws -> TaskReminderPlanningSnapshot? {
+        try lease.require(accountID)
+        return try database.read { db in
+            try FeaturePersistenceAccount.validate(lease, in: db)
+            guard let task = try TaskRecord.fetchOne(db, key: taskID.featurePersistenceKey),
+                  task.deletedAt == nil else {
+                return nil
+            }
+            let state: ReminderTaskState
+            if task.archived {
+                state = .archived
+            } else {
+                switch task.status {
+                case .todo, .inProgress: state = .active
+                case .done: state = .done
+                case .cancelled: state = .cancelled
+                }
+            }
+            return TaskReminderPlanningSnapshot(
+                taskID: taskID,
+                title: task.title,
+                taskState: state
+            )
+        }
     }
 
     func save(_ reminder: LocalTaskReminder, taskState: ReminderTaskState) throws {

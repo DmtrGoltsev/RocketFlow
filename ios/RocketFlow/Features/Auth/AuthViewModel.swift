@@ -28,14 +28,27 @@ final class AuthViewModel: ObservableObject {
     @Published var email = ""
     @Published var password = ""
     @Published var displayName = ""
+    @Published private(set) var language: AppLanguage
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var fieldErrors: [String: String] = [:]
 
     private let submitter: any AuthSubmitting
 
-    init(submitter: any AuthSubmitting) {
+    init(
+        submitter: any AuthSubmitting,
+        language: AppLanguage = .deviceFallback()
+    ) {
         self.submitter = submitter
+        self.language = language
+    }
+
+    var copy: AuthCopy { AuthCopy(language: language) }
+
+    func setLanguage(_ language: AppLanguage) {
+        guard self.language != language else { return }
+        self.language = language
+        clearErrors()
     }
 
     func submit() async {
@@ -46,7 +59,7 @@ final class AuthViewModel: ObservableObject {
         let normalizedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         validate(email: normalizedEmail, password: password, displayName: normalizedName)
         guard fieldErrors.isEmpty else {
-            errorMessage = "Проверьте заполненные поля."
+            errorMessage = copy.checkFields
             return
         }
 
@@ -57,7 +70,6 @@ final class AuthViewModel: ObservableObject {
             case .login:
                 try await submitter.login(email: normalizedEmail, password: password)
             case .register:
-                let language: AppLanguage = Locale.preferredLanguages.first?.hasPrefix("ru") == true ? .ru : .en
                 try await submitter.register(
                     email: normalizedEmail,
                     password: password,
@@ -71,24 +83,24 @@ final class AuthViewModel: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
-            errorMessage = "Не удалось связаться с сервером. Попробуйте ещё раз."
+            errorMessage = copy.serverUnavailable
         }
     }
 
     private func validate(email: String, password: String, displayName: String) {
         if email.isEmpty || !email.contains("@") || email.count > 320 {
-            fieldErrors["email"] = "Введите корректный адрес электронной почты."
+            fieldErrors["email"] = copy.invalidEmail
         }
         if password.isEmpty {
-            fieldErrors["password"] = "Введите пароль."
+            fieldErrors["password"] = copy.emptyPassword
         } else if mode == .register && !(8...200).contains(password.count) {
-            fieldErrors["password"] = "Пароль должен содержать от 8 до 200 символов."
+            fieldErrors["password"] = copy.invalidPasswordLength
         }
         if mode == .register {
             if displayName.isEmpty {
-                fieldErrors["displayName"] = "Введите имя."
+                fieldErrors["displayName"] = copy.emptyDisplayName
             } else if displayName.count > 120 {
-                fieldErrors["displayName"] = "Имя не должно превышать 120 символов."
+                fieldErrors["displayName"] = copy.invalidDisplayNameLength
             }
         }
     }
@@ -101,22 +113,22 @@ final class AuthViewModel: ObservableObject {
     private func apply(_ error: APIError) {
         fieldErrors = error.fieldErrors.reduce(into: [String: String]()) { result, entry in
             switch entry.key {
-            case "email": result[entry.key] = "Проверьте адрес электронной почты."
-            case "password": result[entry.key] = "Проверьте пароль."
-            case "displayName": result[entry.key] = "Проверьте имя."
+            case "email": result[entry.key] = copy.checkEmail
+            case "password": result[entry.key] = copy.checkPassword
+            case "displayName": result[entry.key] = copy.checkDisplayName
             default: break
             }
         }
 
         switch (error.statusCode, error.code) {
         case (_, "authentication_failed"), (_, "unauthorized"):
-            errorMessage = "Неверная электронная почта или пароль."
+            errorMessage = copy.authenticationFailed
         case (409, _):
-            errorMessage = "Аккаунт с такой электронной почтой уже существует."
+            errorMessage = copy.accountExists
         case (_, "validation_error"):
-            errorMessage = "Проверьте заполненные поля."
+            errorMessage = copy.checkFields
         default:
-            errorMessage = "Не удалось выполнить запрос. Попробуйте ещё раз."
+            errorMessage = copy.requestFailed
         }
     }
 }

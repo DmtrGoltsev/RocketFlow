@@ -6,10 +6,11 @@ struct AppLinksHost: View {
     let origin: DetailOriginTab
     let runtime: AppUserRuntime
     @ObservedObject var appStore: AppStore
+    @ObservedObject var languageStore: AppLanguageStore
 
     @State private var model: EntityLinksViewModel?
     @State private var errorText: String?
-    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: runtime.user.language) }
+    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: languageStore.language) }
 
     var body: some View {
         Group {
@@ -36,6 +37,7 @@ struct AppLinksHost: View {
             }
         }
         .task { await load() }
+        .onChange(of: languageStore.language) { model?.setLanguage($0) }
     }
 
     private func load() async {
@@ -61,7 +63,7 @@ struct AppLinksHost: View {
             )
             model = EntityLinksViewModel(
                 context: context,
-                language: runtime.user.language,
+                language: languageStore.language,
                 service: runtime.entityLinkActions,
                 search: search,
                 onOpen: { target in

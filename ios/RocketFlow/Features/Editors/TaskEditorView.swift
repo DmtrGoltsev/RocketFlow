@@ -1,5 +1,11 @@
 import SwiftUI
 
+private enum TaskReminderEditorMode: Hashable {
+    case inherited
+    case disabled
+    case custom
+}
+
 @MainActor
 struct TaskEditorView: View {
     @StateObject private var coordinator: EditorSaveCoordinator
@@ -14,6 +20,7 @@ struct TaskEditorView: View {
     private let access: TaskEditorAccess
     private let timezone: TimeZone
     private let copy: EditorCopy
+    private let reminderCopy: TaskReminderCopy
     private let tagCreator: (any EditorTagCreating)?
     private let focusUpdater: (any EditorFocusUpdating)?
     private let onCancel: () -> Void
@@ -38,6 +45,7 @@ struct TaskEditorView: View {
         _draft = State(initialValue: initialDraft)
         _isInFocus = State(initialValue: initialIsInFocus)
         copy = EditorCopy(language: language)
+        reminderCopy = TaskReminderCopy(language: language)
         _coordinator = StateObject(wrappedValue: coordinator)
         self.tagCreator = tagCreator
         self.focusUpdater = focusUpdater
@@ -56,6 +64,7 @@ struct TaskEditorView: View {
             statusSection
             basicsSection
             datesSection
+            reminderSection
             recurrenceSection
             checklistSection
             tagsSection
@@ -66,7 +75,7 @@ struct TaskEditorView: View {
             copy: copy,
             coordinator: coordinator,
             canSave: true,
-            onCancel: onCancel,
+            onCancel: cancel,
             onSave: save,
             accessibilityID: "editor.task"
         )
@@ -86,6 +95,9 @@ struct TaskEditorView: View {
         .onChange(of: draft.plannedAt) { _ in synchronizeRecurrenceAnchor() }
         .onChange(of: draft.dueAt) { _ in synchronizeRecurrenceAnchor() }
         .onAppear(perform: synchronizeRecurrenceAnchor)
+        .onDisappear {
+            Task { await coordinator.abandonOperation(draft.operationID) }
+        }
     }
 
     private var statusSection: some View {
@@ -131,6 +143,37 @@ struct TaskEditorView: View {
             NullableDateEditorRow(title: copy.dueDate, value: $draft.dueAt)
         }
         .disabled(access.mutationScope == .statusOnly)
+    }
+
+    @ViewBuilder
+    private var reminderSection: some View {
+        if access.mutationScope == .full {
+            Section(reminderCopy.reminder) {
+                Picker(reminderCopy.mode, selection: reminderModeBinding) {
+                    Text(isCreate ? reminderCopy.accountDefault : reminderCopy.keepCurrent)
+                        .tag(TaskReminderEditorMode.inherited)
+                    Text(reminderCopy.disabled).tag(TaskReminderEditorMode.disabled)
+                    Text(reminderCopy.custom).tag(TaskReminderEditorMode.custom)
+                }
+                .accessibilityIdentifier("editor.task.reminder.mode")
+
+                if case .upsert = draft.reminder {
+                    DatePicker(
+                        reminderCopy.fireAt,
+                        selection: reminderTriggerBinding,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                    .accessibilityIdentifier("editor.task.reminder.fireAt")
+                    Picker(reminderCopy.repeatRule, selection: reminderRepeatBinding) {
+                        ForEach(TaskReminderRepeat.allCases, id: \.self) { value in
+                            Text(reminderCopy.repeatTitle(value)).tag(value)
+                        }
+                    }
+                    .accessibilityIdentifier("editor.task.reminder.repeat")
+                }
+                EditorValidationMessage(issue: validation.errors[.reminder], copy: copy)
+            }
+        }
     }
 
     @ViewBuilder
@@ -298,6 +341,71 @@ struct TaskEditorView: View {
         return keys.compactMap { validation.errors[$0] }.first
     }
 
+    private var reminderModeBinding: Binding<TaskReminderEditorMode> {
+        Binding(
+            get: {
+                switch draft.reminder {
+                case .preserveOrDefault: .inherited
+                case .remove: .disabled
+                case .upsert: .custom
+                }
+            },
+            set: { mode in
+                switch mode {
+                case .inherited:
+                    draft.reminder = .preserveOrDefault
+                case .disabled:
+                    draft.reminder = .remove
+                case .custom:
+                    guard case .upsert = draft.reminder else {
+                        draft.reminder = .upsert(
+                            TaskReminderEditorDraft(triggerAt: defaultReminderTrigger)
+                        )
+                        return
+                    }
+                }
+            }
+        )
+    }
+
+    private var defaultReminderTrigger: Date {
+        let now = Date()
+        if let dueAt = draft.dueAt, dueAt > now { return dueAt }
+        if let plannedAt = draft.plannedAt, plannedAt > now { return plannedAt }
+        return now.addingTimeInterval(60 * 60)
+    }
+
+    private var reminderTriggerBinding: Binding<Date> {
+        Binding(
+            get: {
+                guard case let .upsert(value) = draft.reminder else {
+                    return draft.dueAt ?? draft.plannedAt ?? Date()
+                }
+                return value.triggerAt
+            },
+            set: { value in
+                guard case var .upsert(reminder) = draft.reminder else { return }
+                reminder.triggerAt = value
+                reminder.anchorAt = value
+                draft.reminder = .upsert(reminder)
+            }
+        )
+    }
+
+    private var reminderRepeatBinding: Binding<TaskReminderRepeat> {
+        Binding(
+            get: {
+                guard case let .upsert(value) = draft.reminder else { return .none }
+                return value.repeatRule
+            },
+            set: { value in
+                guard case var .upsert(reminder) = draft.reminder else { return }
+                reminder.repeatRule = value
+                draft.reminder = .upsert(reminder)
+            }
+        )
+    }
+
     private func save() {
         validation = EditorValidator.validate(
             draft,
@@ -317,6 +425,12 @@ struct TaskEditorView: View {
         Task {
             await coordinator.save(.task(mode: mode, goalID: goalID, payload: payload))
         }
+    }
+
+    private func cancel() {
+        let operationID = draft.operationID
+        Task { await coordinator.abandonOperation(operationID) }
+        onCancel()
     }
 
     private func receiveCreatedTag(_ tag: TagEditorItemDraft) {

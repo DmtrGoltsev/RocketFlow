@@ -110,6 +110,466 @@ actor AppRuntimeOperationGate {
     }
 }
 
+struct AppRuntimeTaskReminderWorkflow: TaskReminderWorkflowServing, Sendable {
+    let base: TaskReminderWorkflow
+    let lease: AppRuntimeLease
+    let validity: AppRuntimeValidity
+    let operationGate: AppRuntimeOperationGate
+
+    func reminder(taskID: UUID) async throws -> LocalTaskReminder? {
+        let validity = self.validity
+        let lease = self.lease
+        let base = self.base
+        return try await operationGate.run(for: lease) {
+            try await validity.require(lease)
+            let value = try await base.reminder(taskID: taskID)
+            try await validity.require(lease)
+            return value
+        }
+    }
+
+    func apply(
+        taskID: UUID,
+        title: String,
+        dueAt: Date?,
+        mutation: TaskReminderEditorMutation,
+        taskState: ReminderTaskState,
+        isNewTask: Bool
+    ) async throws {
+        let validity = self.validity
+        let lease = self.lease
+        let base = self.base
+        try await operationGate.run(for: lease) {
+            try await validity.require(lease)
+            try await base.apply(
+                taskID: taskID,
+                title: title,
+                dueAt: dueAt,
+                mutation: mutation,
+                taskState: taskState,
+                isNewTask: isNewTask
+            )
+            try await validity.require(lease)
+        }
+    }
+
+    func taskStateDidChange(
+        taskID: UUID,
+        taskState: ReminderTaskState
+    ) async throws {
+        let validity = self.validity
+        let lease = self.lease
+        let base = self.base
+        try await operationGate.run(for: lease) {
+            try await validity.require(lease)
+            try await base.taskStateDidChange(taskID: taskID, taskState: taskState)
+            try await validity.require(lease)
+        }
+    }
+}
+
+struct AppRuntimeTaskReminderStore: TaskReminderStoreServing, Sendable {
+    let base: any TaskReminderStoreServing
+    let accountID: UUID
+    let lease: AppRuntimeLease
+    let validity: AppRuntimeValidity
+    let operationGate: AppRuntimeOperationGate
+
+    func reconciliationItems(accountID: UUID) async throws -> [TaskReminderReconciliationItem] {
+        try requireAccount(accountID)
+        let base = self.base
+        return try await run { try await base.reconciliationItems(accountID: accountID) }
+    }
+
+    func reminders(accountID: UUID) async throws -> [LocalTaskReminder] {
+        try requireAccount(accountID)
+        let base = self.base
+        return try await run { try await base.reminders(accountID: accountID) }
+    }
+
+    func save(_ reminder: LocalTaskReminder, taskState: ReminderTaskState) async throws {
+        try requireAccount(reminder.accountID)
+        let base = self.base
+        try await run { try await base.save(reminder, taskState: taskState) }
+    }
+
+    func remove(accountID: UUID, taskID: UUID, reminderID: UUID) async throws {
+        try requireAccount(accountID)
+        let base = self.base
+        try await run {
+            try await base.remove(
+                accountID: accountID,
+                taskID: taskID,
+                reminderID: reminderID
+            )
+        }
+    }
+
+    func defaultReminder(accountID: UUID) async throws -> DefaultTaskReminder? {
+        try requireAccount(accountID)
+        let base = self.base
+        return try await run { try await base.defaultReminder(accountID: accountID) }
+    }
+
+    func saveDefault(_ reminder: DefaultTaskReminder) async throws {
+        try requireAccount(reminder.accountID)
+        let base = self.base
+        try await run { try await base.saveDefault(reminder) }
+    }
+
+    func clearDefault(accountID: UUID) async throws {
+        try requireAccount(accountID)
+        let base = self.base
+        try await run { try await base.clearDefault(accountID: accountID) }
+    }
+
+    func clear(accountID: UUID) async throws {
+        try requireAccount(accountID)
+        let base = self.base
+        try await run { try await base.clear(accountID: accountID) }
+    }
+
+    private func run<Value: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        let validity = self.validity
+        let lease = self.lease
+        return try await operationGate.run(for: lease) {
+            try await validity.require(lease)
+            let value = try await operation()
+            try await validity.require(lease)
+            return value
+        }
+    }
+
+    private func requireAccount(_ accountID: UUID) throws {
+        guard accountID == self.accountID else { throw CancellationError() }
+    }
+}
+
+private enum AppRuntimeStagedDefaultReminder: Equatable, Sendable {
+    case save(DefaultTaskReminder)
+    case clear
+}
+
+private actor AppRuntimeSettingsReminderBuffer {
+    struct Snapshot: Equatable, Sendable {
+        let revision: UUID
+        let mutation: AppRuntimeStagedDefaultReminder
+    }
+
+    private var snapshot: Snapshot?
+
+    func stage(_ mutation: AppRuntimeStagedDefaultReminder) {
+        snapshot = Snapshot(revision: UUID(), mutation: mutation)
+    }
+
+    func value() -> Snapshot? { snapshot }
+
+    func clear(revision: UUID) {
+        guard snapshot?.revision == revision else { return }
+        snapshot = nil
+    }
+
+    func discard() { snapshot = nil }
+}
+
+enum AppRuntimeSettingsTransactionError: Error, Equatable, Sendable {
+    case defaultCommitFailed
+}
+
+struct AppRuntimeSettingsReminderStore: TaskReminderStoreServing, Sendable {
+    let direct: AppRuntimeTaskReminderStore
+    private let buffer: AppRuntimeSettingsReminderBuffer
+
+    init(direct: AppRuntimeTaskReminderStore) {
+        self.direct = direct
+        buffer = AppRuntimeSettingsReminderBuffer()
+    }
+
+    func reconciliationItems(accountID: UUID) async throws -> [TaskReminderReconciliationItem] {
+        try await direct.reconciliationItems(accountID: accountID)
+    }
+
+    func reminders(accountID: UUID) async throws -> [LocalTaskReminder] {
+        try await direct.reminders(accountID: accountID)
+    }
+
+    func save(_ reminder: LocalTaskReminder, taskState: ReminderTaskState) async throws {
+        try await direct.save(reminder, taskState: taskState)
+    }
+
+    func remove(accountID: UUID, taskID: UUID, reminderID: UUID) async throws {
+        try await direct.remove(
+            accountID: accountID,
+            taskID: taskID,
+            reminderID: reminderID
+        )
+    }
+
+    func defaultReminder(accountID: UUID) async throws -> DefaultTaskReminder? {
+        guard accountID == direct.accountID else { throw CancellationError() }
+        if let staged = await buffer.value() {
+            switch staged.mutation {
+            case let .save(reminder): return reminder
+            case .clear: return nil
+            }
+        }
+        return try await direct.defaultReminder(accountID: accountID)
+    }
+
+    func saveDefault(_ reminder: DefaultTaskReminder) async throws {
+        guard reminder.accountID == direct.accountID else { throw CancellationError() }
+        let direct = self.direct
+        let buffer = self.buffer
+        try await direct.operationGate.run(for: direct.lease) {
+            try await direct.validity.require(direct.lease)
+            await buffer.stage(.save(reminder))
+            try await direct.validity.require(direct.lease)
+        }
+    }
+
+    func clearDefault(accountID: UUID) async throws {
+        guard accountID == direct.accountID else { throw CancellationError() }
+        let direct = self.direct
+        let buffer = self.buffer
+        try await direct.operationGate.run(for: direct.lease) {
+            try await direct.validity.require(direct.lease)
+            await buffer.stage(.clear)
+            try await direct.validity.require(direct.lease)
+        }
+    }
+
+    func clear(accountID: UUID) async throws {
+        await buffer.discard()
+        try await direct.clear(accountID: accountID)
+    }
+
+    func commitStagedDefaultWithinLease() async throws {
+        guard let staged = await buffer.value() else { return }
+        do {
+            switch staged.mutation {
+            case let .save(reminder):
+                try await direct.base.saveDefault(reminder)
+            case .clear:
+                try await direct.base.clearDefault(accountID: direct.accountID)
+            }
+            await buffer.clear(revision: staged.revision)
+        } catch is CancellationError {
+            await buffer.clear(revision: staged.revision)
+            throw AppRuntimeSettingsTransactionError.defaultCommitFailed
+        } catch {
+            await buffer.clear(revision: staged.revision)
+            throw AppRuntimeSettingsTransactionError.defaultCommitFailed
+        }
+    }
+
+    func discardStagedDefault() async {
+        await buffer.discard()
+    }
+}
+
+struct AppRuntimeDeviceRegistrationService: DeviceRegistrationServicing, Sendable {
+    let base: any DeviceRegistrationServicing
+    let accountID: UUID
+    let lease: AppRuntimeLease
+    let validity: AppRuntimeValidity
+    let operationGate: AppRuntimeOperationGate
+
+    func state(accountID: UUID) async -> DeviceRegistrationDisplayState {
+        guard accountID == self.accountID else { return .unavailable }
+        let base = self.base
+        let validity = self.validity
+        let lease = self.lease
+        do {
+            return try await operationGate.run(for: lease) {
+                try await validity.require(lease)
+                let value = await base.state(accountID: accountID)
+                try await validity.require(lease)
+                return value
+            }
+        } catch {
+            return .unavailable
+        }
+    }
+
+    func sync(accountID: UUID, deviceName: String?) async throws -> DeviceRegistrationSyncResult {
+        try requireAccount(accountID)
+        let base = self.base
+        return try await run { try await base.sync(accountID: accountID, deviceName: deviceName) }
+    }
+
+    func unregister(accountID: UUID) async throws -> DeviceRegistrationSyncResult {
+        try requireAccount(accountID)
+        let base = self.base
+        return try await run { try await base.unregister(accountID: accountID) }
+    }
+
+    private func run<Value: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        let validity = self.validity
+        let lease = self.lease
+        return try await operationGate.run(for: lease) {
+            try await validity.require(lease)
+            let value = try await operation()
+            try await validity.require(lease)
+            return value
+        }
+    }
+
+    private func requireAccount(_ accountID: UUID) throws {
+        guard accountID == self.accountID else { throw CancellationError() }
+    }
+}
+
+actor AppRuntimeNotificationState {
+    private var active = true
+    private var runtimeReady = false
+
+    func markRuntimeReady() -> Bool {
+        guard active else { return false }
+        runtimeReady = true
+        return true
+    }
+
+    func canResume() -> Bool {
+        active && runtimeReady
+    }
+
+    func beginDeactivation() -> Bool {
+        guard active else { return false }
+        active = false
+        runtimeReady = false
+        return true
+    }
+}
+
+struct AppRuntimeNotificationLifecycle: Sendable {
+    let accountID: UUID
+    let timeZone: TimeZone
+    let lease: AppRuntimeLease
+    let validity: AppRuntimeValidity
+    let operationGate: AppRuntimeOperationGate
+    let state: AppRuntimeNotificationState
+    let settingsRepository: any SettingsRepositoryServing
+    let settingsCache: any SettingsCacheServing
+    let notificationCenter: any UserNotificationCenterServing
+    let scheduler: TaskReminderScheduler
+
+    func suspend() async {
+        let accountID = self.accountID
+        let lease = self.lease
+        let validity = self.validity
+        let scheduler = self.scheduler
+        try? await operationGate.run(for: lease) {
+            try await validity.require(lease)
+            await scheduler.suspendNotifications(accountID: accountID)
+            try await validity.require(lease)
+        }
+    }
+
+    func resumeIfEnabled(allowNetwork: Bool) async throws -> Bool {
+        let accountID = self.accountID
+        let timeZone = self.timeZone
+        let lease = self.lease
+        let validity = self.validity
+        let state = self.state
+        let settingsRepository = self.settingsRepository
+        let settingsCache = self.settingsCache
+        let notificationCenter = self.notificationCenter
+        let scheduler = self.scheduler
+        return try await operationGate.run(for: lease) {
+            try await validity.require(lease)
+            guard await state.canResume() else { return false }
+            let settings: UserSettingsDTO?
+            if allowNetwork {
+                settings = try await settingsRepository.load(accountID: accountID).settings
+            } else {
+                settings = try await settingsCache.settings(accountID: accountID)
+            }
+            try await validity.require(lease)
+            guard await state.canResume() else { throw CancellationError() }
+            let authorization = await notificationCenter.authorizationState()
+            guard settings?.notificationsEnabled == true,
+                  Self.isAuthorized(authorization) else {
+                await scheduler.suspendNotifications(accountID: accountID)
+                try await validity.require(lease)
+                return false
+            }
+            try await scheduler.resumeNotifications(
+                accountID: accountID,
+                timeZone: timeZone
+            )
+            try await validity.require(lease)
+            return true
+        }
+    }
+
+    func resumeAcceptedSettings(timeZone: TimeZone) async throws {
+        let accountID = self.accountID
+        let lease = self.lease
+        let validity = self.validity
+        let state = self.state
+        let notificationCenter = self.notificationCenter
+        let scheduler = self.scheduler
+        try await operationGate.run(for: lease) {
+            try await validity.require(lease)
+            guard await state.canResume() else { throw CancellationError() }
+            let authorization = await notificationCenter.authorizationState()
+            guard Self.isAuthorized(authorization) else {
+                await scheduler.suspendNotifications(accountID: accountID)
+                return
+            }
+            try await scheduler.resumeNotifications(
+                accountID: accountID,
+                timeZone: timeZone
+            )
+            try await validity.require(lease)
+        }
+    }
+
+    func clear() async throws {
+        let accountID = self.accountID
+        let lease = self.lease
+        let validity = self.validity
+        let scheduler = self.scheduler
+        try await operationGate.run(for: lease) {
+            try await validity.require(lease)
+            try await scheduler.cancelAll(accountID: accountID)
+            try await validity.require(lease)
+        }
+    }
+
+    private static func isAuthorized(_ state: NotificationAuthorizationState) -> Bool {
+        switch state {
+        case .authorized, .provisional, .ephemeral: true
+        case .notDetermined, .denied: false
+        }
+    }
+}
+
+struct AppRuntimeAccountNotificationController: AccountNotificationClearing, Sendable {
+    let lifecycle: AppRuntimeNotificationLifecycle
+    let settingsReminderStore: AppRuntimeSettingsReminderStore
+
+    func clear(accountID: UUID) async throws {
+        guard accountID == lifecycle.accountID else { throw CancellationError() }
+        await settingsReminderStore.discardStagedDefault()
+        try await lifecycle.clear()
+    }
+
+    func suspendNotifications(accountID: UUID) async {
+        guard accountID == lifecycle.accountID else { return }
+        await lifecycle.suspend()
+    }
+
+    func resumeNotifications(accountID: UUID, timeZone: TimeZone) async throws {
+        guard accountID == lifecycle.accountID else { throw CancellationError() }
+        try await lifecycle.resumeAcceptedSettings(timeZone: timeZone)
+    }
+}
+
 struct AppCollaboratorResourceScope: Equatable, Sendable {
     let folderRemoteIDs: Set<UUID>
     let goalRemoteIDs: Set<UUID>
@@ -221,7 +681,7 @@ struct AppUserCoreSyncHook: CoreSyncHook {
     let timezone: String
     let planning: SyncEngine
     let focus: any FocusRepositoryServing
-    let reminders: TaskReminderScheduler
+    let notifications: AppRuntimeNotificationLifecycle
     let deviceRegistration: any DeviceRegistrationServicing
     let deviceName: String?
     let unauthorizedRelay: AppUnauthorizedRelay
@@ -278,12 +738,7 @@ struct AppUserCoreSyncHook: CoreSyncHook {
                     )
                 },
                 reminders: {
-                    _ = try await reminders.reconcile(
-                        accountID: lease.accountID,
-                        timeZone: TimeZone(identifier: timezone)
-                            ?? TimeZone(secondsFromGMT: 0)!,
-                        reason: trigger == .foreground ? .foreground : .launch
-                    )
+                    _ = try await notifications.resumeIfEnabled(allowNetwork: true)
                 },
                 device: {
                     _ = try await deviceRegistration.sync(
@@ -706,7 +1161,7 @@ struct AppRuntimeFocusRepository: FocusRepositoryServing, Sendable {
     let operationGate: AppRuntimeOperationGate
 
     func loadCurrent(accountID: UUID, timezone: String) async throws -> FocusCurrentResult {
-        try await run(accountID: accountID) {
+        return try await run(accountID: accountID) {
             try await self.base.loadCurrent(accountID: accountID, timezone: timezone)
         }
     }
@@ -823,6 +1278,21 @@ struct AppRuntimeSettingsRepository: SettingsRepositoryServing, Sendable {
     let lease: AppRuntimeLease
     let relay: AppUnauthorizedRelay
     let operationGate: AppRuntimeOperationGate
+    let acceptedSaveCommit: @Sendable () async throws -> Void
+
+    init(
+        base: any SettingsRepositoryServing,
+        lease: AppRuntimeLease,
+        relay: AppUnauthorizedRelay,
+        operationGate: AppRuntimeOperationGate,
+        acceptedSaveCommit: @escaping @Sendable () async throws -> Void = {}
+    ) {
+        self.base = base
+        self.lease = lease
+        self.relay = relay
+        self.operationGate = operationGate
+        self.acceptedSaveCommit = acceptedSaveCommit
+    }
 
     func load(accountID: UUID) async throws -> SettingsRepositorySnapshot {
         try await run(accountID: accountID) {
@@ -835,12 +1305,16 @@ struct AppRuntimeSettingsRepository: SettingsRepositoryServing, Sendable {
         language: AppLanguage,
         notificationsEnabled: Bool
     ) async throws -> SettingsRepositorySnapshot {
-        try await run(accountID: accountID) {
-            try await self.base.save(
+        let base = self.base
+        let acceptedSaveCommit = self.acceptedSaveCommit
+        return try await run(accountID: accountID) {
+            let snapshot = try await base.save(
                 accountID: accountID,
                 language: language,
                 notificationsEnabled: notificationsEnabled
             )
+            try await acceptedSaveCommit()
+            return snapshot
         }
     }
 
@@ -1006,10 +1480,20 @@ final class AppUserRuntime {
     let focusRepository: FocusRepository
     let focusActions: AppRuntimeFocusRepository
     let settingsRepository: SettingsRepository
+    let settingsCache: any SettingsCacheServing
     let settingsActions: AppRuntimeSettingsRepository
-    let reminderStore: GRDBTaskReminderStore
+    let reminderStore: AppRuntimeTaskReminderStore
+    let settingsReminderStore: AppRuntimeSettingsReminderStore
     let reminderScheduler: TaskReminderScheduler
-    let deviceRegistration: DeviceRegistrationService
+    let notificationState: AppRuntimeNotificationState
+    let notificationLifecycle: AppRuntimeNotificationLifecycle
+    let notificationActions: AppRuntimeAccountNotificationController
+    let reminderWorkflow: AppRuntimeTaskReminderWorkflow
+    let reminderEditorActions: TaskReminderEditorSavingAdapter
+    let reminderDetailActions: TaskReminderDetailMutationAdapter
+    let reminderEditorSeedLoader: TaskReminderEditorSeedLoader
+    private let deviceRegistrationBackend: any DeviceRegistrationServicing
+    let deviceRegistration: AppRuntimeDeviceRegistrationService
     let deviceTokenCoordinator: DeviceRegistrationTokenCoordinator
     let remoteNotificationHandler: RemoteNotificationHandler
     let planningActions: PlanningActionService
@@ -1036,9 +1520,10 @@ final class AppUserRuntime {
         calendarRepository: CalendarRepository,
         focusRepository: FocusRepository,
         settingsRepository: SettingsRepository,
+        settingsCache: any SettingsCacheServing,
         reminderStore: GRDBTaskReminderStore,
         reminderScheduler: TaskReminderScheduler,
-        deviceRegistration: DeviceRegistrationService,
+        deviceRegistration: any DeviceRegistrationServicing,
         deviceTokenCoordinator: DeviceRegistrationTokenCoordinator,
         remoteNotificationHandler: RemoteNotificationHandler,
         planningActions: PlanningActionService,
@@ -1057,12 +1542,13 @@ final class AppUserRuntime {
         self.planningRepository = planningRepository
         self.syncEngine = syncEngine
         self.plannerDetails = plannerDetails
-        plannerDetailsActions = AppUnauthorizedPlannerDetailsAdapter(
+        let guardedPlannerDetails = AppUnauthorizedPlannerDetailsAdapter(
             base: plannerDetails,
             lease: lease,
             relay: unauthorizedRelay,
             operationGate: operationGate
         )
+        plannerDetailsActions = guardedPlannerDetails
         self.taskIDMapper = taskIDMapper
         self.calendarRepository = calendarRepository
         calendarActions = AppRuntimeCalendarLoader(
@@ -1079,15 +1565,81 @@ final class AppUserRuntime {
             operationGate: operationGate
         )
         self.settingsRepository = settingsRepository
+        self.settingsCache = settingsCache
+        let guardedReminderStore = AppRuntimeTaskReminderStore(
+            base: reminderStore,
+            accountID: user.id,
+            lease: lease,
+            validity: validity,
+            operationGate: operationGate
+        )
+        self.reminderStore = guardedReminderStore
+        let settingsReminderStore = AppRuntimeSettingsReminderStore(
+            direct: guardedReminderStore
+        )
+        self.settingsReminderStore = settingsReminderStore
         settingsActions = AppRuntimeSettingsRepository(
             base: settingsRepository,
             lease: lease,
             relay: unauthorizedRelay,
+            operationGate: operationGate,
+            acceptedSaveCommit: {
+                try await settingsReminderStore.commitStagedDefaultWithinLease()
+            }
+        )
+        self.reminderScheduler = reminderScheduler
+        let notificationState = AppRuntimeNotificationState()
+        self.notificationState = notificationState
+        let notificationLifecycle = AppRuntimeNotificationLifecycle(
+            accountID: user.id,
+            timeZone: TimeZone(identifier: user.timezone) ?? TimeZone(secondsFromGMT: 0)!,
+            lease: lease,
+            validity: validity,
+            operationGate: operationGate,
+            state: notificationState,
+            settingsRepository: settingsRepository,
+            settingsCache: settingsCache,
+            notificationCenter: notificationCenter,
+            scheduler: reminderScheduler
+        )
+        self.notificationLifecycle = notificationLifecycle
+        notificationActions = AppRuntimeAccountNotificationController(
+            lifecycle: notificationLifecycle,
+            settingsReminderStore: settingsReminderStore
+        )
+        let rawReminderWorkflow = TaskReminderWorkflow(
+            accountID: user.id,
+            timeZone: TimeZone(identifier: user.timezone) ?? TimeZone(secondsFromGMT: 0)!,
+            store: reminderStore,
+            scheduler: reminderScheduler
+        )
+        let guardedReminderWorkflow = AppRuntimeTaskReminderWorkflow(
+            base: rawReminderWorkflow,
+            lease: lease,
+            validity: validity,
             operationGate: operationGate
         )
-        self.reminderStore = reminderStore
-        self.reminderScheduler = reminderScheduler
-        self.deviceRegistration = deviceRegistration
+        reminderWorkflow = guardedReminderWorkflow
+        reminderEditorActions = TaskReminderEditorSavingAdapter(
+            base: guardedPlannerDetails,
+            reminders: guardedReminderWorkflow
+        )
+        reminderDetailActions = TaskReminderDetailMutationAdapter(
+            base: guardedPlannerDetails,
+            reminders: guardedReminderWorkflow
+        )
+        reminderEditorSeedLoader = TaskReminderEditorSeedLoader(
+            base: guardedPlannerDetails,
+            reminders: guardedReminderWorkflow
+        )
+        deviceRegistrationBackend = deviceRegistration
+        self.deviceRegistration = AppRuntimeDeviceRegistrationService(
+            base: deviceRegistration,
+            accountID: user.id,
+            lease: lease,
+            validity: validity,
+            operationGate: operationGate
+        )
         self.deviceTokenCoordinator = deviceTokenCoordinator
         self.remoteNotificationHandler = remoteNotificationHandler
         self.planningActions = planningActions
@@ -1121,11 +1673,36 @@ final class AppUserRuntime {
         try await validity.require(lease)
     }
 
+    func suspendNotificationsForDeactivation() async {
+        guard await notificationState.beginDeactivation() else { return }
+        async let settingsDrain: Void = settingsRepository.cancelAndAwaitAllOperations(
+            accountID: user.id
+        )
+        await operationGate.invalidateCancelAndWait(for: lease)
+        _ = await settingsDrain
+        await settingsReminderStore.discardStagedDefault()
+        await reminderScheduler.suspendNotifications(accountID: user.id)
+        await reminderEditorActions.clearReminderRecoveries()
+        await reminderDetailActions.clearReminderRecoveries()
+    }
+
+    @discardableResult
+    func resumeNotificationsAfterRuntimeReady(allowNetwork: Bool) async throws -> Bool {
+        guard await notificationState.markRuntimeReady() else {
+            throw CancellationError()
+        }
+        return try await notificationLifecycle.resumeIfEnabled(allowNetwork: allowNetwork)
+    }
+
     func invalidate() async {
-        async let operationDrain: Void = operationGate.invalidateCancelAndWait(for: lease)
+        _ = await notificationState.beginDeactivation()
         async let focusDrain: Void = focusRepository.cancelAndAwaitPendingSync(accountID: user.id)
         async let settingsDrain: Void = settingsRepository.cancelAndAwaitAllOperations(accountID: user.id)
-        _ = await (operationDrain, focusDrain, settingsDrain)
+        await operationGate.invalidateCancelAndWait(for: lease)
+        await settingsReminderStore.discardStagedDefault()
+        await reminderEditorActions.clearReminderRecoveries()
+        await reminderDetailActions.clearReminderRecoveries()
+        _ = await (focusDrain, settingsDrain)
         await sharingScopeRegistry.invalidate(for: lease)
         await validity.invalidate(lease)
     }
@@ -1149,28 +1726,15 @@ final class AppUserRuntime {
     }
 
     func reconcileReminders(reason: ReminderReconcileReason) async throws {
-        let validity = self.validity
-        let lease = self.lease
-        let operationGate = self.operationGate
-        let reminders = reminderScheduler
-        let accountID = user.id
-        let timezone = user.timezone
-        try await operationGate.run(for: lease) {
-            try await validity.require(lease)
-            _ = try await reminders.reconcile(
-                accountID: accountID,
-                timeZone: TimeZone(identifier: timezone) ?? TimeZone(secondsFromGMT: 0)!,
-                reason: reason
-            )
-            try await validity.require(lease)
-        }
+        _ = reason
+        _ = try await resumeNotificationsAfterRuntimeReady(allowNetwork: false)
     }
 
     func synchronizeDevice(deviceName: String?) async throws {
         let validity = self.validity
         let lease = self.lease
         let operationGate = self.operationGate
-        let registration = deviceRegistration
+        let registration = deviceRegistrationBackend
         let accountID = user.id
         try await operationGate.run(for: lease) {
             try await validity.require(lease)
@@ -1187,8 +1751,8 @@ final class AppUserRuntime {
         let lease = self.lease
         let operationGate = self.operationGate
         let focus = focusRepository
-        let reminders = reminderScheduler
-        let registration = deviceRegistration
+        let notifications = notificationLifecycle
+        let registration = deviceRegistrationBackend
         let accountID = user.id
         let timezone = user.timezone
         try await withTaskCancellationHandler {
@@ -1199,12 +1763,8 @@ final class AppUserRuntime {
                         _ = try await focus.syncPending(accountID: accountID, timezone: timezone)
                     },
                     reminders: {
-                        _ = try await reminders.reconcile(
-                            accountID: accountID,
-                            timeZone: TimeZone(identifier: timezone)
-                                ?? TimeZone(secondsFromGMT: 0)!,
-                            reason: reason
-                        )
+                        guard reason != .launch else { return }
+                        _ = try await notifications.resumeIfEnabled(allowNetwork: true)
                     },
                     device: {
                         _ = try await registration.sync(
@@ -1242,7 +1802,7 @@ final class AppUserRuntime {
     func privacyCleanupOperations() -> [AppTeardownOperation] {
         [
             AppTeardownOperation(stage: .deviceUnregister, requiredForPrivacy: false) {
-                _ = try await self.deviceRegistration.unregister(accountID: self.user.id)
+                _ = try await self.deviceRegistrationBackend.unregister(accountID: self.user.id)
             },
             AppTeardownOperation(stage: .reminders, requiredForPrivacy: true) {
                 try await self.reminderScheduler.cancelAll(accountID: self.user.id)

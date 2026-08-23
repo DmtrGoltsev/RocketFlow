@@ -16,7 +16,7 @@ final class EntityLinksViewModel: ObservableObject {
     @Published private(set) var candidates: [EntityLinkCandidate] = []
 
     let context: EntityLinkContext
-    let language: AppLanguage
+    @Published private(set) var language: AppLanguage
 
     private let service: any EntityLinkFeatureServing
     private let search: any EntityLinkCandidateSearching
@@ -43,6 +43,10 @@ final class EntityLinksViewModel: ObservableObject {
     }
 
     var copy: EntityLinkCopy { EntityLinkCopy(language: language) }
+
+    func setLanguage(_ language: AppLanguage) {
+        self.language = language
+    }
     var isBusy: Bool { phase == .loading || isMutating }
 
     var rows: [EntityLinkRow] {

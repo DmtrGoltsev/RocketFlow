@@ -388,6 +388,574 @@ final class AppIntegrationDependencyTests: XCTestCase {
         XCTAssertNil(store.currentRuntimeLease)
     }
 
+    func testProductionCompositionAdoptsAuthenticatedLanguageInInjectedStore() async {
+        let persistence = AppIntegrationLanguagePersistence(initial: .en)
+        let languageStore = AppLanguageStore(persistence: persistence)
+        let container = DependencyContainer(
+            apiBaseURL: appIntegrationAPIURL,
+            languageStore: languageStore,
+            sessionStore: InMemorySessionStore(),
+            databaseOpener: { _ in try AppDatabase.inMemory() },
+            networkMonitor: FixedNetworkMonitor(connected: false),
+            notificationCenter: AppUITestNotificationCenter(),
+            fcmTokenProvider: ManualFCMRegistrationTokenProvider(configured: false),
+            backgroundScheduler: AppIntegrationBackgroundScheduler(),
+            registerBackgroundTasks: false
+        )
+        let user = appIntegrationUser(id: UUID())
+        let store = container.makeAppStore(launchUser: user)
+
+        await store.restoreIfNeeded()
+
+        XCTAssertTrue(container.languageStore === languageStore)
+        XCTAssertTrue(store.languageStore === languageStore)
+        XCTAssertEqual(languageStore.language, .ru)
+        XCTAssertEqual(persistence.saved.last, .ru)
+        XCTAssertEqual(store.activeRuntime?.lease.accountID, user.id)
+    }
+
+    func testRuntimeReminderCompositionUsesSharedStoreAndCurrentLanguageCopy() async throws {
+        let languageStore = AppLanguageStore(
+            persistence: AppIntegrationLanguagePersistence(initial: .en)
+        )
+        let notifications = AppIntegrationAuthorizedNotificationCenter()
+        let container = DependencyContainer(
+            apiBaseURL: appIntegrationAPIURL,
+            languageStore: languageStore,
+            sessionStore: InMemorySessionStore(),
+            databaseOpener: { _ in try AppDatabase.inMemory() },
+            networkMonitor: FixedNetworkMonitor(connected: false),
+            notificationCenter: notifications,
+            fcmTokenProvider: ManualFCMRegistrationTokenProvider(configured: false),
+            backgroundScheduler: AppIntegrationBackgroundScheduler(),
+            registerBackgroundTasks: false
+        )
+        let user = appIntegrationUser(id: UUID())
+        _ = try await container.activateApplication(for: user, sessionGeneration: 1)
+        let runtime = try XCTUnwrap(container.activeRuntime)
+        try await seedReminderSettings(runtime: runtime, enabled: true)
+        let taskID = try await seedPlanningTask(runtime: runtime, title: "Language task")
+        let dueAt = Date().addingTimeInterval(7_200)
+        try await runtime.reminderStore.saveDefault(
+            DefaultTaskReminder(
+                accountID: user.id,
+                offsetMinutes: 30,
+                repeatRule: .none,
+                enabled: true
+            )
+        )
+        _ = try await runtime.resumeNotificationsAfterRuntimeReady(allowNetwork: false)
+
+        try await runtime.reminderWorkflow.apply(
+            taskID: taskID,
+            title: "Language task",
+            dueAt: dueAt,
+            mutation: .preserveOrDefault,
+            taskState: .active,
+            isNewTask: true
+        )
+
+        let storedReminders = try await runtime.reminderStore.reminders(accountID: user.id)
+        let englishBody = await notifications.lastBody()
+        XCTAssertEqual(storedReminders.count, 1)
+        XCTAssertEqual(englishBody, TaskReminderCopy(language: .en).openTaskBody)
+
+        languageStore.setLanguage(.ru)
+        try await runtime.reconcileReminders(reason: .settingsChange)
+
+        let russianBody = await notifications.lastBody()
+        XCTAssertEqual(russianBody, TaskReminderCopy(language: .ru).openTaskBody)
+    }
+
+    func testProductionReminderLifecycleSwitchesAtoBtoAWithoutLeaksOrDuplicates() async throws {
+        let notifications = AppIntegrationAuthorizedNotificationCenter()
+        let fixture = makePersistentReminderContainer(notifications: notifications)
+        let first = appIntegrationUser(id: UUID())
+        let second = appIntegrationUser(id: UUID())
+
+        _ = try await fixture.container.activateApplication(for: first, sessionGeneration: 1)
+        let firstRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        try await seedReminder(runtime: firstRuntime, title: "Account A")
+        let firstResumed = try await firstRuntime.resumeNotificationsAfterRuntimeReady(
+            allowNetwork: false
+        )
+        let firstTitles = await notifications.requestTitles()
+        XCTAssertTrue(firstResumed)
+        XCTAssertEqual(firstTitles, ["Account A"])
+
+        _ = try await fixture.container.activateApplication(for: second, sessionGeneration: 2)
+        let afterFirstSuspension = await notifications.requestTitles()
+        XCTAssertEqual(afterFirstSuspension, [])
+        let secondRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        try await seedReminder(runtime: secondRuntime, title: "Account B")
+        let secondResumed = try await secondRuntime.resumeNotificationsAfterRuntimeReady(
+            allowNetwork: false
+        )
+        let secondTitles = await notifications.requestTitles()
+        XCTAssertTrue(secondResumed)
+        XCTAssertEqual(secondTitles, ["Account B"])
+
+        _ = try await fixture.container.activateApplication(for: first, sessionGeneration: 3)
+        let afterSecondSuspension = await notifications.requestTitles()
+        XCTAssertEqual(afterSecondSuspension, [])
+        let restoredFirstRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        let restored = try await restoredFirstRuntime.resumeNotificationsAfterRuntimeReady(
+            allowNetwork: false
+        )
+        let restoredTitles = await notifications.requestTitles()
+        let restoredDefault = try await restoredFirstRuntime.reminderStore.defaultReminder(
+            accountID: first.id
+        )
+        let restoredRows = try await restoredFirstRuntime.reminderStore.reminders(
+            accountID: first.id
+        )
+
+        XCTAssertTrue(restored)
+        XCTAssertEqual(restoredTitles, ["Account A"])
+        XCTAssertEqual(restoredRows.count, 1)
+        XCTAssertNotNil(restoredDefault)
+
+        await fixture.container.deactivateApplication()
+        try? FileManager.default.removeItem(at: fixture.rootURL)
+    }
+
+    func testProductionReminderLogoutErasesRequestsRowsAndDefault() async throws {
+        let notifications = AppIntegrationAuthorizedNotificationCenter()
+        let fixture = makePersistentReminderContainer(notifications: notifications)
+        let user = appIntegrationUser(id: UUID())
+
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 1)
+        let runtime = try XCTUnwrap(fixture.container.activeRuntime)
+        try await seedReminder(runtime: runtime, title: "Private task")
+        _ = try await runtime.resumeNotificationsAfterRuntimeReady(allowNetwork: false)
+
+        try await fixture.container.deactivateApplication(
+            for: user.id,
+            expectedLease: runtime.lease,
+            eraseUserData: true
+        )
+        let pendingTitles = await notifications.requestTitles()
+        let reopened = try fixture.factory.open(userID: user.id)
+        let reopenedStore = try GRDBTaskReminderStore(database: reopened, accountID: user.id)
+        let rows = try await reopenedStore.reminders(accountID: user.id)
+        let defaultReminder = try await reopenedStore.defaultReminder(accountID: user.id)
+
+        XCTAssertEqual(pendingTitles, [])
+        XCTAssertEqual(rows, [])
+        XCTAssertNil(defaultReminder)
+
+        try? FileManager.default.removeItem(at: fixture.rootURL)
+    }
+
+    func testPrivacyEraseSuspendsPrivateTitlesBeforeBlockedDeviceUnregister() async throws {
+        let notifications = AppIntegrationAuthorizedNotificationCenter()
+        let registration = AppIntegrationBlockingUnregisterService()
+        let fixture = makePersistentReminderContainer(
+            notifications: notifications,
+            deviceRegistrationOverride: registration
+        )
+        let user = appIntegrationUser(id: UUID())
+
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 1)
+        let runtime = try XCTUnwrap(fixture.container.activeRuntime)
+        try await seedReminder(runtime: runtime, title: "Private account title")
+        _ = try await runtime.resumeNotificationsAfterRuntimeReady(allowNetwork: false)
+
+        let teardown = Task {
+            try await fixture.container.deactivateApplication(
+                for: user.id,
+                expectedLease: runtime.lease,
+                eraseUserData: true
+            )
+        }
+        await registration.waitUntilUnregisterStarted()
+        let titlesWhileUnregisterBlocked = await notifications.requestTitles()
+        let finishedWhileBlocked = await registration.unregisterFinished()
+
+        XCTAssertEqual(titlesWhileUnregisterBlocked, [])
+        XCTAssertFalse(finishedWhileBlocked)
+
+        await registration.releaseUnregister()
+        try await teardown.value
+        let finishedAfterRelease = await registration.unregisterFinished()
+        XCTAssertTrue(finishedAfterRelease)
+
+        try? FileManager.default.removeItem(at: fixture.rootURL)
+    }
+
+    func testStaleSameAccountRuntimeCannotSuspendNewSessionNotifications() async throws {
+        let notifications = AppIntegrationAuthorizedNotificationCenter()
+        let fixture = makePersistentReminderContainer(notifications: notifications)
+        let user = appIntegrationUser(id: UUID())
+
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 1)
+        let staleRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        try await seedReminder(runtime: staleRuntime, title: "Current session")
+        _ = try await staleRuntime.resumeNotificationsAfterRuntimeReady(allowNetwork: false)
+
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 2)
+        let currentRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        _ = try await currentRuntime.resumeNotificationsAfterRuntimeReady(allowNetwork: false)
+        await staleRuntime.suspendNotificationsForDeactivation()
+
+        let titles = await notifications.requestTitles()
+        XCTAssertEqual(titles, ["Current session"])
+        XCTAssertNotEqual(staleRuntime.lease, currentRuntime.lease)
+
+        await fixture.container.deactivateApplication()
+        try? FileManager.default.removeItem(at: fixture.rootURL)
+    }
+
+    func testStaleSettingsSaveCannotCommitDefaultAfterSameAccountRelogin() async throws {
+        let notifications = AppIntegrationAuthorizedNotificationCenter()
+        let fixture = makePersistentReminderContainer(notifications: notifications)
+        let user = appIntegrationUser(id: UUID())
+
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 1)
+        let staleRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        let delayedRepository = AppIntegrationDelayedSettingsSaveRepository()
+        let guardedRepository = AppRuntimeSettingsRepository(
+            base: delayedRepository,
+            lease: staleRuntime.lease,
+            relay: AppUnauthorizedRelay(),
+            operationGate: staleRuntime.operationGate,
+            acceptedSaveCommit: {
+                try await staleRuntime.settingsReminderStore.commitStagedDefaultWithinLease()
+            }
+        )
+        let model = makeRuntimeSettingsViewModel(
+            runtime: staleRuntime,
+            repository: guardedRepository,
+            notificationCenter: notifications
+        )
+        model.defaultReminderEnabled = true
+        model.defaultOffsetMinutes = 45
+
+        let staleSave = Task { await model.save() }
+        await delayedRepository.waitUntilSaveStarted()
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 2)
+        let didSave = await staleSave.value
+        let currentRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        let durableDefault = try await currentRuntime.reminderStore.defaultReminder(
+            accountID: user.id
+        )
+        let delayedState = await delayedRepository.state()
+
+        XCTAssertFalse(didSave)
+        XCTAssertNil(durableDefault)
+        XCTAssertTrue(delayedState.cancelled)
+        XCTAssertFalse(delayedState.completed)
+
+        await fixture.container.deactivateApplication()
+        try? FileManager.default.removeItem(at: fixture.rootURL)
+    }
+
+    func testAcceptedSettingsDefaultCommitBlocksLeaseDeactivationUntilDurableWriteFinishes() async throws {
+        let accountID = UUID()
+        let lease = AppRuntimeLease(accountID: accountID, sessionGeneration: 21)
+        let validity = AppRuntimeValidity(lease: lease)
+        let gate = AppRuntimeOperationGate(lease: lease)
+        let baseStore = AppIntegrationControlledDefaultStore(mode: .blocking)
+        let guardedStore = AppRuntimeTaskReminderStore(
+            base: baseStore,
+            accountID: accountID,
+            lease: lease,
+            validity: validity,
+            operationGate: gate
+        )
+        let settingsStore = AppRuntimeSettingsReminderStore(direct: guardedStore)
+        let desiredDefault = DefaultTaskReminder(
+            accountID: accountID,
+            offsetMinutes: 75,
+            repeatRule: .weekly,
+            enabled: true
+        )
+        try await settingsStore.saveDefault(desiredDefault)
+        let repository = AppRuntimeSettingsRepository(
+            base: AppIntegrationAcceptedSettingsRepository(),
+            lease: lease,
+            relay: AppUnauthorizedRelay(),
+            operationGate: gate,
+            acceptedSaveCommit: {
+                try await settingsStore.commitStagedDefaultWithinLease()
+            }
+        )
+
+        let save = Task {
+            try await repository.save(
+                accountID: accountID,
+                language: .en,
+                notificationsEnabled: true
+            )
+        }
+        await baseStore.waitUntilDefaultCommitStarted()
+        let teardownRecorder = AppIntegrationStringRecorder()
+        let teardown = Task {
+            await gate.invalidateCancelAndWait(for: lease)
+            await teardownRecorder.record("finished")
+        }
+        await baseStore.waitUntilCommitCancellationObserved()
+
+        let stagesWhileCommitBlocked = await teardownRecorder.values()
+        XCTAssertTrue(stagesWhileCommitBlocked.isEmpty)
+
+        await baseStore.releaseDefaultCommit()
+        await teardown.value
+        await assertCancelled(save)
+        let durableDefault = try await baseStore.defaultReminder(accountID: accountID)
+        let completedStages = await teardownRecorder.values()
+
+        XCTAssertEqual(completedStages, ["finished"])
+        XCTAssertEqual(durableDefault, desiredDefault)
+    }
+
+    func testAcceptedSettingsDefaultCommitFailureIsVisibleAndDoesNotSuspendNotifications() async throws {
+        let accountID = UUID()
+        let lease = AppRuntimeLease(accountID: accountID, sessionGeneration: 22)
+        let validity = AppRuntimeValidity(lease: lease)
+        let gate = AppRuntimeOperationGate(lease: lease)
+        let baseStore = AppIntegrationControlledDefaultStore(mode: .failing)
+        let guardedStore = AppRuntimeTaskReminderStore(
+            base: baseStore,
+            accountID: accountID,
+            lease: lease,
+            validity: validity,
+            operationGate: gate
+        )
+        let settingsStore = AppRuntimeSettingsReminderStore(direct: guardedStore)
+        let acceptedRepository = AppIntegrationAcceptedSettingsRepository()
+        let repository = AppRuntimeSettingsRepository(
+            base: acceptedRepository,
+            lease: lease,
+            relay: AppUnauthorizedRelay(),
+            operationGate: gate,
+            acceptedSaveCommit: {
+                try await settingsStore.commitStagedDefaultWithinLease()
+            }
+        )
+        try await settingsStore.saveDefault(DefaultTaskReminder(
+            accountID: accountID,
+            offsetMinutes: 30,
+            repeatRule: .none,
+            enabled: true
+        ))
+        do {
+            _ = try await repository.save(
+                accountID: accountID,
+                language: .en,
+                notificationsEnabled: false
+            )
+            XCTFail("Expected typed default commit failure")
+        } catch let error as AppRuntimeSettingsTransactionError {
+            XCTAssertEqual(error, .defaultCommitFailed)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+        let cleaner = AppIntegrationNotificationCleanerRecorder()
+        let model = SettingsViewModel(
+            accountID: accountID,
+            initialLanguage: .en,
+            repository: repository,
+            notificationCenter: AppIntegrationAuthorizedNotificationCenter(),
+            reminderStore: settingsStore,
+            registration: AppIntegrationDelayedDeviceRegistrationService(),
+            notificationCleaner: cleaner,
+            deviceName: "Test iPhone",
+            onOpenFocusCadence: {}
+        )
+        model.defaultReminderEnabled = true
+        model.defaultOffsetMinutes = 45
+        model.notificationsEnabled = false
+
+        let saved = await model.save()
+        let durableDefault = try await baseStore.defaultReminder(accountID: accountID)
+        let acceptedSaveCount = await acceptedRepository.saveCount()
+        let suspendedAccounts = await cleaner.suspendedAccounts()
+
+        XCTAssertFalse(saved)
+        XCTAssertEqual(model.phase, .error)
+        XCTAssertEqual(model.failure?.code, "settings_unavailable")
+        XCTAssertEqual(acceptedSaveCount, 2)
+        XCTAssertNil(durableDefault)
+        XCTAssertTrue(suspendedAccounts.isEmpty)
+    }
+
+    func testStaleSettingsDeviceSyncIsCancelledBeforeSameAccountRuntimeReplacement() async throws {
+        let notifications = AppIntegrationAuthorizedNotificationCenter()
+        let registration = AppIntegrationDelayedDeviceRegistrationService()
+        let fixture = makePersistentReminderContainer(
+            notifications: notifications,
+            deviceRegistrationOverride: registration
+        )
+        let user = appIntegrationUser(id: UUID())
+
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 1)
+        let staleRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        let model = makeRuntimeSettingsViewModel(
+            runtime: staleRuntime,
+            repository: staleRuntime.settingsActions,
+            notificationCenter: notifications
+        )
+
+        let staleSync = Task { await model.syncDeviceRegistration() }
+        await registration.waitUntilSyncStarted()
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 2)
+        await staleSync.value
+        let state = await registration.stateSnapshot()
+
+        XCTAssertTrue(state.cancelled)
+        XCTAssertFalse(state.completed)
+        XCTAssertEqual(state.unregisterCount, 0)
+
+        await fixture.container.deactivateApplication()
+        try? FileManager.default.removeItem(at: fixture.rootURL)
+    }
+
+    func testDelayedStaleNotificationToggleCannotRemoveNewSameAccountRequest() async throws {
+        let notifications = AppIntegrationAuthorizedNotificationCenter()
+        let fixture = makePersistentReminderContainer(notifications: notifications)
+        let user = appIntegrationUser(id: UUID())
+
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 1)
+        let staleRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        try await seedReminder(runtime: staleRuntime, title: "Same account task")
+        _ = try await staleRuntime.resumeNotificationsAfterRuntimeReady(allowNetwork: false)
+        await notifications.delayNextRemoval()
+
+        let staleToggle = Task {
+            await staleRuntime.notificationActions.suspendNotifications(accountID: user.id)
+        }
+        await notifications.waitUntilDelayedRemovalStarted()
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 2)
+        let currentRuntime = try XCTUnwrap(fixture.container.activeRuntime)
+        _ = try await currentRuntime.resumeNotificationsAfterRuntimeReady(allowNetwork: false)
+        await staleToggle.value
+
+        let titles = await notifications.requestTitles()
+        let cancelledRemovals = await notifications.cancelledDelayedRemovalCount()
+        XCTAssertEqual(titles, ["Same account task"])
+        XCTAssertEqual(cancelledRemovals, 1)
+
+        await fixture.container.deactivateApplication()
+        try? FileManager.default.removeItem(at: fixture.rootURL)
+    }
+
+    func testProductionSettingsNotificationControllerPreservesDefaultAcrossToggle() async throws {
+        let notifications = AppIntegrationAuthorizedNotificationCenter()
+        let fixture = makePersistentReminderContainer(notifications: notifications)
+        let user = appIntegrationUser(id: UUID())
+
+        _ = try await fixture.container.activateApplication(for: user, sessionGeneration: 1)
+        let runtime = try XCTUnwrap(fixture.container.activeRuntime)
+        try await seedReminder(runtime: runtime, title: "Settings task")
+        _ = try await runtime.resumeNotificationsAfterRuntimeReady(allowNetwork: false)
+        let acceptedDefault = DefaultTaskReminder(
+            accountID: user.id,
+            offsetMinutes: 75,
+            repeatRule: .daily,
+            enabled: true
+        )
+        try await runtime.settingsReminderStore.saveDefault(acceptedDefault)
+        let acceptedRepository = AppRuntimeSettingsRepository(
+            base: AppIntegrationAcceptedSettingsRepository(),
+            lease: runtime.lease,
+            relay: AppUnauthorizedRelay(),
+            operationGate: runtime.operationGate,
+            acceptedSaveCommit: {
+                try await runtime.settingsReminderStore.commitStagedDefaultWithinLease()
+            }
+        )
+        _ = try await acceptedRepository.save(
+            accountID: user.id,
+            language: .en,
+            notificationsEnabled: false
+        )
+
+        try await seedReminderSettings(runtime: runtime, enabled: false)
+        await runtime.notificationActions.suspendNotifications(accountID: user.id)
+        let disabledResume = try await runtime.resumeNotificationsAfterRuntimeReady(
+            allowNetwork: false
+        )
+        let suspendedTitles = await notifications.requestTitles()
+        let suspendedRows = try await runtime.reminderStore.reminders(accountID: user.id)
+        let suspendedDefault = try await runtime.reminderStore.defaultReminder(accountID: user.id)
+
+        try await seedReminderSettings(runtime: runtime, enabled: true)
+        try await runtime.notificationActions.resumeNotifications(
+            accountID: user.id,
+            timeZone: TimeZone(identifier: user.timezone)!
+        )
+        let resumedTitles = await notifications.requestTitles()
+        let resumedRows = try await runtime.reminderStore.reminders(accountID: user.id)
+        let resumedDefault = try await runtime.reminderStore.defaultReminder(accountID: user.id)
+
+        XCTAssertFalse(disabledResume)
+        XCTAssertEqual(suspendedTitles, [])
+        XCTAssertEqual(suspendedRows.count, 1)
+        XCTAssertEqual(suspendedDefault, acceptedDefault)
+        XCTAssertEqual(resumedTitles, ["Settings task"])
+        XCTAssertEqual(resumedRows, suspendedRows)
+        XCTAssertEqual(resumedDefault, suspendedDefault)
+
+        await fixture.container.deactivateApplication()
+        try? FileManager.default.removeItem(at: fixture.rootURL)
+    }
+
+    func testAppStoreRestoresTabAndCalendarThenLogoutClearsScopedSession() async throws {
+        let accountID = UUID()
+        let suiteName = "AppStoreRestoration-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let restoration = AppRestorationUserDefaultsStore(
+            defaults: defaults,
+            keyPrefix: "app-store-composition"
+        )
+        let seedLease = UUID()
+        _ = restoration.acquireLease(accountID: accountID, leaseID: seedLease)
+        var navigation = AppNavigationState()
+        navigation.select(.calendar)
+        let calendar = CalendarRestorationState(
+            timezoneIdentifier: "Europe/Moscow",
+            visibleMonth: CalendarMonth(year: 2026, month: 8),
+            selectedDate: LocalDate(rawValue: "2026-08-23")!
+        )
+        XCTAssertTrue(
+            restoration.save(
+                AppRestorationSnapshot(
+                    accountID: accountID,
+                    navigation: AppNavigationRestorationState(navigation: navigation),
+                    calendar: calendar
+                ),
+                leaseID: seedLease
+            )
+        )
+        let container = makeContainer()
+        let store = container.makeAppStore(
+            launchUser: appIntegrationUser(id: accountID),
+            restorationPersistence: restoration
+        )
+
+        await store.restoreIfNeeded()
+
+        XCTAssertEqual(store.navigation.selectedTab, .calendar)
+        XCTAssertEqual(store.restoredCalendarState, calendar)
+        await store.logout()
+        XCTAssertEqual(restoration.load(accountID: accountID), .missing)
+        XCTAssertNil(store.restoredCalendarState)
+    }
+
+    func testNewestWarmDeepLinkWinsAfterRuntimeRestoration() async {
+        let container = makeContainer()
+        let store = container.makeAppStore(launchUser: appIntegrationUser(id: UUID()))
+        await store.restoreIfNeeded()
+
+        await store.receiveDeepLink(URL(string: "rocketflow://focus")!)
+        await store.receiveDeepLink(URL(string: "rocketflow://planner")!)
+
+        XCTAssertEqual(store.navigation.selectedTab, .planner)
+        XCTAssertEqual(store.navigation.plannerPath, [])
+    }
+
     private var appIntegrationAPIURL: URL {
         URL(string: "https://app-integration.test/rocket-api")!
     }
@@ -404,6 +972,9 @@ final class AppIntegrationDependencyTests: XCTestCase {
     private func makeContainer() -> DependencyContainer {
         DependencyContainer(
             apiBaseURL: appIntegrationAPIURL,
+            languageStore: AppLanguageStore(
+                persistence: AppIntegrationLanguagePersistence(initial: .en)
+            ),
             sessionStore: InMemorySessionStore(),
             databaseOpener: { _ in try AppDatabase.inMemory() },
             networkMonitor: FixedNetworkMonitor(connected: false),
@@ -412,6 +983,109 @@ final class AppIntegrationDependencyTests: XCTestCase {
             backgroundScheduler: AppIntegrationBackgroundScheduler(),
             registerBackgroundTasks: false
         )
+    }
+
+    private func makePersistentReminderContainer(
+        notifications: AppIntegrationAuthorizedNotificationCenter,
+        deviceRegistrationOverride: (any DeviceRegistrationServicing)? = nil
+    ) -> (container: DependencyContainer, factory: AppDatabaseFactory, rootURL: URL) {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RocketFlowReminderLifecycle-\(UUID())", isDirectory: true)
+        let factory = AppDatabaseFactory(rootURL: rootURL)
+        let container = DependencyContainer(
+            apiBaseURL: appIntegrationAPIURL,
+            languageStore: AppLanguageStore(
+                persistence: AppIntegrationLanguagePersistence(initial: .en)
+            ),
+            sessionStore: InMemorySessionStore(),
+            databaseFactory: factory,
+            networkMonitor: FixedNetworkMonitor(connected: false),
+            notificationCenter: notifications,
+            fcmTokenProvider: ManualFCMRegistrationTokenProvider(configured: false),
+            deviceRegistrationOverride: deviceRegistrationOverride,
+            backgroundScheduler: AppIntegrationBackgroundScheduler(),
+            registerBackgroundTasks: false
+        )
+        return (container, factory, rootURL)
+    }
+
+    private func makeRuntimeSettingsViewModel(
+        runtime: AppUserRuntime,
+        repository: any SettingsRepositoryServing,
+        notificationCenter: any UserNotificationCenterServing
+    ) -> SettingsViewModel {
+        SettingsViewModel(
+            accountID: runtime.user.id,
+            initialLanguage: .en,
+            repository: repository,
+            notificationCenter: notificationCenter,
+            reminderStore: runtime.settingsReminderStore,
+            registration: runtime.deviceRegistration,
+            notificationCleaner: runtime.notificationActions,
+            deviceName: "Test iPhone",
+            reminderTimeZone: TimeZone(identifier: runtime.user.timezone)!,
+            onOpenFocusCadence: {}
+        )
+    }
+
+    private func seedReminder(
+        runtime: AppUserRuntime,
+        title: String
+    ) async throws {
+        try await seedReminderSettings(runtime: runtime, enabled: true)
+        let taskID = try await seedPlanningTask(runtime: runtime, title: title)
+        try await runtime.reminderStore.saveDefault(
+            DefaultTaskReminder(
+                accountID: runtime.user.id,
+                offsetMinutes: 30,
+                repeatRule: .none,
+                enabled: true
+            )
+        )
+        try await runtime.reminderStore.save(
+            LocalTaskReminder(
+                id: UUID(),
+                accountID: runtime.user.id,
+                taskID: taskID,
+                taskTitle: title,
+                triggerAt: Date().addingTimeInterval(7_200),
+                repeatRule: .none
+            ),
+            taskState: .active
+        )
+    }
+
+    private func seedReminderSettings(
+        runtime: AppUserRuntime,
+        enabled: Bool
+    ) async throws {
+        try await runtime.settingsCache.save(
+            UserSettingsDTO(
+                language: .en,
+                greenPriorityDecayPolicy: nil,
+                redPriorityDecayPolicy: nil,
+                notificationsEnabled: enabled,
+                version: 1
+            ),
+            accountID: runtime.user.id
+        )
+    }
+
+    private func seedPlanningTask(
+        runtime: AppUserRuntime,
+        title: String
+    ) async throws -> UUID {
+        let folder = try await runtime.planningRepository.createFolder(
+            FolderDraft(name: "Reminder folder \(UUID())")
+        )
+        let goal = try await runtime.planningRepository.createGoal(
+            GoalDraft(folderID: folder.id, name: "Reminder goal")
+        )
+        let taskID = UUID()
+        _ = try await runtime.planningRepository.createTask(
+            TaskDraft(id: taskID, goalID: goal.id, title: title)
+        )
+        return taskID
     }
 
     private func appIntegrationUser(id: UUID) -> UserDTO {
@@ -475,6 +1149,375 @@ final class AppIntegrationDependencyTests: XCTestCase {
             goalID
         )
     }
+
+}
+
+private final class AppIntegrationLanguagePersistence: AppLanguagePersisting {
+    private(set) var saved: [AppLanguage] = []
+    private var value: AppLanguage?
+
+    init(initial: AppLanguage?) {
+        value = initial
+    }
+
+    func loadLanguage() -> AppLanguage? { value }
+
+    func saveLanguage(_ language: AppLanguage) {
+        value = language
+        saved.append(language)
+    }
+}
+
+private actor AppIntegrationAuthorizedNotificationCenter: UserNotificationCenterServing {
+    private var requests: [String: UserNotificationRequestValue] = [:]
+    private var shouldDelayNextRemoval = false
+    private var delayedRemovalStarted = false
+    private var delayedRemovalWaiters: [CheckedContinuation<Void, Never>] = []
+    private var cancelledDelayedRemovals = 0
+
+    func authorizationState() async -> NotificationAuthorizationState { .authorized }
+    func requestAuthorization() async -> Bool { true }
+    func pendingIdentifiers() async -> Set<String> { Set(requests.keys) }
+    func add(_ request: UserNotificationRequestValue) async {
+        requests[request.identifier] = request
+    }
+    func remove(identifiers: [String]) async {
+        if shouldDelayNextRemoval {
+            shouldDelayNextRemoval = false
+            delayedRemovalStarted = true
+            let waiters = delayedRemovalWaiters
+            delayedRemovalWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            do {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+            } catch {
+                cancelledDelayedRemovals += 1
+                return
+            }
+        }
+        identifiers.forEach { requests.removeValue(forKey: $0) }
+    }
+    func lastBody() -> String? { requests.values.last?.body }
+    func requestTitles() -> [String] {
+        requests.values.map(\.title).sorted()
+    }
+
+    func delayNextRemoval() {
+        shouldDelayNextRemoval = true
+        delayedRemovalStarted = false
+    }
+
+    func waitUntilDelayedRemovalStarted() async {
+        guard !delayedRemovalStarted else { return }
+        await withCheckedContinuation { continuation in
+            delayedRemovalWaiters.append(continuation)
+        }
+    }
+
+    func cancelledDelayedRemovalCount() -> Int { cancelledDelayedRemovals }
+}
+
+private actor AppIntegrationBlockingUnregisterService: DeviceRegistrationServicing {
+    private var unregisterContinuation: CheckedContinuation<DeviceRegistrationSyncResult, Never>?
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var started = false
+    private var finished = false
+
+    func state(accountID: UUID) async -> DeviceRegistrationDisplayState { .unregistered }
+
+    func sync(accountID: UUID, deviceName: String?) async throws -> DeviceRegistrationSyncResult {
+        .tokenUnavailable
+    }
+
+    func unregister(accountID: UUID) async throws -> DeviceRegistrationSyncResult {
+        let result: DeviceRegistrationSyncResult = await withCheckedContinuation {
+            (continuation: CheckedContinuation<DeviceRegistrationSyncResult, Never>) in
+            unregisterContinuation = continuation
+            started = true
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+        }
+        finished = true
+        return result
+    }
+
+    func waitUntilUnregisterStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func releaseUnregister() {
+        let continuation = unregisterContinuation
+        unregisterContinuation = nil
+        continuation?.resume(returning: .unregistered)
+    }
+
+    func unregisterFinished() -> Bool { finished }
+}
+
+private actor AppIntegrationDelayedDeviceRegistrationService: DeviceRegistrationServicing {
+    struct State: Sendable {
+        let completed: Bool
+        let cancelled: Bool
+        let unregisterCount: Int
+    }
+
+    private var syncStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var completed = false
+    private var cancelled = false
+    private var unregisterCount = 0
+
+    func state(accountID: UUID) async -> DeviceRegistrationDisplayState { .unregistered }
+
+    func sync(accountID: UUID, deviceName: String?) async throws -> DeviceRegistrationSyncResult {
+        syncStarted = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        do {
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+            try Task.checkCancellation()
+            completed = true
+            return .tokenUnavailable
+        } catch {
+            cancelled = true
+            throw error
+        }
+    }
+
+    func unregister(accountID: UUID) async throws -> DeviceRegistrationSyncResult {
+        unregisterCount += 1
+        return .unregistered
+    }
+
+    func waitUntilSyncStarted() async {
+        guard !syncStarted else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func stateSnapshot() -> State {
+        State(
+            completed: completed,
+            cancelled: cancelled,
+            unregisterCount: unregisterCount
+        )
+    }
+}
+
+private actor AppIntegrationDelayedSettingsSaveRepository: SettingsRepositoryServing {
+    struct State: Sendable {
+        let completed: Bool
+        let cancelled: Bool
+    }
+
+    private var saveStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var completed = false
+    private var cancelled = false
+
+    func load(accountID: UUID) async throws -> SettingsRepositorySnapshot {
+        snapshot(notificationsEnabled: false)
+    }
+
+    func save(
+        accountID: UUID,
+        language: AppLanguage,
+        notificationsEnabled: Bool
+    ) async throws -> SettingsRepositorySnapshot {
+        saveStarted = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        do {
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+            try Task.checkCancellation()
+            completed = true
+            return snapshot(notificationsEnabled: notificationsEnabled)
+        } catch {
+            cancelled = true
+            throw error
+        }
+    }
+
+    func retry(accountID: UUID) async throws -> SettingsRepositorySnapshot {
+        snapshot(notificationsEnabled: false)
+    }
+
+    func waitUntilSaveStarted() async {
+        guard !saveStarted else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func state() -> State { State(completed: completed, cancelled: cancelled) }
+
+    private func snapshot(notificationsEnabled: Bool) -> SettingsRepositorySnapshot {
+        SettingsRepositorySnapshot(
+            settings: UserSettingsDTO(
+                language: .en,
+                greenPriorityDecayPolicy: nil,
+                redPriorityDecayPolicy: nil,
+                notificationsEnabled: notificationsEnabled,
+                version: 1
+            ),
+            source: .network,
+            pending: false,
+            failure: nil
+        )
+    }
+}
+
+private actor AppIntegrationAcceptedSettingsRepository: SettingsRepositoryServing {
+    private var saves = 0
+
+    func load(accountID: UUID) async throws -> SettingsRepositorySnapshot {
+        snapshot(language: .en, notificationsEnabled: true)
+    }
+
+    func save(
+        accountID: UUID,
+        language: AppLanguage,
+        notificationsEnabled: Bool
+    ) async throws -> SettingsRepositorySnapshot {
+        saves += 1
+        return snapshot(language: language, notificationsEnabled: notificationsEnabled)
+    }
+
+    func retry(accountID: UUID) async throws -> SettingsRepositorySnapshot {
+        snapshot(language: .en, notificationsEnabled: true)
+    }
+
+    func saveCount() -> Int { saves }
+
+    private func snapshot(
+        language: AppLanguage,
+        notificationsEnabled: Bool
+    ) -> SettingsRepositorySnapshot {
+        SettingsRepositorySnapshot(
+            settings: UserSettingsDTO(
+                language: language,
+                greenPriorityDecayPolicy: nil,
+                redPriorityDecayPolicy: nil,
+                notificationsEnabled: notificationsEnabled,
+                version: 1
+            ),
+            source: .network,
+            pending: false,
+            failure: nil
+        )
+    }
+}
+
+private actor AppIntegrationControlledDefaultStore: TaskReminderStoreServing {
+    enum Mode: Sendable {
+        case immediate
+        case blocking
+        case failing
+    }
+
+    private let mode: Mode
+    private let backing = InMemoryTaskReminderStore()
+    private let cancellationEvents: AsyncStream<Void>
+    private let cancellationContinuation: AsyncStream<Void>.Continuation
+    private var commitStarted = false
+    private var commitStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var commitRelease: CheckedContinuation<Void, Never>?
+
+    init(mode: Mode) {
+        self.mode = mode
+        let channel = AsyncStream<Void>.makeStream()
+        cancellationEvents = channel.stream
+        cancellationContinuation = channel.continuation
+    }
+
+    func reconciliationItems(accountID: UUID) async throws -> [TaskReminderReconciliationItem] {
+        await backing.reconciliationItems(accountID: accountID)
+    }
+
+    func reminders(accountID: UUID) async throws -> [LocalTaskReminder] {
+        await backing.reminders(accountID: accountID)
+    }
+
+    func save(_ reminder: LocalTaskReminder, taskState: ReminderTaskState) async throws {
+        await backing.save(reminder, taskState: taskState)
+    }
+
+    func remove(accountID: UUID, taskID: UUID, reminderID: UUID) async throws {
+        await backing.remove(accountID: accountID, taskID: taskID, reminderID: reminderID)
+    }
+
+    func defaultReminder(accountID: UUID) async throws -> DefaultTaskReminder? {
+        await backing.defaultReminder(accountID: accountID)
+    }
+
+    func saveDefault(_ reminder: DefaultTaskReminder) async throws {
+        switch mode {
+        case .immediate:
+            break
+        case .failing:
+            throw AppIntegrationExpectedError.failure
+        case .blocking:
+            commitStarted = true
+            let waiters = commitStartWaiters
+            commitStartWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            let cancellationContinuation = self.cancellationContinuation
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    commitRelease = continuation
+                }
+            } onCancel: {
+                cancellationContinuation.yield(())
+            }
+        }
+        await backing.saveDefault(reminder)
+    }
+
+    func clearDefault(accountID: UUID) async throws {
+        await backing.clearDefault(accountID: accountID)
+    }
+
+    func clear(accountID: UUID) async throws {
+        await backing.clear(accountID: accountID)
+    }
+
+    func waitUntilDefaultCommitStarted() async {
+        guard !commitStarted else { return }
+        await withCheckedContinuation { continuation in
+            commitStartWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilCommitCancellationObserved() async {
+        for await _ in cancellationEvents { return }
+    }
+
+    func releaseDefaultCommit() {
+        let continuation = commitRelease
+        commitRelease = nil
+        continuation?.resume()
+    }
+}
+
+private actor AppIntegrationNotificationCleanerRecorder: AccountNotificationClearing {
+    private var suspended: [UUID] = []
+
+    func clear(accountID: UUID) async throws {}
+
+    func suspendNotifications(accountID: UUID) async {
+        suspended.append(accountID)
+    }
+
+    func resumeNotifications(accountID: UUID, timeZone: TimeZone) async throws {}
+
+    func suspendedAccounts() -> [UUID] { suspended }
 }
 
 private actor AppIntegrationBackgroundScheduler: BackgroundRefreshScheduling {

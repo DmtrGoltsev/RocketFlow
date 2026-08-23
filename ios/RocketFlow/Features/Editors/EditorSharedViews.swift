@@ -18,8 +18,20 @@ struct EditorStateBanner: View {
         case .error:
             Label(copy.failed, systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.red)
+        case let .reminderError(failure):
+            Label(reminderFailureText(failure), systemImage: "bell.badge")
+                .foregroundStyle(.red)
         case .idle, .saved:
             EmptyView()
+        }
+    }
+
+    private func reminderFailureText(_ failure: EditorReminderFailure) -> String {
+        switch failure {
+        case .oneShotInPast: copy.reminderPast
+        case .authorizationDenied: copy.reminderPermissionDenied
+        case .schedulingFailed: copy.reminderSchedulingFailed
+        case .operationIdentityReused: copy.reminderRetryInvalid
         }
     }
 }

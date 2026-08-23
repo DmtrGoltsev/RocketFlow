@@ -29,7 +29,7 @@ final class FocusViewModel: ObservableObject {
 
     @Published private(set) var rolloverSelection: Set<UUID> = []
 
-    let language: AppLanguage
+    @Published private(set) var language: AppLanguage
     let timezone: String
 
     private let accountID: UUID
@@ -61,6 +61,10 @@ final class FocusViewModel: ObservableObject {
     }
 
     var copy: FocusCopy { FocusCopy(language: language) }
+
+    func setLanguage(_ language: AppLanguage) {
+        self.language = language
+    }
 
     var activeItems: [FocusItemDTO] {
         period?.items.filter { !$0.historyOnly }.sorted { lhs, rhs in

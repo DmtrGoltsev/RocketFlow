@@ -8,11 +8,18 @@ struct AuthView: View {
         case password
     }
 
+    @ObservedObject private var languageStore: AppLanguageStore
     @StateObject private var model: AuthViewModel
     @FocusState private var focusedField: Field?
 
-    init(submitter: any AuthSubmitting) {
-        _model = StateObject(wrappedValue: AuthViewModel(submitter: submitter))
+    init(
+        submitter: any AuthSubmitting,
+        languageStore: AppLanguageStore = .shared
+    ) {
+        _languageStore = ObservedObject(wrappedValue: languageStore)
+        _model = StateObject(
+            wrappedValue: AuthViewModel(submitter: submitter, language: languageStore.language)
+        )
     }
 
     var body: some View {
@@ -23,35 +30,38 @@ struct AuthView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("RocketFlow")
                                 .font(.largeTitle.bold())
-                            Text(model.mode == .login ? "Войдите в своё пространство" : "Создайте аккаунт")
+                            Text(model.mode == .login ? model.copy.loginSubtitle : model.copy.registerSubtitle)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
 
-                        Picker("Режим авторизации", selection: $model.mode) {
-                            Text("Вход").tag(AuthMode.login)
-                            Text("Регистрация").tag(AuthMode.register)
+                        Picker(model.copy.mode, selection: $model.mode) {
+                            Text(model.copy.login).tag(AuthMode.login)
+                            Text(model.copy.register).tag(AuthMode.register)
                         }
                         .pickerStyle(.segmented)
                         .disabled(model.isLoading)
+                        .accessibilityLabel(model.copy.mode)
+                        .accessibilityIdentifier("auth.mode")
 
                         if model.mode == .register {
                             field(
-                                title: "Имя",
+                                title: model.copy.displayName,
                                 error: model.fieldErrors["displayName"]
                             ) {
-                                TextField("Как к вам обращаться", text: $model.displayName)
+                                TextField(model.copy.displayNamePlaceholder, text: $model.displayName)
                                     .textContentType(.name)
                                     .textInputAutocapitalization(.words)
                                     .focused($focusedField, equals: .displayName)
                                     .submitLabel(.next)
                                     .onSubmit { focusedField = .email }
+                                    .accessibilityLabel(model.copy.displayName)
                                     .accessibilityIdentifier("auth.displayName")
                             }
                             .id(Field.displayName)
                         }
 
-                        field(title: "Электронная почта", error: model.fieldErrors["email"]) {
+                        field(title: model.copy.email, error: model.fieldErrors["email"]) {
                             TextField("name@example.com", text: $model.email)
                                 .textContentType(.username)
                                 .textInputAutocapitalization(.never)
@@ -60,16 +70,18 @@ struct AuthView: View {
                                 .focused($focusedField, equals: .email)
                                 .submitLabel(.next)
                                 .onSubmit { focusedField = .password }
+                                .accessibilityLabel(model.copy.email)
                                 .accessibilityIdentifier("auth.email")
                         }
                         .id(Field.email)
 
-                        field(title: "Пароль", error: model.fieldErrors["password"]) {
-                            SecureField("Пароль", text: $model.password)
+                        field(title: model.copy.password, error: model.fieldErrors["password"]) {
+                            SecureField(model.copy.password, text: $model.password)
                                 .textContentType(model.mode == .login ? .password : .newPassword)
                                 .focused($focusedField, equals: .password)
                                 .submitLabel(.go)
                                 .onSubmit { Task { await model.submit() } }
+                                .accessibilityLabel(model.copy.password)
                                 .accessibilityIdentifier("auth.password")
                         }
                         .id(Field.password)
@@ -79,7 +91,7 @@ struct AuthView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.red)
                                 .accessibilityIdentifier("auth.error")
-                                .accessibilityLabel("Ошибка. \(message)")
+                                .accessibilityLabel("\(model.copy.errorAccessibilityPrefix). \(message)")
                         }
                     }
                     .frame(maxWidth: 520, alignment: .leading)
@@ -105,7 +117,7 @@ struct AuthView: View {
                             ProgressView()
                                 .tint(.white)
                         }
-                        Text(model.mode == .login ? "Войти" : "Создать аккаунт")
+                        Text(model.mode == .login ? model.copy.submitLogin : model.copy.submitRegister)
                             .fontWeight(.semibold)
                     }
                     .frame(maxWidth: .infinity, minHeight: 48)
@@ -115,15 +127,38 @@ struct AuthView: View {
                 .padding(.horizontal, 24)
                 .padding(.vertical, 12)
                 .background(.bar)
+                .accessibilityLabel(
+                    model.mode == .login ? model.copy.submitLogin : model.copy.submitRegister
+                )
                 .accessibilityIdentifier("auth.submit")
             }
             .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Picker(
+                        model.copy.language,
+                        selection: Binding(
+                            get: { languageStore.language },
+                            set: { languageStore.setLanguage($0) }
+                        )
+                    ) {
+                        Text(model.copy.russian).tag(AppLanguage.ru)
+                        Text(model.copy.english).tag(AppLanguage.en)
+                    }
+                    .pickerStyle(.menu)
+                    .accessibilityLabel(model.copy.language)
+                    .accessibilityValue(model.copy.languageName(languageStore.language))
+                    .accessibilityIdentifier("auth.language")
+                }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("Готово") { focusedField = nil }
+                    Button(model.copy.done) { focusedField = nil }
                 }
             }
+            .onChange(of: languageStore.language) { language in
+                model.setLanguage(language)
+            }
         }
+        .environment(\.locale, Locale(identifier: languageStore.localeIdentifier))
     }
 
     @ViewBuilder

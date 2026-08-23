@@ -4,13 +4,18 @@ import SwiftUI
 struct AuthenticatedAppView: View {
     @ObservedObject var appStore: AppStore
     let runtime: AppUserRuntime
+    @ObservedObject var languageStore: AppLanguageStore
     let offline: Bool
-    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: runtime.user.language) }
+    private var copy: AppIntegrationCopy { AppIntegrationCopy(language: languageStore.language) }
 
     var body: some View {
         TabView(selection: tabSelection) {
             navigationStack(for: .planner) {
-                AppPlannerRoot(runtime: runtime, appStore: appStore)
+                AppPlannerRoot(
+                    runtime: runtime,
+                    appStore: appStore,
+                    languageStore: languageStore
+                )
             }
             .tabItem {
                 Label(copy.planner, systemImage: "list.bullet")
@@ -19,7 +24,11 @@ struct AuthenticatedAppView: View {
             .tag(AppTab.planner)
 
             navigationStack(for: .calendar) {
-                AppCalendarRoot(runtime: runtime, appStore: appStore)
+                AppCalendarRoot(
+                    runtime: runtime,
+                    appStore: appStore,
+                    languageStore: languageStore
+                )
             }
             .tabItem {
                 Label(copy.calendar, systemImage: "calendar")
@@ -28,7 +37,11 @@ struct AuthenticatedAppView: View {
             .tag(AppTab.calendar)
 
             navigationStack(for: .focus) {
-                AppFocusRoot(runtime: runtime, appStore: appStore)
+                AppFocusRoot(
+                    runtime: runtime,
+                    appStore: appStore,
+                    languageStore: languageStore
+                )
             }
             .tabItem {
                 Label(copy.focus, systemImage: "scope")
@@ -40,7 +53,8 @@ struct AuthenticatedAppView: View {
             AppPresentationHost(
                 route: presentation.route,
                 runtime: runtime,
-                appStore: appStore
+                appStore: appStore,
+                languageStore: languageStore
             )
         }
         .safeAreaInset(edge: .top) {
@@ -54,11 +68,16 @@ struct AuthenticatedAppView: View {
                         .accessibilityIdentifier("app.offline")
                 }
                 if let diagnostic = appStore.pushConfigurationDiagnostic {
-                    Label(diagnostic, systemImage: "bell.slash")
+                    let visibleDiagnostic = AppFirebaseMessagingRuntime.userFacingDiagnostic(
+                        diagnostic,
+                        language: languageStore.language
+                    )
+                    Label(visibleDiagnostic, systemImage: "bell.slash")
                         .font(.footnote)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .background(.bar)
+                        .accessibilityLabel(visibleDiagnostic)
                         .accessibilityIdentifier("app.push.unavailable")
                 }
             }
@@ -110,7 +129,8 @@ struct AuthenticatedAppView: View {
                     AppRouteDestination(
                         route: route,
                         runtime: runtime,
-                        appStore: appStore
+                        appStore: appStore,
+                        languageStore: languageStore
                     )
                 }
         }
@@ -120,12 +140,18 @@ struct AuthenticatedAppView: View {
 @MainActor
 private struct AppPlannerRoot: View {
     @StateObject private var model: PlannerViewModel
+    @ObservedObject private var languageStore: AppLanguageStore
 
-    init(runtime: AppUserRuntime, appStore: AppStore) {
+    init(
+        runtime: AppUserRuntime,
+        appStore: AppStore,
+        languageStore: AppLanguageStore
+    ) {
+        _languageStore = ObservedObject(wrappedValue: languageStore)
         _model = StateObject(
             wrappedValue: PlannerViewModel(
                 accountID: runtime.user.id,
-                language: runtime.user.language,
+                language: languageStore.language,
                 loader: runtime.plannerDetailsActions,
                 actionPerformer: runtime.plannerDetailsActions,
                 scrollState: appStore.plannerScrollState,
@@ -134,40 +160,62 @@ private struct AppPlannerRoot: View {
         )
     }
 
-    var body: some View { PlannerView(model: model) }
+    var body: some View {
+        PlannerView(model: model)
+            .onChange(of: languageStore.language) { model.setLanguage($0) }
+    }
 }
 
 @MainActor
 private struct AppCalendarRoot: View {
     @StateObject private var model: CalendarViewModel
+    @ObservedObject private var languageStore: AppLanguageStore
     private let onOpenTask: (UUID) -> Void
 
-    init(runtime: AppUserRuntime, appStore: AppStore) {
+    init(
+        runtime: AppUserRuntime,
+        appStore: AppStore,
+        languageStore: AppLanguageStore
+    ) {
+        _languageStore = ObservedObject(wrappedValue: languageStore)
         _model = StateObject(
             wrappedValue: CalendarViewModel(
                 accountID: runtime.user.id,
                 accountTimezone: runtime.user.timezone,
-                language: runtime.user.language,
+                language: languageStore.language,
                 loader: runtime.calendarActions,
-                onUnauthorized: { Task { await appStore.handleUnauthorized(for: runtime.lease) } }
+                onUnauthorized: { Task { await appStore.handleUnauthorized(for: runtime.lease) } },
+                restorationState: appStore.calendarRestorationState(for: runtime.lease),
+                onRestorationStateChanged: {
+                    appStore.calendarRestorationDidChange($0, for: runtime.lease)
+                }
             )
         )
         onOpenTask = { appStore.openTask($0, origin: .calendar) }
     }
 
-    var body: some View { CalendarView(model: model, onOpenTask: onOpenTask) }
+    var body: some View {
+        CalendarView(model: model, onOpenTask: onOpenTask)
+            .onChange(of: languageStore.language) { model.setLanguage($0) }
+    }
 }
 
 @MainActor
 private struct AppFocusRoot: View {
     @StateObject private var model: FocusViewModel
+    @ObservedObject private var languageStore: AppLanguageStore
 
-    init(runtime: AppUserRuntime, appStore: AppStore) {
+    init(
+        runtime: AppUserRuntime,
+        appStore: AppStore,
+        languageStore: AppLanguageStore
+    ) {
+        _languageStore = ObservedObject(wrappedValue: languageStore)
         _model = StateObject(
             wrappedValue: FocusViewModel(
                 accountID: runtime.user.id,
                 timezone: runtime.user.timezone,
-                language: runtime.user.language,
+                language: languageStore.language,
                 repository: runtime.focusActions,
                 onOpenTask: { appStore.openTask($0, origin: .focus) },
                 onUnauthorized: { Task { await appStore.handleUnauthorized(for: runtime.lease) } }
@@ -175,7 +223,10 @@ private struct AppFocusRoot: View {
         )
     }
 
-    var body: some View { FocusView(model: model) }
+    var body: some View {
+        FocusView(model: model)
+            .onChange(of: languageStore.language) { model.setLanguage($0) }
+    }
 }
 
 @MainActor
@@ -183,6 +234,7 @@ private struct AppRouteDestination: View {
     let route: AppRoute
     let runtime: AppUserRuntime
     @ObservedObject var appStore: AppStore
+    @ObservedObject var languageStore: AppLanguageStore
 
     @ViewBuilder
     var body: some View {
@@ -192,16 +244,22 @@ private struct AppRouteDestination: View {
                 reference: reference,
                 origin: origin,
                 runtime: runtime,
-                appStore: appStore
+                appStore: appStore,
+                languageStore: languageStore
             )
         case .settings:
-            AppSettingsHost(runtime: runtime, appStore: appStore)
+            AppSettingsHost(
+                runtime: runtime,
+                appStore: appStore,
+                languageStore: languageStore
+            )
         case let .links(reference, origin):
             AppLinksHost(
                 reference: reference,
                 origin: origin,
                 runtime: runtime,
-                appStore: appStore
+                appStore: appStore,
+                languageStore: languageStore
             )
         }
     }
@@ -211,22 +269,25 @@ private struct AppRouteDestination: View {
 private struct AppDetailHost: View {
     let reference: DetailEntityReference
     @StateObject private var model: DetailViewModel
-    private let language: AppLanguage
+    @ObservedObject private var languageStore: AppLanguageStore
+    private let reminderReader: any TaskReminderReading
 
     init(
         reference: DetailEntityReference,
         origin: DetailOriginTab,
         runtime: AppUserRuntime,
-        appStore: AppStore
+        appStore: AppStore,
+        languageStore: AppLanguageStore
     ) {
         self.reference = reference
-        language = runtime.user.language
+        _languageStore = ObservedObject(wrappedValue: languageStore)
+        reminderReader = runtime.reminderWorkflow
         _model = StateObject(
             wrappedValue: DetailViewModel(
                 reference: reference,
                 origin: origin,
                 loader: runtime.plannerDetailsActions,
-                mutationPerformer: runtime.plannerDetailsActions,
+                mutationPerformer: runtime.reminderDetailActions,
                 onNavigate: appStore.handleDetailNavigation
             )
         )
@@ -235,37 +296,55 @@ private struct AppDetailHost: View {
     @ViewBuilder
     var body: some View {
         switch reference.kind {
-        case .folder: FolderDetailView(model: model, language: language)
-        case .goal: GoalDetailView(model: model, language: language)
-        case .task: TaskDetailView(model: model, language: language)
-        case .idea: IdeaDetailView(model: model, language: language)
-        case .note: NoteDetailView(model: model, language: language)
+        case .folder: FolderDetailView(model: model, language: languageStore.language)
+        case .goal: GoalDetailView(model: model, language: languageStore.language)
+        case .task:
+            TaskDetailView(
+                model: model,
+                language: languageStore.language,
+                reminderReader: reminderReader
+            )
+        case .idea: IdeaDetailView(model: model, language: languageStore.language)
+        case .note: NoteDetailView(model: model, language: languageStore.language)
         }
     }
+
 }
 
 @MainActor
 private struct AppSettingsHost: View {
     @StateObject private var model: SettingsViewModel
+    @ObservedObject private var languageStore: AppLanguageStore
 
-    init(runtime: AppUserRuntime, appStore: AppStore) {
+    init(
+        runtime: AppUserRuntime,
+        appStore: AppStore,
+        languageStore: AppLanguageStore
+    ) {
+        _languageStore = ObservedObject(wrappedValue: languageStore)
         _model = StateObject(
             wrappedValue: SettingsViewModel(
                 accountID: runtime.user.id,
-                initialLanguage: runtime.user.language,
+                initialLanguage: languageStore.language,
                 repository: runtime.settingsActions,
                 notificationCenter: runtime.notificationCenter,
-                reminderStore: runtime.reminderStore,
+                reminderStore: runtime.settingsReminderStore,
                 registration: runtime.deviceRegistration,
-                notificationCleaner: runtime.reminderScheduler,
+                notificationCleaner: runtime.notificationActions,
                 deviceName: AppDeviceInfo.name,
                 onOpenFocusCadence: {
                     appStore.navigation.present(.focusCadence)
                 },
-                onUnauthorized: { Task { await appStore.handleUnauthorized(for: runtime.lease) } }
+                onUnauthorized: { Task { await appStore.handleUnauthorized(for: runtime.lease) } },
+                onLanguageChanged: { languageStore.setLanguage($0) }
             )
         )
     }
 
-    var body: some View { SettingsView(model: model) }
+    var body: some View {
+        SettingsView(model: model)
+            .onChange(of: languageStore.language) {
+                model.reconcileExternalLanguage($0)
+            }
+    }
 }

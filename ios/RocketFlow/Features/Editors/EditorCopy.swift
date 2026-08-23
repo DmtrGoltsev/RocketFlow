@@ -56,6 +56,10 @@ struct EditorCopy: Sendable {
     let recurrenceAnchor: String
     let recurrenceInvalid: String
     let recurrenceEndInvalid: String
+    let reminderPast: String
+    let reminderPermissionDenied: String
+    let reminderSchedulingFailed: String
+    let reminderRetryInvalid: String
     let statusOnly: String
     let todo: String
     let inProgress: String
@@ -121,6 +125,10 @@ struct EditorCopy: Sendable {
             recurrenceAnchor = "Укажите плановую дату или срок"
             recurrenceInvalid = "Параметры повторения не совпадают с датой начала"
             recurrenceEndInvalid = "Дата окончания должна быть позже даты начала"
+            reminderPast = "Дата разового напоминания должна быть в будущем"
+            reminderPermissionDenied = "Разрешите уведомления, чтобы включить напоминание"
+            reminderSchedulingFailed = "Задача сохранена, но напоминание не запланировано. Повторите сохранение"
+            reminderRetryInvalid = "Эта попытка сохранения устарела. Закройте редактор и откройте его снова"
             statusOnly = "В общей задаче можно изменить только статус"
             todo = "К выполнению"
             inProgress = "В работе"
@@ -183,6 +191,10 @@ struct EditorCopy: Sendable {
             recurrenceAnchor = "Set a planned date or due date"
             recurrenceInvalid = "Recurrence settings do not match the anchor date"
             recurrenceEndInvalid = "The end date must be after the anchor date"
+            reminderPast = "A one-time reminder must be scheduled in the future"
+            reminderPermissionDenied = "Allow notifications to enable this reminder"
+            reminderSchedulingFailed = "The task was saved, but its reminder was not scheduled. Save again to retry"
+            reminderRetryInvalid = "This save attempt is stale. Close and reopen the editor"
             statusOnly = "Only status can be changed on this shared task"
             todo = "To do"
             inProgress = "In progress"
@@ -258,6 +270,7 @@ struct EditorCopy: Sendable {
         case .mustBeNonnegative: nonnegative
         case .recurrenceAnchorRequired: recurrenceAnchor
         case .recurrenceEndInvalid: recurrenceEndInvalid
+        case .reminderOneShotInPast: reminderPast
         case .recurrenceIntervalInvalid, .recurrenceWeekdayRequired,
              .recurrenceAnchorWeekdayRequired, .recurrenceDayInvalid,
              .recurrenceAnchorDayRequired:

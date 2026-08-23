@@ -74,6 +74,42 @@ final class EditorValidationTests: XCTestCase {
         XCTAssertEqual(result.errors[.effort], .mustBeNonnegative)
     }
 
+    func testPastOneShotReminderFailsBeforePayloadButRecurringAnchorCanAdvance() {
+        let now = EditorTestFixtures.anchor
+        var draft = EditorTestFixtures.taskDraft()
+        let reminder = TaskReminderEditorDraft(
+            triggerAt: now.addingTimeInterval(-60),
+            repeatRule: .none
+        )
+        draft.reminder = .upsert(reminder)
+
+        let invalid = EditorValidator.validate(
+            draft,
+            timezone: EditorTestFixtures.timezone,
+            now: now
+        )
+        XCTAssertEqual(invalid.errors[.reminder], .reminderOneShotInPast)
+        XCTAssertNil(EditorValidator.payload(
+            draft,
+            timezone: EditorTestFixtures.timezone,
+            now: now
+        ))
+
+        draft.reminder = .upsert(
+            TaskReminderEditorDraft(
+                id: reminder.id,
+                triggerAt: reminder.triggerAt,
+                repeatRule: .daily,
+                anchorAt: reminder.anchorAt
+            )
+        )
+        XCTAssertTrue(EditorValidator.validate(
+            draft,
+            timezone: EditorTestFixtures.timezone,
+            now: now
+        ).isValid)
+    }
+
     func testTaskDescriptionLimitMatchesBackendContract() {
         var draft = EditorTestFixtures.taskDraft()
         draft.description = String(repeating: "x", count: EditorLimits.taskDescription + 1)

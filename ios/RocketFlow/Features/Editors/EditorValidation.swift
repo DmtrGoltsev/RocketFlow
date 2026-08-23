@@ -18,14 +18,16 @@ enum EditorValidator {
     static func validate(
         _ draft: TaskEditorDraft,
         timezone: TimeZone,
-        scope: TaskEditorMutationScope = .full
+        scope: TaskEditorMutationScope = .full,
+        now: Date = Date()
     ) -> EditorValidationResult {
         if scope == .statusOnly { return .valid }
         var errors: [EditorField: EditorValidationIssue?] = [
             .title: requiredLimited(draft.title, maximum: EditorLimits.taskTitle),
             .description: limited(draft.description, maximum: EditorLimits.taskDescription),
             .effort: draft.effort < 0 ? .mustBeNonnegative : nil,
-            .checklist: checklistIssue(draft.checklist)
+            .checklist: checklistIssue(draft.checklist),
+            .reminder: reminderIssue(draft.reminder, now: now)
         ]
         errors.merge(recurrenceIssues(draft, timezone: timezone)) { current, _ in current }
         return result(errors)
@@ -78,9 +80,10 @@ enum EditorValidator {
     static func payload(
         _ draft: TaskEditorDraft,
         timezone: TimeZone,
-        scope: TaskEditorMutationScope = .full
+        scope: TaskEditorMutationScope = .full,
+        now: Date = Date()
     ) -> TaskEditorPayload? {
-        guard validate(draft, timezone: timezone, scope: scope).isValid else { return nil }
+        guard validate(draft, timezone: timezone, scope: scope, now: now).isValid else { return nil }
         let recurrencePayload: TaskRecurrenceEditorPayload?
         if
             let mode = draft.recurrence.mode,
@@ -126,7 +129,9 @@ enum EditorValidator {
                     displayOrder: index
                 )
             },
-            tagIDs: draft.tags.filter(\.assigned).map(\.id)
+            tagIDs: draft.tags.filter(\.assigned).map(\.id),
+            reminder: scope == .statusOnly ? .preserveOrDefault : draft.reminder,
+            operationID: draft.operationID
         )
     }
 
@@ -199,6 +204,18 @@ enum EditorValidator {
             }
         }
         return errors
+    }
+
+    private static func reminderIssue(
+        _ mutation: TaskReminderEditorMutation,
+        now: Date
+    ) -> EditorValidationIssue? {
+        guard case let .upsert(reminder) = mutation,
+              reminder.repeatRule == .none,
+              reminder.triggerAt <= now else {
+            return nil
+        }
+        return .reminderOneShotInPast
     }
 
     private static func checklistIssue(

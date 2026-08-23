@@ -263,34 +263,142 @@ final class SettingsFeatureTests: XCTestCase {
 
         XCTAssertEqual(model.phase, .unauthorized)
         XCTAssertEqual(unauthorizedCount, 1)
-        let clearedAccounts = await cleaner.accounts()
+        let clearedAccounts = await cleaner.clearedAccounts()
         XCTAssertEqual(clearedAccounts, [accountID])
     }
 
     @MainActor
-    func testSavingNotificationsOffClearsOnlyCurrentAccountNotifications() async {
+    func testSavingNotificationsOffSuspendsOnlyCurrentAccountNotifications() async {
         let cleaner = SettingsNotificationCleanerSpy()
-        let model = makeViewModel(notificationCleaner: cleaner)
+        let repository = SettingsRepositoryViewStub(snapshot: SettingsRepositorySnapshot(
+            settings: settingsDTO(notifications: false),
+            source: .network,
+            pending: false,
+            failure: nil
+        ))
+        let model = makeViewModel(repository: repository, notificationCleaner: cleaner)
         model.notificationsEnabled = false
 
         let saved = await model.save()
 
-        let accounts = await cleaner.accounts()
+        let suspended = await cleaner.suspendedAccounts()
+        let erased = await cleaner.clearedAccounts()
         XCTAssertTrue(saved)
-        XCTAssertEqual(accounts, [accountID])
+        XCTAssertEqual(suspended, [accountID])
+        XCTAssertTrue(erased.isEmpty)
     }
 
     @MainActor
-    func testTurningNotificationsOffImmediatelyClearsScopedNotifications() async {
+    func testTurningNotificationsOffWaitsForSaveBeforeSuspending() async {
         let cleaner = SettingsNotificationCleanerSpy()
         let model = makeViewModel(notificationCleaner: cleaner)
         model.notificationsEnabled = true
 
         await model.setNotificationsEnabled(false)
 
-        let accounts = await cleaner.accounts()
+        let suspended = await cleaner.suspendedAccounts()
+        let erased = await cleaner.clearedAccounts()
         XCTAssertFalse(model.notificationsEnabled)
-        XCTAssertEqual(accounts, [accountID])
+        XCTAssertTrue(suspended.isEmpty)
+        XCTAssertTrue(erased.isEmpty)
+    }
+
+    @MainActor
+    func testSavingNotificationsOffPreservesDurableReminderAndDefault() async throws {
+        let now = Date(timeIntervalSince1970: 1_787_001_200)
+        let reminderStore = InMemoryTaskReminderStore()
+        let center = SettingsNotificationCenterStub(state: .authorized)
+        let scheduler = TaskReminderScheduler(center: center, store: reminderStore, now: { now })
+        let reminder = LocalTaskReminder(
+            id: UUID(),
+            accountID: accountID,
+            taskID: UUID(),
+            taskTitle: "Private title",
+            triggerAt: now.addingTimeInterval(60 * 60),
+            repeatRule: .daily
+        )
+        let defaultReminder = DefaultTaskReminder(
+            accountID: accountID,
+            offsetMinutes: 45,
+            repeatRule: .weekly,
+            enabled: true
+        )
+        try await reminderStore.saveDefault(defaultReminder)
+        _ = try await scheduler.schedule(reminder, taskState: .active, timeZone: .current)
+        let repository = SettingsRepositoryViewStub(snapshot: SettingsRepositorySnapshot(
+            settings: settingsDTO(notifications: false),
+            source: .network,
+            pending: false,
+            failure: nil
+        ))
+        let model = makeViewModel(
+            repository: repository,
+            center: center,
+            reminderStore: reminderStore,
+            notificationCleaner: scheduler
+        )
+        await model.load()
+        await model.setNotificationsEnabled(false)
+
+        let saved = await model.save()
+
+        let reminders = try await reminderStore.reminders(accountID: accountID)
+        let storedDefault = try await reminderStore.defaultReminder(accountID: accountID)
+        let pending = await center.pendingIdentifiers()
+        XCTAssertTrue(saved)
+        XCTAssertEqual(reminders, [reminder])
+        XCTAssertEqual(storedDefault, defaultReminder)
+        XCTAssertTrue(pending.isEmpty)
+    }
+
+    @MainActor
+    func testFailedSettingsSaveRestoresPreviousDurableDefault() async throws {
+        let reminderStore = InMemoryTaskReminderStore()
+        let previous = DefaultTaskReminder(
+            accountID: accountID,
+            offsetMinutes: 30,
+            repeatRule: .weekly,
+            enabled: true
+        )
+        try await reminderStore.saveDefault(previous)
+        let repository = SettingsRepositoryViewStub(
+            snapshot: SettingsRepositorySnapshot(
+                settings: nil,
+                source: .cache,
+                pending: false,
+                failure: nil
+            ),
+            error: apiError(503, code: "service_unavailable")
+        )
+        let model = makeViewModel(repository: repository, reminderStore: reminderStore)
+        model.defaultReminderEnabled = true
+        model.defaultOffsetMinutes = 90
+        model.defaultRepeatRule = .daily
+
+        let saved = await model.save()
+
+        let restored = try await reminderStore.defaultReminder(accountID: accountID)
+        XCTAssertFalse(saved)
+        XCTAssertEqual(restored, previous)
+    }
+
+    @MainActor
+    func testSavingNotificationsOnRequestsScopedReconciliation() async {
+        let cleaner = SettingsNotificationCleanerSpy()
+        let repository = SettingsRepositoryViewStub(snapshot: SettingsRepositorySnapshot(
+            settings: settingsDTO(notifications: true),
+            source: .network,
+            pending: false,
+            failure: nil
+        ))
+        let model = makeViewModel(repository: repository, notificationCleaner: cleaner)
+        model.notificationsEnabled = true
+
+        let saved = await model.save()
+
+        let resumed = await cleaner.resumedAccounts()
+        XCTAssertTrue(saved)
+        XCTAssertEqual(resumed, [accountID])
     }
 
     @MainActor
@@ -307,13 +415,138 @@ final class SettingsFeatureTests: XCTestCase {
     }
 
     @MainActor
+    func testAcceptedLanguageInvokesCallbackAfterPublishedStateChanges() async {
+        let repository = SettingsRepositoryViewStub(snapshot: SettingsRepositorySnapshot(
+            settings: settingsDTO(language: .ru), source: .network, pending: false, failure: nil
+        ))
+        var observedModel: SettingsViewModel?
+        var callbackLanguages: [AppLanguage] = []
+        var languageObservedDuringCallback: AppLanguage?
+        let model = makeViewModel(
+            repository: repository,
+            onLanguageChanged: { language in
+                callbackLanguages.append(language)
+                languageObservedDuringCallback = observedModel?.language
+            }
+        )
+        observedModel = model
+        XCTAssertEqual(model.language, .en)
+
+        let saved = await model.save()
+        let savedValues = await repository.savedValues()
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(savedValues.single?.language, .en)
+        XCTAssertEqual(model.language, .ru)
+        XCTAssertEqual(callbackLanguages, [.ru])
+        XCTAssertEqual(languageObservedDuringCallback, .ru)
+        observedModel = nil
+    }
+
+    @MainActor
+    func testAcceptedSameLanguageReconcilesExternallyStaleStore() async {
+        let repository = SettingsRepositoryViewStub(snapshot: SettingsRepositorySnapshot(
+            settings: settingsDTO(language: .en), source: .network, pending: false, failure: nil
+        ))
+        var externalLanguage: AppLanguage = .ru
+        var callbackLanguages: [AppLanguage] = []
+        let model = makeViewModel(
+            repository: repository,
+            onLanguageChanged: { language in
+                callbackLanguages.append(language)
+                externalLanguage = language
+            }
+        )
+
+        let saved = await model.save()
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(model.language, .en)
+        XCTAssertEqual(callbackLanguages, [.en])
+        XCTAssertEqual(externalLanguage, .en)
+    }
+
+    @MainActor
+    func testAcceptedSameLanguagePendingSnapshotAlsoReconcilesExternalStore() async {
+        let repository = SettingsRepositoryViewStub(snapshot: SettingsRepositorySnapshot(
+            settings: settingsDTO(language: .en),
+            source: .optimistic,
+            pending: true,
+            failure: SettingsFeatureFailure(SettingsTestError.offline)
+        ))
+        var externalLanguage: AppLanguage = .ru
+        var callbackLanguages: [AppLanguage] = []
+        let model = makeViewModel(
+            repository: repository,
+            onLanguageChanged: { language in
+                callbackLanguages.append(language)
+                externalLanguage = language
+            }
+        )
+
+        let saved = await model.save()
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(model.phase, .pending)
+        XCTAssertEqual(callbackLanguages, [.en])
+        XCTAssertEqual(externalLanguage, .en)
+    }
+
+    @MainActor
+    func testOfflinePendingLanguageIsAcceptedAndPropagated() async {
+        let repository = SettingsRepositoryViewStub(snapshot: SettingsRepositorySnapshot(
+            settings: settingsDTO(language: .ru),
+            source: .optimistic,
+            pending: true,
+            failure: SettingsFeatureFailure(SettingsTestError.offline)
+        ))
+        var callbackLanguages: [AppLanguage] = []
+        let model = makeViewModel(
+            repository: repository,
+            onLanguageChanged: { callbackLanguages.append($0) }
+        )
+        model.language = .ru
+
+        let saved = await model.save()
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(model.phase, .pending)
+        XCTAssertTrue(model.hasPendingChanges)
+        XCTAssertEqual(callbackLanguages, [.ru])
+    }
+
+    @MainActor
+    func testFailedLanguageSaveRollsBackWithoutPropagation() async {
+        let repository = SettingsRepositoryViewStub(
+            snapshot: SettingsRepositorySnapshot(
+                settings: nil, source: .cache, pending: false, failure: nil
+            ),
+            error: apiError(503, code: "service_unavailable")
+        )
+        var callbackLanguages: [AppLanguage] = []
+        let model = makeViewModel(
+            repository: repository,
+            onLanguageChanged: { callbackLanguages.append($0) }
+        )
+        model.language = .ru
+
+        let saved = await model.save()
+
+        XCTAssertFalse(saved)
+        XCTAssertEqual(model.language, .en)
+        XCTAssertEqual(model.phase, .error)
+        XCTAssertTrue(callbackLanguages.isEmpty)
+    }
+
+    @MainActor
     private func makeViewModel(
         repository: SettingsRepositoryViewStub? = nil,
         center: SettingsNotificationCenterStub = SettingsNotificationCenterStub(state: .authorized),
         reminderStore: InMemoryTaskReminderStore = InMemoryTaskReminderStore(),
         registration: SettingsRegistrationStub = SettingsRegistrationStub(),
         notificationCleaner: any AccountNotificationClearing = NoopAccountNotificationCleaner(),
-        onFocus: @escaping () -> Void = {}
+        onFocus: @escaping () -> Void = {},
+        onLanguageChanged: @escaping (AppLanguage) -> Void = { _ in }
     ) -> SettingsViewModel {
         let repository = repository ?? SettingsRepositoryViewStub(snapshot: SettingsRepositorySnapshot(
             settings: settingsDTO(), source: .network, pending: false, failure: nil
@@ -327,7 +560,8 @@ final class SettingsFeatureTests: XCTestCase {
             registration: registration,
             notificationCleaner: notificationCleaner,
             deviceName: "iPhone",
-            onOpenFocusCadence: onFocus
+            onOpenFocusCadence: onFocus,
+            onLanguageChanged: onLanguageChanged
         )
     }
 
@@ -502,12 +736,15 @@ private actor SettingsRepositoryViewStub: SettingsRepositoryServing {
 
 private actor SettingsNotificationCenterStub: UserNotificationCenterServing {
     private var state: NotificationAuthorizationState
+    private var values: [String: UserNotificationRequestValue] = [:]
     init(state: NotificationAuthorizationState) { self.state = state }
     func authorizationState() -> NotificationAuthorizationState { state }
     func requestAuthorization() -> Bool { state != .denied }
-    func pendingIdentifiers() -> Set<String> { [] }
-    func add(_ request: UserNotificationRequestValue) {}
-    func remove(identifiers: [String]) {}
+    func pendingIdentifiers() -> Set<String> { Set(values.keys) }
+    func add(_ request: UserNotificationRequestValue) { values[request.identifier] = request }
+    func remove(identifiers: [String]) {
+        for identifier in identifiers { values.removeValue(forKey: identifier) }
+    }
 }
 
 private actor SettingsRegistrationStub: DeviceRegistrationServicing {
@@ -523,9 +760,18 @@ private actor SettingsRegistrationStub: DeviceRegistrationServicing {
 }
 
 private actor SettingsNotificationCleanerSpy: AccountNotificationClearing {
-    private var values: [UUID] = []
-    func clear(accountID: UUID) { values.append(accountID) }
-    func accounts() -> [UUID] { values }
+    private var cleared: [UUID] = []
+    private var suspended: [UUID] = []
+    private var resumed: [UUID] = []
+    func clear(accountID: UUID) { cleared.append(accountID) }
+    func suspendNotifications(accountID: UUID) { suspended.append(accountID) }
+    func resumeNotifications(accountID: UUID, timeZone: TimeZone) {
+        _ = timeZone
+        resumed.append(accountID)
+    }
+    func clearedAccounts() -> [UUID] { cleared }
+    func suspendedAccounts() -> [UUID] { suspended }
+    func resumedAccounts() -> [UUID] { resumed }
 }
 
 private enum SettingsTestError: Error {

@@ -32,6 +32,7 @@ final class DependencyContainer: ObservableObject {
     static let apiBaseURLInfoKey = "RocketFlowAPIBaseURL"
 
     let apiBaseURL: URL
+    let languageStore: AppLanguageStore
     let databaseQueue: DatabaseQueue?
     let databaseFactory: AppDatabaseFactory
     let apiClient: APIClient
@@ -50,6 +51,7 @@ final class DependencyContainer: ObservableObject {
     let backgroundTaskRegistered: Bool
     let startupConfigurationError: AppStartupConfigurationError?
     private let databaseOpener: DatabaseOpener
+    private let deviceRegistrationOverride: (any DeviceRegistrationServicing)?
     private let applicationTransitionGate = PersistenceTransitionGate()
     private let persistenceTransitionGate = PersistenceTransitionGate()
 
@@ -64,6 +66,7 @@ final class DependencyContainer: ObservableObject {
 
     init(
         apiBaseURL: URL? = nil,
+        languageStore: AppLanguageStore = .shared,
         databasePath: String = ":memory:",
         transport: (any HTTPTransport)? = nil,
         sessionStore: (any SessionStore)? = nil,
@@ -72,6 +75,7 @@ final class DependencyContainer: ObservableObject {
         networkMonitor: (any NetworkMonitoring)? = nil,
         notificationCenter: (any UserNotificationCenterServing)? = nil,
         fcmTokenProvider: (any FCMRegistrationTokenProviding)? = nil,
+        deviceRegistrationOverride: (any DeviceRegistrationServicing)? = nil,
         backgroundScheduler: (any BackgroundRefreshScheduling)? = nil,
         registerBackgroundTasks: Bool = false
     ) {
@@ -100,6 +104,7 @@ final class DependencyContainer: ObservableObject {
         )
 
         self.apiBaseURL = resolvedURL
+        self.languageStore = languageStore
         databaseQueue = try? DatabaseQueue(path: databasePath)
         self.databaseFactory = resolvedFactory
         apiClient = client
@@ -112,6 +117,7 @@ final class DependencyContainer: ObservableObject {
         self.networkMonitor = networkMonitor ?? ReachabilityNetworkMonitor()
         self.notificationCenter = resolvedNotificationCenter
         self.fcmTokenProvider = resolvedTokenProvider
+        self.deviceRegistrationOverride = deviceRegistrationOverride
         self.unauthorizedRelay = unauthorizedRelay
         taskDeepLinkRegistry = taskRegistry
         deepLinkCoordinator = DeepLinkCoordinator(accessChecker: taskRegistry)
@@ -215,9 +221,13 @@ final class DependencyContainer: ObservableObject {
                 cache: try GRDBCalendarRangeCache(database: database, accountID: user.id),
                 taskIDMapping: calendarMapping
             )
+            let settingsCache = try GRDBSettingsCache(
+                database: database,
+                accountID: user.id
+            )
             let settings = SettingsRepository(
                 remote: AuthenticatedSettingsRemote(sender: authSession),
-                cache: try GRDBSettingsCache(database: database, accountID: user.id)
+                cache: settingsCache
             )
             let reminderStore = try GRDBTaskReminderStore(
                 database: database,
@@ -225,7 +235,12 @@ final class DependencyContainer: ObservableObject {
             )
             let reminderScheduler = TaskReminderScheduler(
                 center: notificationCenter,
-                store: reminderStore
+                store: reminderStore,
+                notificationBody: { [weak languageStore] in
+                    await MainActor.run {
+                        TaskReminderCopy(language: languageStore?.language ?? .en).openTaskBody
+                    }
+                }
             )
             let registrationStore = try GRDBAccountDeviceRegistrationStateStore(
                 database: database,
@@ -236,17 +251,22 @@ final class DependencyContainer: ObservableObject {
                 accountID: user.id
             )
             let retryStore = AppDeviceRegistrationRetryStore()
-            let registration = DeviceRegistrationService(
-                remote: AuthenticatedDeviceRegistrationRemote(sender: authSession),
-                tokenProvider: fcmTokenProvider,
-                installation: installation,
-                store: registrationStore,
-                retryStore: retryStore,
-                retryScheduler: AppDeviceRegistrationRetryScheduler(
-                    background: backgroundCoordinator
-                ),
-                terminalCleaner: reminderScheduler
-            )
+            let registration: any DeviceRegistrationServicing
+            if let deviceRegistrationOverride {
+                registration = deviceRegistrationOverride
+            } else {
+                registration = DeviceRegistrationService(
+                    remote: AuthenticatedDeviceRegistrationRemote(sender: authSession),
+                    tokenProvider: fcmTokenProvider,
+                    installation: installation,
+                    store: registrationStore,
+                    retryStore: retryStore,
+                    retryScheduler: AppDeviceRegistrationRetryScheduler(
+                        background: backgroundCoordinator
+                    ),
+                    terminalCleaner: reminderScheduler
+                )
+            }
             let runtime = AppUserRuntime(
                 lease: lease,
                 validity: validity,
@@ -262,6 +282,7 @@ final class DependencyContainer: ObservableObject {
                 calendarRepository: calendar,
                 focusRepository: focus,
                 settingsRepository: settings,
+                settingsCache: settingsCache,
                 reminderStore: reminderStore,
                 reminderScheduler: reminderScheduler,
                 deviceRegistration: registration,
@@ -291,7 +312,7 @@ final class DependencyContainer: ObservableObject {
                     timezone: user.timezone,
                     planning: engine,
                     focus: focus,
-                    reminders: reminderScheduler,
+                    notifications: runtime.notificationLifecycle,
                     deviceRegistration: registration,
                     deviceName: AppDeviceInfo.name,
                     unauthorizedRelay: unauthorizedRelay
@@ -373,6 +394,7 @@ final class DependencyContainer: ObservableObject {
         eraseUserData: Bool
     ) async -> [AppTeardownFailure] {
         if let runtime {
+            await runtime.suspendNotificationsForDeactivation()
             await runtime.invalidate()
             await runtime.stopDeviceTokenObservation()
             await runtime.syncEngine.cancel()
@@ -527,8 +549,17 @@ final class DependencyContainer: ObservableObject {
         return previousEngine
     }
 
-    func makeAppStore(launchUser: UserDTO? = nil) -> AppStore {
-        AppStore(authSession: authSession, dependencies: self, launchUser: launchUser)
+    func makeAppStore(
+        launchUser: UserDTO? = nil,
+        restorationPersistence: any AppRestorationPersisting = AppRestorationUserDefaultsStore()
+    ) -> AppStore {
+        AppStore(
+            authSession: authSession,
+            dependencies: self,
+            launchUser: launchUser,
+            languageStore: languageStore,
+            restorationPersistence: restorationPersistence
+        )
     }
 
     func pushConfigurationDiagnostic() async -> String? {

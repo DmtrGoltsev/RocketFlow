@@ -258,6 +258,47 @@ final class NotificationDeviceRegistrationTests: XCTestCase {
         XCTAssertEqual(calls, [.register])
     }
 
+    func testStructuredSyncCancellationStopsRealServiceNetworkFlight() async throws {
+        let accountID = UUID()
+        let remote = CancellationObservingDeviceRegistrationRemote(
+            registration: deviceRegistration()
+        )
+        let store = InMemoryDeviceRegistrationStateStore()
+        let retryStore = InMemoryDeviceRegistrationRetryStore()
+        let service = DeviceRegistrationService(
+            remote: remote,
+            tokenProvider: ManualFCMRegistrationTokenProvider(token: "token"),
+            installation: FixedInstallationIdentity("installation"),
+            store: store,
+            retryStore: retryStore
+        )
+        let lease = AppRuntimeLease(accountID: accountID, sessionGeneration: 1)
+        let gate = AppRuntimeOperationGate(lease: lease)
+        let guardedService = AppRuntimeDeviceRegistrationService(
+            base: service,
+            accountID: accountID,
+            lease: lease,
+            validity: AppRuntimeValidity(lease: lease),
+            operationGate: gate
+        )
+
+        let leader = Task {
+            try await guardedService.sync(accountID: accountID, deviceName: "iPhone")
+        }
+        await remote.waitUntilRegisterStarted()
+        await gate.invalidateCancelAndWait(for: lease)
+
+        await XCTAssertThrowsCancellation(leader)
+        let remoteState = await remote.state()
+        let snapshot = try await store.snapshot()
+        let pendingRetry = try await retryStore.pending(accountID: accountID)
+        XCTAssertEqual(remoteState.registerCalls, 1)
+        XCTAssertTrue(remoteState.cancelled)
+        XCTAssertFalse(remoteState.completed)
+        XCTAssertNil(snapshot)
+        XCTAssertNil(pendingRetry)
+    }
+
     func testUnauthorizedUnregisterClearsLocalStateRetryAndAccountNotifications() async throws {
         let accountID = UUID()
         let registration = deviceRegistration()
@@ -405,6 +446,74 @@ private actor DeviceRegistrationRemoteSpy: DeviceRegistrationRemoteServing {
     }
 
     func calls() -> [Call] { values }
+}
+
+private actor CancellationObservingDeviceRegistrationRemote: DeviceRegistrationRemoteServing {
+    struct State: Sendable {
+        let registerCalls: Int
+        let completed: Bool
+        let cancelled: Bool
+    }
+
+    private let registration: DeviceRegistrationDTO
+    private var registerCalls = 0
+    private var completed = false
+    private var cancelled = false
+    private var registerStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(registration: DeviceRegistrationDTO) {
+        self.registration = registration
+    }
+
+    func register(_ request: RegisterDeviceRequestDTO) async throws -> DeviceRegistrationDTO {
+        registerCalls += 1
+        registerStarted = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        do {
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+            try Task.checkCancellation()
+            completed = true
+            return registration
+        } catch is CancellationError {
+            cancelled = true
+            throw CancellationError()
+        }
+    }
+
+    func delete(registrationID: UUID) async throws {}
+
+    func waitUntilRegisterStarted() async {
+        guard !registerStarted else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func state() -> State {
+        State(
+            registerCalls: registerCalls,
+            completed: completed,
+            cancelled: cancelled
+        )
+    }
+}
+
+private func XCTAssertThrowsCancellation(
+    _ task: Task<DeviceRegistrationSyncResult, Error>,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    do {
+        _ = try await task.value
+        XCTFail("Expected cancellation", file: file, line: line)
+    } catch is CancellationError {
+        // Expected structured cancellation.
+    } catch {
+        XCTFail("Expected CancellationError, got \(error)", file: file, line: line)
+    }
 }
 
 private struct FixedInstallationIdentity: InstallationIdentityProviding {

@@ -23,10 +23,14 @@ final class SettingsViewModel: ObservableObject {
     private let registration: any DeviceRegistrationServicing
     private let notificationCleaner: any AccountNotificationClearing
     private let deviceName: String?
+    private let reminderTimeZone: TimeZone
     private let onOpenFocusCadence: () -> Void
     private let onUnauthorized: () -> Void
+    private let onLanguageChanged: (AppLanguage) -> Void
+    private var acceptedLanguage: AppLanguage
     private var stateGeneration: UInt64 = 0
 
+    // The no-op callback preserves source compatibility; production must inject language reconciliation.
     init(
         accountID: UUID,
         initialLanguage: AppLanguage,
@@ -36,19 +40,24 @@ final class SettingsViewModel: ObservableObject {
         registration: any DeviceRegistrationServicing,
         notificationCleaner: any AccountNotificationClearing = NoopAccountNotificationCleaner(),
         deviceName: String?,
+        reminderTimeZone: TimeZone = .current,
         onOpenFocusCadence: @escaping () -> Void,
-        onUnauthorized: @escaping () -> Void = {}
+        onUnauthorized: @escaping () -> Void = {},
+        onLanguageChanged: @escaping (AppLanguage) -> Void = { _ in }
     ) {
         self.accountID = accountID
         language = initialLanguage
+        acceptedLanguage = initialLanguage
         self.repository = repository
         self.notificationCenter = notificationCenter
         self.reminderStore = reminderStore
         self.registration = registration
         self.notificationCleaner = notificationCleaner
         self.deviceName = deviceName
+        self.reminderTimeZone = reminderTimeZone
         self.onOpenFocusCadence = onOpenFocusCadence
         self.onUnauthorized = onUnauthorized
+        self.onLanguageChanged = onLanguageChanged
     }
 
     var copy: SettingsCopy { SettingsCopy(language: language) }
@@ -109,12 +118,6 @@ final class SettingsViewModel: ObservableObject {
         validationMessage = nil
         guard enabled else {
             notificationsEnabled = false
-            do {
-                try await notificationCleaner.clear(accountID: accountID)
-            } catch {
-                guard generation == stateGeneration else { return }
-                await handle(error)
-            }
             return
         }
         var state = await notificationCenter.authorizationState()
@@ -141,6 +144,7 @@ final class SettingsViewModel: ObservableObject {
                 offsetMinutes: defaultOffsetMinutes
             )
         } catch {
+            rollbackUnacceptedLanguage()
             validationMessage = copy.invalidOffset
             return false
         }
@@ -152,7 +156,11 @@ final class SettingsViewModel: ObservableObject {
         let desiredDefaultOffset = defaultOffsetMinutes
         let desiredDefaultRepeat = defaultRepeatRule
         phase = .loading
+        var previousDefault: DefaultTaskReminder?
+        var defaultWasChanged = false
+        var settingsWereSaved = false
         do {
+            previousDefault = try await reminderStore.defaultReminder(accountID: accountID)
             if desiredDefaultEnabled {
                 try await reminderStore.saveDefault(
                     DefaultTaskReminder(
@@ -165,21 +173,37 @@ final class SettingsViewModel: ObservableObject {
             } else {
                 try await reminderStore.clearDefault(accountID: accountID)
             }
+            defaultWasChanged = true
             let snapshot = try await repository.save(
                 accountID: accountID,
                 language: desiredLanguage,
                 notificationsEnabled: desiredNotificationsEnabled
             )
-            if !desiredNotificationsEnabled {
-                try await notificationCleaner.clear(accountID: accountID)
+            settingsWereSaved = true
+            let acceptedNotifications = snapshot.settings?.notificationsEnabled
+                ?? desiredNotificationsEnabled
+            if acceptedNotifications {
+                try await notificationCleaner.resumeNotifications(
+                    accountID: accountID,
+                    timeZone: reminderTimeZone
+                )
+            } else {
+                await notificationCleaner.suspendNotifications(accountID: accountID)
             }
             guard generation == stateGeneration else { return true }
             apply(snapshot)
+            if snapshot.settings == nil {
+                rollbackUnacceptedLanguage()
+            }
             return phase != .unauthorized && phase != .error
         } catch {
+            if defaultWasChanged && !settingsWereSaved {
+                try? await restoreDefault(previousDefault)
+            }
             guard generation == stateGeneration || (error as? APIError)?.isUnauthorized == true else {
                 return false
             }
+            rollbackUnacceptedLanguage()
             await handle(error)
             return false
         }
@@ -230,9 +254,14 @@ final class SettingsViewModel: ObservableObject {
         onOpenFocusCadence()
     }
 
+    func reconcileExternalLanguage(_ language: AppLanguage) {
+        acceptedLanguage = language
+        self.language = language
+    }
+
     private func apply(_ snapshot: SettingsRepositorySnapshot) {
         if let settings = snapshot.settings {
-            language = settings.language
+            acceptLanguage(settings.language)
             notificationsEnabled = settings.notificationsEnabled
         }
         hasPendingChanges = snapshot.pending
@@ -255,6 +284,25 @@ final class SettingsViewModel: ObservableObject {
         }
         failure = SettingsFeatureFailure(error)
         phase = .error
+    }
+
+    private func acceptLanguage(_ language: AppLanguage) {
+        acceptedLanguage = language
+        self.language = language
+        // Every accepted server or optimistic local snapshot reconciles external language state.
+        onLanguageChanged(language)
+    }
+
+    private func rollbackUnacceptedLanguage() {
+        language = acceptedLanguage
+    }
+
+    private func restoreDefault(_ reminder: DefaultTaskReminder?) async throws {
+        if let reminder {
+            try await reminderStore.saveDefault(reminder)
+        } else {
+            try await reminderStore.clearDefault(accountID: accountID)
+        }
     }
 
     private func nextGeneration() -> UInt64 {
