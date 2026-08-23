@@ -5,9 +5,13 @@ Baseline date: **2026-08-22**
 Baseline: production backend/web source `50a63270ae094fe08ee57b945be0930cb1115dfe`, release `sha-50a63270ae09`, Flyway **V21 (21/21)**; Android `0.1.1` (`versionCode 2`).  
 Normative source: the shipped Android behavior and the V21 backend. If this document and an older product document disagree, this document controls native iOS parity. A backend contract change requires a new version of this document.
 
+Implementation checkpoint (`2026-08-23`, non-normative): branch `codex/native-ios-companion`, app-code/build source `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3`. Manual [iOS Verify run 32655691351](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32655691351) passed XcodeGen/project and package-lock parity, no-sign simulator build, `540/540` unit tests, and `2/2` UI tests. Later docs-only commits have a separate identity and do not change this evidence pin. This proves repository implementation/build readiness, not every manual/device acceptance item below. Canonical delivery evidence is [`71-native-ios-delivery.md`](71-native-ios-delivery.md).
+
+Candidate source contains Flyway/backend V22 iOS device-registration support, but production remains the V21 baseline above. V22 was not deployed and production DB state was not inspected for this documentation checkpoint.
+
 ## 1. Scope and release constraints
 
-The iOS client SHALL reproduce Android's user-visible screens, navigation, data rules, offline behavior, and V21 API behavior. Platform-specific substitutions are allowed only where Android and iOS system APIs differ; they are called out in section 14.
+The iOS client SHALL reproduce Android's user-visible screens, navigation, data rules, offline behavior, and V21 API behavior. Platform-specific substitutions are allowed only where Android and iOS system APIs differ; they are called out in section 13.
 
 The current Android production base URL is:
 
@@ -25,8 +29,9 @@ Primary implementation references:
 - [Android local database](../android/app/src/main/java/com/rocketflow/companion/planning/PlanningLocalStore.kt)
 - [Android Focus repository](../android/app/src/main/java/com/rocketflow/companion/focus/FocusRepository.kt)
 - [Backend controllers](../backend/src/main/java/com/rocketflow)
-- [V21 release evidence](68-android-v21-companion-client.md)
-- [Production deployment evidence](69-production-v21-deployment-runbook.md)
+- [V21 delivery contract and implementation evidence](68-scroll-and-priority-retirement-delivery.md)
+- [Production deployment evidence](69-v21-production-rollout.md)
+- [Native iOS delivery evidence](71-native-ios-delivery.md)
 
 ## 2. Screen, state, and navigation matrix
 
@@ -49,7 +54,7 @@ Rules:
 3. A task detail remembers its origin tab. Goal, idea, note, and settings always return to Planner.
 4. A task deep link opens task detail; a Focus deep link opens Focus. Invalid, inaccessible, deleted, or missing IDs show a localized nonfatal error and a usable top-level screen.
 5. On process restoration, Planner/Calendar/Focus restore directly. Task detail restores only if its task is still resolvable; otherwise it restores the recorded origin. Other detail/settings screens restore Planner.
-6. Calendar restores selected month/date and selected task. Planner restores expanded nodes and the stable scroll anchor defined in section 13.
+6. Calendar restores selected month/date and selected task. Planner restores expanded nodes and the stable scroll anchor defined in section 11.
 7. Session loss atomically moves every screen to Auth and removes user-scoped in-memory state.
 
 Planner rows and actions SHALL cover nested folders, goals, tasks, ideas, notes, and a separate shared-resources section. Read-only shared rows remain inspectable but suppress all write affordances. `shared`, `fullAccess`, `canCreateTasks`, `allowAuthorNoteEdits`, and entity-reference `accessible`/`redacted` flags are authoritative.
@@ -333,6 +338,8 @@ Focus notifications use a standard private channel and server cadence/quiet-hour
 
 Registration is scoped by authenticated user and token; stale same-user registration is deleted before replacement, and an old account's registration is never deleted under a new account.
 
+The candidate V22 backend contract extends device registration with `platform:"ios"` while retaining the same account/token/installation scoping. The iOS client registers the Firebase Messaging registration token, not a raw APNs token, through `POST /devices` and removes it through `DELETE /devices/{id}`. This source contract is covered by tests but is unavailable in production until Flyway/backend V22 is deployed and Firebase/APNs credentials are configured.
+
 Settings parity includes language (`ru|en`), `notificationsEnabled`, Focus cadence/quiet hours, local task reminder default/current values, runtime notification authorization state, and device-registration state. `/me/settings` GET/PATCH uses `language`, `notificationsEnabled`, and `version`; deprecated priority-policy data is preserved/disabled as in 3.3 and is never shown.
 
 ## 11. Scroll, back, tab reset, and restoration
@@ -360,8 +367,8 @@ These are the only expected platform deviations:
 
 1. Use Keychain for access/refresh tokens and installation identity; Android secure-preference implementation details are not copied.
 2. Use `UNUserNotificationCenter` standard local/remote notifications, actions, and deep-link routing. iOS has no Android full-screen alarm equivalent; task reminders SHALL be normal time-sensitive notifications where entitlement/policy permits, otherwise standard alerts. Delivery timing remains OS best effort.
-3. Use `UNCalendarNotificationTrigger`/`UNTimeIntervalNotificationTrigger` for local repeats while preserving the recurrence semantics in 3.4. Reconcile pending requests on launch, timezone change, settings change, and task-state change.
-4. Use APNs token registration. The V21 backend currently validates device `platform` as exactly `android`; adding `ios` and APNs delivery/token semantics is a backend prerequisite and versioned contract change. iOS must not masquerade as Android.
+3. Use `UNUserNotificationCenter` with a bounded rolling horizon of exact calendar occurrences for local repeats while preserving the recurrence semantics in 3.4 and reserving capacity below the iOS pending-request limit. Reconcile the horizon on launch, foreground, timezone/settings change, account switch, and task-state change. Delivery timing remains OS best effort.
+4. Firebase Messaging receives the APNs-backed push and supplies the FCM registration token sent to RocketFlow with `platform:"ios"`; a raw APNs token is not sent to the backend. Candidate V22 implements this wire extension, but V21 production still accepts Android only. iOS must not masquerade as Android.
 5. Use Universal Links only after associated domains and HTTPS exist. The custom `rocketflow` scheme and route semantics remain mandatory for V21 parity.
 6. Use ATS as described in section 1; broad clear-text exceptions are forbidden.
 
@@ -394,7 +401,7 @@ Each ID is release-blocking unless explicitly marked backend prerequisite. Evide
 | `IOS-SHARE-001` | invite/share-link/resource flows and read/write restrictions match section 5.2 | two-account integration tests and redaction screenshots |
 | `IOS-LINK-001` | related/dependency links, inaccessible refs and delete behavior match | API/UI tests with deleted and inaccessible target |
 | `IOS-REM-001` | local reminder scheduling/repeat/cancel/deep link match semantics | pending-request dump, delivery recording, state-transition tests |
-| `IOS-PUSH-001` | Focus APNs dedupe/deep link and account-scoped registration work | backend prerequisite completed; APNs trace and 14-day dedupe test |
+| `IOS-PUSH-001` | Focus APNs/FCM dedupe/deep link and account-scoped registration work | V22 source prerequisite implemented; production V22 deploy plus APNs/FCM trace and 14-day dedupe evidence still required |
 | `IOS-SET-001` | language, notifications, cadence, reminder state and hidden settings persist correctly | RU/EN UI tests and settings request fixtures |
 | `IOS-A11Y-001` | VoiceOver traversal/labels/states, 44pt targets, contrast/non-color cues pass | Accessibility Inspector report and narrated recording |
 | `IOS-A11Y-002` | largest Dynamic Type has no clipping/overlap and all actions remain reachable | portrait/landscape screenshot set |
@@ -411,8 +418,8 @@ Each ID is release-blocking unless explicitly marked backend prerequisite. Evide
 Native iOS parity is complete only when:
 
 1. Every non-prerequisite acceptance ID above is green with archived evidence.
-2. `IOS-PUSH-001` has the versioned backend `ios`/APNs extension; `IOS-SEC-001` has HTTPS. Neither may be waived for production.
-3. Contract/API tests use V21 fixtures, including unknown nullable/opaque values and hidden priority compatibility.
+2. `IOS-PUSH-001` has the versioned backend `ios` extension deployed with APNs/Firebase configuration; `IOS-SEC-001` has HTTPS. Neither may be waived for production.
+3. Contract/API tests use the deployed backend fixture version, including unknown nullable/opaque values and hidden priority compatibility; production remains V21 until an evidenced V22 rollout.
 4. Unit, repository, database migration, UI, accessibility, localization, rotation, offline, and notification suites pass on the minimum supported iOS and current release iOS.
 5. A clean production-like account completes auth, Planner, Calendar, Focus, sharing, links, reminders, and deep links without crash, data loss, inaccessible controls, cross-account leakage, or secret-bearing logs.
 6. Any deliberate difference from Android is listed in section 13 and backed by an iOS API limitation; product divergence requires a new approved contract version.

@@ -1,6 +1,6 @@
 # RocketFlow Live Status
 
-Last updated: 2026-08-22.
+Last updated: 2026-08-23.
 
 ## Current production facts
 
@@ -22,6 +22,8 @@ Last updated: 2026-08-22.
 - Web Push: disabled.
 - Android: sideload APK `0.1.1` (`versionCode 2`) installed as an update and passed runtime verification; this is not a Play Store production release.
 - Authenticated production API smoke: passed with `0` unexpected HTTP `5xx` responses.
+
+These production facts are carried forward from the canonical V21 rollout evidence; no production database inspection was performed for the native iOS documentation checkpoint.
 
 V21 priority-retirement compatibility, Android Planner scroll restoration, SQLite lifecycle, and compact landscape editor work are deployed or rolled out as recorded in `docs/69-v21-production-rollout.md`. Pre-deploy production was release `sha-910c061de4af` at Flyway `20`; the joint backend/web promotion advanced production to release `sha-50a63270ae09` and Flyway `21`.
 
@@ -51,11 +53,13 @@ Database rollback is outside the app rollback workflow. The rollback workflow ex
 
 Rollback workflow ID `330828165` is active. It was not used for release `sha-50a63270ae09`.
 
-The current docs-only follow-up commit is not the deployed source. Canonical V21 rollout evidence is in `docs/69-v21-production-rollout.md`; the prior V20 rollout remains documented in `docs/67-weekly-focus-production-rollout-evidence.md`.
+The native iOS branch and its documentation commits are not deployed backend/web source. Canonical V21 rollout evidence is in `docs/69-v21-production-rollout.md`; the prior V20 rollout remains documented in `docs/67-weekly-focus-production-rollout-evidence.md`.
 
 The current Android sideload artifact is RocketFlow `0.1.1` (`versionCode 2`) with SHA-256 `3DF9EB210D801D932A4C736A0EF682C8C0AADCB36536B81CA19267F326C52AF7`. `adb install -r` preserved UID `10227` and `firstInstallTime`; cold launch passed, captured crashes / ANRs were `0 / 0`, and the Login screen was visible. The prior `0.1.0` debug-certificate APK and rejected unsigned APK remain historical evidence. No APK or build output is committed.
 
 This debug-cert build is for direct sideloading, not Play Store production signing. Future sideload updates must retain the same certificate. FCM configuration remains absent, so no push-delivery claim is made.
+
+The native iOS companion is repository-delivered on branch `codex/native-ios-companion`; app-code/build evidence is pinned to `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3` independently of later docs-only commits and is green for no-sign simulator build/test. It is not an App Store or production-device rollout. Candidate source contains Flyway/backend V22 iOS device-registration support, but production remains at V21 and the V22 migration/backend has not been deployed. Therefore no production iOS device-registration or APNs/FCM delivery claim is made.
 
 ## Readiness signals
 

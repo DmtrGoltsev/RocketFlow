@@ -1,7 +1,7 @@
 # HexCore Production Runbook
 
 Initial setup date: 2026-05-16.
-Last updated: 2026-08-22.
+Last updated: 2026-08-23.
 
 ## Server role
 
@@ -14,11 +14,11 @@ Live routing contract:
 - Backend service: `rocketflow-backend.service`.
 - Backend current symlink: `/opt/rocketflow/current/rocketflow-backend.jar`.
 - Production database: `rocketflow_prod`.
-- Flyway history baseline: `V20`, 20 rows (`20/20`).
+- Current Flyway history state: `V21`, 21 rows (`21/21`).
 
-Current deployed source is `910c061de4af9395d9bb682624bd966b2977a738`, release id `sha-910c061de4af`. The docs-only follow-up commit is not deployed. Current rollout evidence is recorded in `docs/67-weekly-focus-production-rollout-evidence.md`.
+Current deployed source is `50a63270ae094fe08ee57b945be0930cb1115dfe`, release id `sha-50a63270ae09`. GitHub Actions deploy run [32551808905](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32551808905) completed successfully. Current rollout evidence is recorded in `docs/69-v21-production-rollout.md`; `docs/67-weekly-focus-production-rollout-evidence.md` is the immutable historical V20 checkpoint.
 
-The current delivery candidate targets a future V21 rollout; it is not live. For that rollout, preflight must confirm the current V20 baseline (`>=20` rows), the manifest must target V21, and post-start checks must require V21 (`>=21` rows). The existing helper jointly promotes backend and web; this transition is safe because the new web supports both V20 and V21. Android follows separately after readiness. Application rollback accepts a V20-or-newer database baseline, requires the Flyway count not to decrease, and uses a V20 application artifact that is forward-compatible with V21.
+Production has already completed the V21 rollout. The deploy workflow intentionally remains compatible with a readable V20-or-newer source state: preflight requires `>=20` rows, the release manifest declares Flyway minimum `21`, and post-start checks require `>=21` rows. The existing helper jointly promotes backend and web. Application rollback accepts a V20-or-newer database baseline, requires the Flyway count not to decrease, and uses a V20 application artifact that is forward-compatible with retained V21 schema.
 
 ## Runtime layout
 
@@ -84,7 +84,7 @@ During an approved production deploy, the workflow records:
 - Flyway history row count for `rocketflow_prod`;
 - local and remote SHA256 verification output.
 
-For the future V21 release, retain both preflight `>=20` and post-start `>=21` counts in the change evidence. Do not update live status or claim V21 until the approved workflow and post-deploy checks succeed.
+For every approved deploy, retain the readable preflight count (`>=20`) and post-start count (`>=21`) in change evidence. Current production truth remains V21 until a later evidenced rollout updates `docs/production/rocketflow-live-status.md`; candidate V22 source is not deploy evidence.
 
 ## Operator verification
 

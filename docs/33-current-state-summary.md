@@ -13,6 +13,8 @@ Use this together with:
 - `docs/47-device-registration-logical-device-upsert-repair.md`
 - `docs/50-notification-runtime-clean-pass.md`
 - `docs/51-agent-notification-runtime-playbook.md`
+- `docs/70-native-ios-parity-contract.md`
+- `docs/71-native-ios-delivery.md`
 
 ## Project Status
 
@@ -32,6 +34,18 @@ Current V21 production delivery (`2026-08-22`):
 - authenticated production API smoke passed register/login/folder/goal/task/get/patch/delete/logout/final-health, including priority-shadow preservation, with `0` unexpected HTTP `5xx` responses
 - Android sideload `0.1.1` (`versionCode 2`) installed with `adb install -r`, preserved UID and `firstInstallTime`, cold-launched to Login, and recorded `0 / 0` crashes / ANRs
 - canonical delivery contract: `docs/68-scroll-and-priority-retirement-delivery.md`; canonical rollout evidence: `docs/69-v21-production-rollout.md`
+
+Native iOS implementation checkpoint (`2026-08-23`):
+
+- canonical app-code/build evidence is pinned to `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3` on branch `codex/native-ios-companion`; branch HEAD may advance through later docs-only commits without changing that evidence identity
+- the current documentation update is a pending docs-only working-tree delta; once committed, living docs should be pinned to that newer docs SHA while build/run evidence remains pinned to the app-code SHA above
+- the iOS 16+ SwiftUI companion has exactly three tabs (Planner, Calendar, Focus), native auth/planning/details/editors/sharing/links, GRDB local-first persistence and sync/conflict handling, Calendar/Focus caches and queues, local reminders, settings, deep links, durable restoration, RU/EN localization, and account-scoped leases
+- XcodeGen `2.46.0` is the project source; generated `ios/RocketFlow.xcodeproj` and SwiftPM `Package.resolved` are committed, with Firebase `12.17.0` and GRDB `6.29.3` pinned
+- manual [iOS Verify run 32655691351](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32655691351), job `97233929959`, passed generation/parity, package resolution/lock parity, no-sign simulator build, `540/540` unit tests, and `2/2` UI tests (`542` total); artifacts are xcresult `9497494137` and xcodeproj `9497494432`
+- candidate commit `0bbf4acb0ba9620b931fa843dc9d2997379304fb` makes feature-branch verification manual and PR/push-to-`master` verification automatic only on `codex/native-ios-companion`; `origin/master` at `7d1ac74cf8f2bf7935c2578f3675db4ca54764bb` does not yet contain that behavior or `ios-verify`
+- status is GO for clone/build/simulator/continued Mac work, not App Store production readiness; Apple Team/signing, local ignored Firebase plist, APNs/Firebase credentials, device/manual accessibility evidence, and production HTTPS remain external gates
+- candidate source includes Flyway/backend V22 iOS device registrations, but production remains source `50a63270ae094fe08ee57b945be0930cb1115dfe` at V21; V22 was not deployed and production DB was not inspected in this checkpoint
+- canonical parity contract: `docs/70-native-ios-parity-contract.md`; canonical implementation and CI evidence: `docs/71-native-ios-delivery.md`
 
 Weekly Focus production checkpoint (`2026-08-10`):
 
@@ -226,6 +240,8 @@ The recorded V21 backend/web production deploy and Android sideload rollout are 
 - keep application rollback forward-schema compatible: require pre/post Flyway `>=20` with no history-count decrease, and require the target V20 artifact to tolerate retained V21 columns/defaults/history
 - require a fresh backup/recovery point and an explicit rollback task for future deployments; the one-time V21 waiver is not precedent
 - prepare Play Store signing/configuration before claiming a store production release; the current `0.1.1` evidence is direct sideload only
+- on Mac, reproduce the committed XcodeGen/project and package-lock parity before further iOS changes; use manual `iOS Verify` on the feature branch
+- do not claim iOS device/App Store readiness until Apple signing, Firebase/APNs credentials, V22 production deployment, HTTPS, device smoke, and manual accessibility/Dynamic Type evidence are complete
 - keep Focus cadence and Web Push disabled until controlled production provider smoke and notification certification pass
 - keep `docs/51-agent-notification-runtime-playbook.md` as the fallback local re-verification path for future regressions, not as the active gate
 

@@ -1,6 +1,6 @@
 # RocketFlow CI/CD Runbook
 
-Last updated: 2026-08-22.
+Last updated: 2026-08-23.
 
 ## Production contract
 
@@ -9,23 +9,24 @@ Last updated: 2026-08-22.
 - Web route: `/rocket/ -> /var/www/rocketflow-web/current`.
 - API route: `/rocket-api/ -> 127.0.0.1:8080/api/`.
 - Production database: `rocketflow_prod`.
-- Current live pre-promotion Flyway source baseline for a future V21 deploy: at least 20 rows.
-- V21 release manifest target: exactly 21 rows; post-promotion Flyway baseline: at least 21 rows.
+- Current production Flyway state: `V21` (`21/21`).
+- Deploy preflight accepts a readable compatible source state with at least 20 rows.
+- Release manifest Flyway minimum: exactly 21 rows; post-promotion gate: at least 21 rows.
 
 ## Current recorded rollout
 
-- Deployed source SHA: `910c061de4af9395d9bb682624bd966b2977a738`.
-- Release id: `sha-910c061de4af`.
-- Successful deploy: GitHub Actions run [31357406631](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/31357406631).
-- Post-promotion Flyway state: `V20` (`20/20`).
-- Local and public health checks passed; captured post-deploy evidence reported zero application errors, HTTP `5xx` responses, or service restarts.
+- Deployed source SHA: `50a63270ae094fe08ee57b945be0930cb1115dfe`.
+- Release id: `sha-50a63270ae09`.
+- Successful deploy: GitHub Actions run [32551808905](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32551808905).
+- Post-promotion Flyway state: `V21` (`21/21`).
+- Backend service and backend/web symlinks passed; local and public backend/web checks returned HTTP `200`.
 - Rollback workflow ID `330828165` is active and was not used.
 - Focus cadence and Web Push are disabled.
-- Authenticated production smoke remains an evidence gap.
+- Authenticated production smoke passed with `0` unexpected HTTP `5xx` responses.
 
-The docs-only commit recording these facts is not a deployed release. Full checksums and backup evidence are in `docs/67-weekly-focus-production-rollout-evidence.md`.
+Canonical V21 evidence is in `docs/69-v21-production-rollout.md`. The earlier `docs/67-weekly-focus-production-rollout-evidence.md` remains immutable historical V20 evidence.
 
-The current branch prepares a future V21 release, but production remains on the V20 source/release above. `V21__retire_task_priority.sql` and the updated workflow gates are not deploy evidence.
+Candidate source after this rollout, including Flyway V22, is not deployed merely because it exists in a branch. Production status changes only after an approved workflow and recorded post-deploy evidence.
 
 ## Workflows
 
@@ -61,7 +62,7 @@ Inventory checks during the approved deploy:
 - active web root under `/var/www/rocketflow-web/current`;
 - local Nginx web route marker at `/rocket/`;
 - local backend health at `127.0.0.1:8080/api/health`;
-- pre-promotion Flyway history count for `rocketflow_prod`, required to be at least 20 rows because current production is the V20 baseline;
+- pre-promotion Flyway history count for `rocketflow_prod`, required to be readable and at least 20 rows as the workflow's compatibility floor;
 - release manifest Flyway contract, required to equal 21 locally and again during remote staging;
 - post-promotion Flyway history count, required to be at least 21 rows after the jointly promoted V21-capable backend starts and applies `V21` through its Flyway lifecycle.
 
@@ -70,7 +71,7 @@ After promotion, the deploy waits up to 40 attempts with 5-second sleeps for
 backend health before failing the run. The public `/rocket-api/health` and
 `/rocket/` checks use the same retry window.
 
-The workflow does not invoke standalone Flyway commands. For the future V21 rollout, the order is fixed: verify the existing V20-or-newer source state, verify and stage an artifact whose manifest requires V21, jointly promote its backend and web through `rocketflow-promote-latest`, let backend startup apply `V21`, then require V21-or-newer state in post-deploy readiness. This joint transition is safe because the new web is compatible with both the V20 and V21 backend contracts. Android is released separately only after the joint deploy gate succeeds. The pre-promotion gate must remain V20 because current production has not applied V21 yet.
+The workflow does not invoke standalone Flyway commands. Its fixed order is: verify a readable V20-or-newer source state (`>=20`), verify and stage an artifact whose manifest minimum is exactly `21`, jointly promote backend and web through `rocketflow-promote-latest`, let backend startup run its Flyway lifecycle, then require V21-or-newer state (`>=21`) in post-deploy readiness. The compatibility floor remains 20 for fail-closed recovery from a supported V20 baseline; it does not describe the current production state, which is V21.
 
 ### `RocketFlow GHCR Package`
 
@@ -99,7 +100,7 @@ Required inputs:
 - `approval_ticket`;
 - `include_db_rollback=false`.
 
-Rollback approach at V20 or after V21:
+Rollback approach for a supported V20 baseline or retained V21 schema:
 
 1. Require at least 20 Flyway history rows and record the exact pre-rollback count. This permits rollback both before and after V21.
 2. Verify current backend symlink, target release files, and target remote checksum; require a readable target release manifest.
@@ -122,7 +123,7 @@ Keep secret values only in GitHub Actions secrets or environment secrets. Reposi
 
 ## Operator checklist
 
-1. Confirm release branch policy and required CI checks are green.
+1. Confirm the intended release SHA and the selected CI evidence are green; branch protection is not currently configured to enforce checks automatically.
 2. Confirm the release branch push or manual `production` environment approval is intentional.
 3. Confirm the release artifact bundle exists and manifest verification passed.
 4. Check pre-deploy inventory output for current symlink, service status, web root, and Flyway row count.

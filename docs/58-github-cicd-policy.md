@@ -2,13 +2,25 @@
 
 This file describes repository policy. Executable workflows live in `.github/workflows/*.yml`.
 
-## Continuous verification
+## Candidate continuous verification
 
-The normal verification workflows remain:
+On branch `codex/native-ios-companion`, the candidate verification workflows are:
 
 - `backend-verify`: backend Maven tests, migration coverage through tests, backend Docker image build, and container health smoke against temporary PostgreSQL.
 - `web-verify`: web dependency install and `npm run build`.
 - `android-verify`: Android SDK setup, unit tests, debug assembly, and lint.
+- `ios-verify`: XcodeGen generation/committed-project parity, Swift package resolution/lock parity, and no-sign simulator build with unit and UI tests.
+
+Commit `0bbf4acb0ba9620b931fa843dc9d2997379304fb` narrowed all four verification triggers on this candidate branch to reduce duplicate feature-branch runs and notification noise:
+
+- feature branches run verification only when an operator starts `workflow_dispatch`;
+- pull requests targeting `master` run verification automatically;
+- pushes to `master` run verification automatically;
+- genuine failures from manual, pull-request, or `master` runs may still produce GitHub notifications.
+
+This is not yet default-branch policy: `origin/master` at `7d1ac74cf8f2bf7935c2578f3675db4ca54764bb` does not contain commit `0bbf4acb0ba9620b931fa843dc9d2997379304fb` or `ios-verify`. After the candidate is merged, the trigger rules above become default-branch behavior. Until then, they describe only `codex/native-ios-companion`; the candidate branch has stopped automatic push runs and their associated email storm.
+
+The candidate trigger change did not alter production deploy, package, or rollback workflows. Canonical iOS feature-branch evidence is manual [run 32655691351](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32655691351): `540/540` unit plus `2/2` UI tests at app-code/build source `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3`.
 
 ## Production deploy policy
 
@@ -22,7 +34,8 @@ Production deploys are handled by GitHub Actions through HexCore.
 - Web route: `/rocket/ -> /var/www/rocketflow-web/current`.
 - API route: `/rocket-api/ -> 127.0.0.1:8080/api/`.
 - Production DB: `rocketflow_prod`.
-- Flyway history baseline: 18 rows.
+- Current production Flyway state: `V21` (`21/21`).
+- Deploy workflow gate: readable pre-promotion history `>=20`; post-promotion history `>=21`.
 
 Release triggers:
 
@@ -81,13 +94,15 @@ Repository docs and workflows should reference production secrets by name only:
 
 Secret values belong only in GitHub repository or environment secrets.
 
-## Branch protection
+## Recommended branch protection
 
-Minimum protection for release branches:
+The following is optional recommended hardening, not an existing requirement or evidence of configured GitHub branch protection. No branch-protection setting was configured or changed as part of commit `0bbf4acb0ba9620b931fa843dc9d2997379304fb` or the native iOS delivery.
+
+If protection is configured later, recommended settings for `master` and any release branch are:
 
 - require status checks before merge;
 - require the branch to be up to date before merge;
-- require `backend-verify`, `web-verify`, and `android-verify`;
+- require `backend-verify`, `web-verify`, `android-verify`, and `ios-verify` where the target branch exposes those checks;
 - disallow force push;
 - disallow branch deletion;
 - require all conversations to be resolved;
@@ -95,13 +110,12 @@ Minimum protection for release branches:
 
 ## Normal promotion flow
 
-1. Work in the development branch.
-2. Open a pull request into the release branch.
-3. Wait for green `backend-verify`, `web-verify`, and `android-verify`.
-4. Merge only after checks and review pass.
-5. Push to the release branch creates backend/web artifacts, checksums, and a release manifest.
-6. The release push deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, jointly promotes backend and web, and runs retrying post-deploy health checks.
-7. For an operator-driven redeploy, start `RocketFlow HexCore Prod Deploy` manually from the release branch with an approval ticket and `DEPLOY_ROCKETFLOW_PROD`; it uses the same promotion path.
+1. Work in a feature branch and run the relevant candidate verification workflows manually when pre-PR evidence is needed.
+2. After commit `0bbf4acb0ba9620b931fa843dc9d2997379304fb` is merged to `master`, a pull request into `master` runs all four verification workflows automatically.
+3. Merge after the checks and review selected for that change pass; after the candidate CI commit reaches `master`, the resulting `master` push verifies again.
+4. Prepare a release branch only as a separate production promotion action, after confirming the intended SHA and green evidence. A release-branch push still invokes the unchanged joint backend/web deploy workflow.
+5. The release push deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, jointly promotes backend and web, and runs retrying post-deploy health checks.
+6. For an operator-driven redeploy, start `RocketFlow HexCore Prod Deploy` manually from the release branch with an approval ticket and `DEPLOY_ROCKETFLOW_PROD`; it uses the same promotion path.
 
 See also:
 
