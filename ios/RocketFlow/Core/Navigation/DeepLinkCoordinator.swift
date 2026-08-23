@@ -25,7 +25,8 @@ enum DeepLinkParser {
         switch (url.host, parts) {
         case ("focus", []):
             return .focus
-        case let ("task", [rawID]):
+        case ("task", let taskParts) where taskParts.count == 1:
+            guard let rawID = taskParts.first else { return nil }
             guard let taskID = UUID(uuidString: rawID) else { return nil }
             return .task(taskID: taskID, origin: origin)
         default:

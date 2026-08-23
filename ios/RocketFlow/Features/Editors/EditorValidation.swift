@@ -250,13 +250,13 @@ enum EditorValidator {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timezone
         switch calendar.component(.weekday, from: date) {
-        case 1: .sunday
-        case 2: .monday
-        case 3: .tuesday
-        case 4: .wednesday
-        case 5: .thursday
-        case 6: .friday
-        default: .saturday
+        case 1: return DetailWeekday.sunday
+        case 2: return DetailWeekday.monday
+        case 3: return DetailWeekday.tuesday
+        case 4: return DetailWeekday.wednesday
+        case 5: return DetailWeekday.thursday
+        case 6: return DetailWeekday.friday
+        default: return DetailWeekday.saturday
         }
     }
 

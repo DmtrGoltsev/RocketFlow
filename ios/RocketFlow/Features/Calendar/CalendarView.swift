@@ -240,7 +240,7 @@ struct CalendarView: View {
 
     private func agendaRow(_ marker: CalendarMarkerDTO) -> some View {
         let localTaskID = model.localTaskID(for: marker)
-        Button {
+        return Button {
             guard let localTaskID else { return }
             onOpenTask(localTaskID)
         } label: {

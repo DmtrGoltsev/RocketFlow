@@ -292,21 +292,23 @@ actor SettingsRepository: SettingsRepositoryServing {
             }
             let updated: UserSettingsDTO
             do {
-                updated = try await remote.update(
+                let response = try await remote.update(
                     language: desired.language,
                     notificationsEnabled: desired.notificationsEnabled,
                     current: initial
                 )
                 try Task.checkCancellation()
+                updated = response
             } catch let api as APIError where api.statusCode == 409 || api.statusCode == 412 {
                 let fresh = try await remote.current()
                 try Task.checkCancellation()
-                updated = try await remote.update(
+                let response = try await remote.update(
                     language: desired.language,
                     notificationsEnabled: desired.notificationsEnabled,
                     current: fresh
                 )
                 try Task.checkCancellation()
+                updated = response
             }
 
             let currentPending = try await cache.pending(accountID: accountID)
