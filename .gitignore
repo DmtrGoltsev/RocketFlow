@@ -50,6 +50,8 @@ scripts/Set-ProdBackupDownloadEnv.local.ps1
 # iOS local and generated build files
 /ios/DerivedData/
 /ios/Config/Local.xcconfig
+/ios/RocketFlow/Resources/GoogleService-Info.plist
+/ios/GoogleService-Info.plist
 **/xcuserdata/
 *.xcuserstate
 

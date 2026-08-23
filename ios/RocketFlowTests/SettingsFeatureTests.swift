@@ -133,6 +133,41 @@ final class SettingsFeatureTests: XCTestCase {
         XCTAssertEqual(updateCount, 2)
     }
 
+    func testCancelAndAwaitAllOperationsStopsFlushBeforeSessionReplacement() async throws {
+        let initial = settingsDTO(version: 1)
+        let cache = InMemorySettingsCache()
+        try await cache.save(initial, accountID: accountID)
+        let remote = ControlledSettingsRemote(
+            firstResponse: settingsDTO(language: .en, notifications: false, version: 2)
+        )
+        let repository = SettingsRepository(remote: remote, cache: cache)
+        let expectedAccountID = accountID
+        let save = Task {
+            try await repository.save(
+                accountID: expectedAccountID,
+                language: .en,
+                notificationsEnabled: false
+            )
+        }
+        let updateStarted = await remote.waitUntilFirstUpdateStarted()
+        XCTAssertTrue(updateStarted)
+
+        await repository.cancelAndAwaitAllOperations(accountID: expectedAccountID)
+
+        do {
+            _ = try await save.value
+            XCTFail("Expected the settings flush to be cancelled")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        let pending = try await cache.pending(accountID: expectedAccountID)
+        let cached = try await cache.settings(accountID: expectedAccountID)
+        let remoteWasCancelled = await remote.wasCancelled()
+        XCTAssertTrue(remoteWasCancelled)
+        XCTAssertNotNil(pending)
+        XCTAssertEqual(cached?.version, initial.version)
+    }
+
     func testDefaultReminderValidationRejectsNegativeAndUnboundedOffsets() {
         XCTAssertNoThrow(try SettingsValidation.validateDefaultReminder(enabled: true, offsetMinutes: 0))
         XCTAssertThrowsError(
@@ -368,6 +403,7 @@ private actor ControlledSettingsRemote: SettingsRemoteServing {
     private var firstStarted = false
     private var firstReleased = false
     private var updates = 0
+    private var cancelled = false
 
     init(firstResponse: UserSettingsDTO) {
         self.firstResponse = firstResponse
@@ -383,8 +419,13 @@ private actor ControlledSettingsRemote: SettingsRemoteServing {
         updates += 1
         if updates == 1 {
             firstStarted = true
-            while !firstReleased {
-                try await Task.sleep(nanoseconds: 1_000_000)
+            do {
+                while !firstReleased {
+                    try await Task.sleep(nanoseconds: 1_000_000)
+                }
+            } catch {
+                cancelled = true
+                throw error
             }
             return firstResponse
         }
@@ -401,6 +442,7 @@ private actor ControlledSettingsRemote: SettingsRemoteServing {
 
     func releaseFirstUpdate() { firstReleased = true }
     func updateCount() -> Int { updates }
+    func wasCancelled() -> Bool { cancelled }
 }
 
 private actor SettingsRequestSenderSpy: SettingsRequestSending {

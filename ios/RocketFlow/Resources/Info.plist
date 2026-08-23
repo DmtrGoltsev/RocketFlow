@@ -5,7 +5,6 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.rocketflow.companion.ios.refresh</string>
-		<string>com.rocketflow.companion.ios.processing</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
@@ -60,7 +59,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
-		<string>processing</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
@@ -79,4 +78,3 @@
 	</array>
 </dict>
 </plist>
-

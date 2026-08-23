@@ -136,27 +136,56 @@ private enum PersistenceOpenFailure: Error, Equatable {
 
 @MainActor
 final class DependencyContainerTests: XCTestCase {
-    func testUsesInjectedAPIBaseURL() {
+    func testValidExplicitAPIBaseURLIsUsedWithoutStartupConfigurationError() {
         let expectedURL = URL(string: "https://example.test/rocket-api")!
 
         let container = DependencyContainer(apiBaseURL: expectedURL)
 
         XCTAssertEqual(container.apiBaseURL, expectedURL)
+        XCTAssertNil(container.startupConfigurationError)
         XCTAssertNotNil(container.databaseQueue)
     }
 
-    func testConfiguredAPIBaseURLAcceptsProductionHTTPURL() {
-        let url = DependencyContainer.configuredAPIBaseURL(
-            from: "http://45.10.110.42/rocket-api"
-        )
+    func testCurrentHTTPAPIBaseURLIsAcceptedOnlyWhenExplicitlyConfigured() {
+        let expectedURL = URL(string: "http://45.10.110.42/rocket-api")!
 
-        XCTAssertEqual(url.absoluteString, "http://45.10.110.42/rocket-api")
+        let container = DependencyContainer(apiBaseURL: expectedURL)
+
+        XCTAssertEqual(container.apiBaseURL, expectedURL)
+        XCTAssertNil(container.startupConfigurationError)
     }
 
-    func testConfiguredAPIBaseURLFallsBackForInvalidValue() {
-        let url = DependencyContainer.configuredAPIBaseURL(from: "not a URL")
+    func testMissingOrInvalidConfiguredAPIBaseURLUsesNonRoutableSentinelWithoutProductionFallback() {
+        let values: [String?] = [nil, "", "$(ROCKETFLOW_API_BASE_URL)", "not a URL"]
+        let resolved = values.map { DependencyContainer.configuredAPIBaseURL(from: $0) }
 
-        XCTAssertEqual(url.absoluteString, "http://45.10.110.42/rocket-api")
+        XCTAssertTrue(resolved.allSatisfy {
+            $0.absoluteString == "https://configuration.invalid/rocket-api"
+        })
+        XCTAssertFalse(resolved.contains {
+            $0.absoluteString == "http://45.10.110.42/rocket-api"
+        })
+    }
+
+    func testInvalidExplicitAPIBaseURLReturnsStartupErrorAndBlocksActivation() async {
+        let invalidValue = "ftp://example.test/rocket-api"
+        let container = DependencyContainer(apiBaseURL: URL(string: invalidValue)!)
+
+        XCTAssertEqual(container.apiBaseURL.absoluteString, "https://configuration.invalid/rocket-api")
+        XCTAssertEqual(
+            container.startupConfigurationError,
+            .invalidAPIBaseURL(invalidValue)
+        )
+
+        do {
+            _ = try await container.activateApplication(for: user(email: "config@example.test"))
+            XCTFail("Expected invalid API configuration to block startup")
+        } catch {
+            XCTAssertEqual(
+                error as? AppStartupConfigurationError,
+                .invalidAPIBaseURL(invalidValue)
+            )
+        }
     }
 
     func testDatabaseSyncRepositoryPersistsPullBeforePushFlag() async throws {

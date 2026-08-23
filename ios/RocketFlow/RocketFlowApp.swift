@@ -2,15 +2,35 @@ import SwiftUI
 
 @main
 struct RocketFlowApp: App {
+    @UIApplicationDelegateAdaptor(RocketFlowAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var dependencies: DependencyContainer
     @StateObject private var appStore: AppStore
 
     @MainActor
     init() {
-        let dependencies = DependencyContainer()
+        let launchConfiguration = AppLaunchConfiguration.current()
+        let dependencies: DependencyContainer
+        switch launchConfiguration {
+        case .production:
+            dependencies = DependencyContainer(registerBackgroundTasks: true)
+        case .authenticatedUITest:
+            dependencies = DependencyContainer(
+                apiBaseURL: URL(string: "https://ui-test.invalid/rocket-api")!,
+                sessionStore: InMemorySessionStore(),
+                databaseOpener: { _ in try AppDatabase.inMemory() },
+                networkMonitor: FixedNetworkMonitor(connected: false),
+                notificationCenter: AppUITestNotificationCenter(),
+                fcmTokenProvider: ManualFCMRegistrationTokenProvider(configured: false),
+                registerBackgroundTasks: false
+            )
+        }
         _dependencies = StateObject(wrappedValue: dependencies)
-        _appStore = StateObject(wrappedValue: dependencies.makeAppStore())
+        _appStore = StateObject(
+            wrappedValue: dependencies.makeAppStore(
+                launchUser: launchConfiguration.launchUser
+            )
+        )
     }
 
     var body: some Scene {
@@ -20,7 +40,8 @@ struct RocketFlowApp: App {
                     .environmentObject(dependencies)
                     .environmentObject(appStore)
 
-                if let error = appStore.persistenceError {
+                if appStore.shouldShowPersistenceRecovery,
+                   let error = appStore.persistenceError {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("Локальные данные недоступны", systemImage: "externaldrive.badge.exclamationmark")
                             .font(.headline)
@@ -47,18 +68,19 @@ struct RocketFlowApp: App {
                 }
             }
             .onChange(of: scenePhase) { phase in
-                Task {
-                    switch phase {
-                    case .active:
-                        await appStore.handleLifecycle(.foreground)
-                    case .background:
-                        await appStore.handleLifecycle(.background)
-                    case .inactive:
-                        await appStore.handleLifecycle(.inactive)
-                    @unknown default:
-                        await appStore.handleLifecycle(.inactive)
-                    }
+                switch phase {
+                case .active:
+                    appStore.scheduleLifecycle(.foreground)
+                case .background:
+                    appStore.scheduleLifecycle(.background)
+                case .inactive:
+                    appStore.scheduleLifecycle(.inactive)
+                @unknown default:
+                    appStore.scheduleLifecycle(.inactive)
                 }
+            }
+            .onOpenURL { url in
+                Task { await appStore.receiveDeepLink(url) }
             }
         }
     }

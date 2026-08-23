@@ -12,6 +12,9 @@ configs:
   Release: release
 
 packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    exactVersion: 12.17.0
   GRDB:
     url: https://github.com/groue/GRDB.swift.git
     exactVersion: 6.29.3
@@ -30,13 +33,24 @@ targets:
       - path: RocketFlow
         excludes:
           - Resources/Info.plist
-          - Resources/RocketFlow.entitlements
+          - RocketFlow.entitlements
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
     dependencies:
+      - package: Firebase
+        product: FirebaseCore
+      - package: Firebase
+        product: FirebaseMessaging
       - package: GRDB
         product: GRDB
+    preBuildScripts:
+      - name: Firebase configuration diagnostic
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ "$CONFIGURATION" = "Release" ] && [ ! -f "$SRCROOT/RocketFlow/Resources/GoogleService-Info.plist" ]; then
+            echo "warning: GoogleService-Info.plist is absent; this Release build will run with push notifications visibly unavailable."
+          fi
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.rocketflow.companion.ios
@@ -46,7 +60,7 @@ targets:
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic
         INFOPLIST_FILE: RocketFlow/Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: RocketFlow/Resources/RocketFlow.entitlements
+        CODE_SIGN_ENTITLEMENTS: RocketFlow/RocketFlow.entitlements
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

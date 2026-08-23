@@ -786,6 +786,34 @@ final class FocusRepositoryTests: XCTestCase {
         XCTAssertEqual(calls.count, 1)
     }
 
+    func testExplicitCancelAndAwaitStopsSharedFlightBeforeReturning() async throws {
+        let item = focusTestItem(title: "Task", position: 0)
+        let initial = focusTestPeriod(version: 1, items: [item])
+        let remote = FocusRemoteStub(
+            current: initial,
+            mutationOutcomes: [.value(focusTestPeriod(version: 2))],
+            mutationDelayNanoseconds: 5_000_000_000
+        )
+        let cache = InMemoryFocusCache()
+        let queue = InMemoryFocusActionQueue()
+        try await cache.saveCurrent(initial, accountID: accountID)
+        let repository = FocusRepository(remote: remote, cache: cache, queue: queue)
+        _ = try await repository.remove(accountID: accountID, taskID: item.taskId)
+        let flight = Task {
+            try await repository.syncPending(accountID: accountID, timezone: "Europe/Moscow")
+        }
+        let started = await waitForPeriodCallCount(1, remote: remote)
+        XCTAssertTrue(started)
+
+        await repository.cancelAndAwaitPendingSync(accountID: accountID)
+
+        await XCTAssertThrowsErrorAsync(try await flight.value) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        let pending = try await queue.pending(accountID: accountID)
+        XCTAssertEqual(pending.count, 1)
+    }
+
     func testRolloverRequiresOfferedUniqueTasksAndAppliesExplicitSelection() async throws {
         let offeredA = focusTestItem(title: "A", position: 0)
         let offeredB = focusTestItem(title: "B", position: 1)

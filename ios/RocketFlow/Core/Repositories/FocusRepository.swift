@@ -529,6 +529,11 @@ protocol FocusRepositoryServing: Sendable {
     func loadSettings(accountID: UUID) async throws -> FocusSettingsResult
     func updateSettings(accountID: UUID, values: FocusCadenceValues) async throws -> FocusSettingsResult
     func syncPending(accountID: UUID, timezone: String) async throws -> FocusSyncResult
+    func cancelAndAwaitPendingSync(accountID: UUID) async
+}
+
+extension FocusRepositoryServing {
+    func cancelAndAwaitPendingSync(accountID: UUID) async {}
 }
 
 actor FocusRepository: FocusRepositoryServing {
@@ -836,7 +841,8 @@ actor FocusRepository: FocusRepositoryServing {
         }
 
         let flightID = UUID()
-        let task: Task<FocusSyncResult, Error> = Task.detached { [self] in
+        let task: Task<FocusSyncResult, Error> = Task { [self] in
+            try Task.checkCancellation()
             try await performSyncPending(accountID: accountID, timezone: timezone)
         }
         let flight = SyncFlight(id: flightID, task: task)
@@ -845,13 +851,17 @@ actor FocusRepository: FocusRepositoryServing {
     }
 
     private func performSyncPending(accountID: UUID, timezone: String) async throws -> FocusSyncResult {
+        try Task.checkCancellation()
         var current = try? await cache.current(accountID: accountID)
         var settings = try? await cache.settings(accountID: accountID)
         var acknowledged = 0
+        try Task.checkCancellation()
 
         for original in try await queue.pending(accountID: accountID) {
+            try Task.checkCancellation()
             var action = original
             while true {
+                try Task.checkCancellation()
                 do {
                     switch action.kind {
                     case .add, .remove, .reorder, .rollover:
@@ -866,6 +876,7 @@ actor FocusRepository: FocusRepositoryServing {
                         settings = try await remote.updateSettings(cadence, version: settings!.version)
                         try await cache.saveSettings(settings!, accountID: accountID)
                     }
+                    try Task.checkCancellation()
                     try await queue.acknowledge(accountID: accountID, actionID: action.id)
                     acknowledged += 1
                     break
@@ -926,6 +937,7 @@ actor FocusRepository: FocusRepositoryServing {
             }
         }
 
+        try Task.checkCancellation()
         let pending = try await queue.pending(accountID: accountID)
         let issues = try await queue.terminalIssues(accountID: accountID)
         let localTaskIDs: [UUID: UUID]
@@ -942,6 +954,12 @@ actor FocusRepository: FocusRepositoryServing {
             acknowledgedCount: acknowledged,
             localTaskIDsByBackendID: localTaskIDs
         )
+    }
+
+    func cancelAndAwaitPendingSync(accountID: UUID) async {
+        guard let flight = syncFlights.removeValue(forKey: accountID) else { return }
+        flight.task.cancel()
+        _ = try? await flight.task.value
     }
 
     private func awaitSyncFlight(_ flight: SyncFlight, accountID: UUID) async throws -> FocusSyncResult {

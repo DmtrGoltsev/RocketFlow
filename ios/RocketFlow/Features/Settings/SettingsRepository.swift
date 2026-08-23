@@ -148,6 +148,11 @@ protocol SettingsRepositoryServing: Sendable {
         notificationsEnabled: Bool
     ) async throws -> SettingsRepositorySnapshot
     func retry(accountID: UUID) async throws -> SettingsRepositorySnapshot
+    func cancelAndAwaitAllOperations(accountID: UUID) async
+}
+
+extension SettingsRepositoryServing {
+    func cancelAndAwaitAllOperations(accountID: UUID) async {}
 }
 
 actor SettingsRepository: SettingsRepositoryServing {
@@ -179,6 +184,7 @@ actor SettingsRepository: SettingsRepositoryServing {
         }
         do {
             let settings = try await remote.current()
+            try Task.checkCancellation()
             guard generations[accountID, default: 0] == generation else {
                 return await cachedSnapshot(accountID: accountID, failure: nil)
             }
@@ -240,6 +246,13 @@ actor SettingsRepository: SettingsRepositoryServing {
         return try await flushSerialized(accountID: accountID)
     }
 
+    func cancelAndAwaitAllOperations(accountID: UUID) async {
+        generations[accountID, default: 0] &+= 1
+        guard let flight = flushFlights.removeValue(forKey: accountID) else { return }
+        flight.task.cancel()
+        _ = try? await flight.task.value
+    }
+
     private func flushSerialized(accountID: UUID) async throws -> SettingsRepositorySnapshot {
         while true {
             let flight: FlushFlight
@@ -269,11 +282,13 @@ actor SettingsRepository: SettingsRepositoryServing {
     private func drainPending(accountID: UUID) async throws -> SettingsRepositorySnapshot {
         var latest: SettingsRepositorySnapshot?
         while let desired = try await cache.pending(accountID: accountID) {
+            try Task.checkCancellation()
             let initial: UserSettingsDTO
             if let cached = try await cache.settings(accountID: accountID) {
                 initial = cached
             } else {
                 initial = try await remote.current()
+                try Task.checkCancellation()
             }
             let updated: UserSettingsDTO
             do {
@@ -282,21 +297,26 @@ actor SettingsRepository: SettingsRepositoryServing {
                     notificationsEnabled: desired.notificationsEnabled,
                     current: initial
                 )
+                try Task.checkCancellation()
             } catch let api as APIError where api.statusCode == 409 || api.statusCode == 412 {
                 let fresh = try await remote.current()
+                try Task.checkCancellation()
                 updated = try await remote.update(
                     language: desired.language,
                     notificationsEnabled: desired.notificationsEnabled,
                     current: fresh
                 )
+                try Task.checkCancellation()
             }
 
             let currentPending = try await cache.pending(accountID: accountID)
+            try Task.checkCancellation()
             guard currentPending?.mutationID == desired.mutationID else {
                 latest = await cachedSnapshot(accountID: accountID, failure: nil)
                 continue
             }
             try await cache.save(updated, accountID: accountID)
+            try Task.checkCancellation()
             try await cache.clearPending(accountID: accountID)
             latest = SettingsRepositorySnapshot(
                 settings: updated, source: .network, pending: false, failure: nil
