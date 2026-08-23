@@ -251,10 +251,10 @@ struct EditorCopy: Sendable {
     }
 
     func validationText(_ issue: EditorValidationIssue) -> String {
-        switch issue {
+        return switch issue {
         case .required: required
         case let .tooLong(maximum):
-            return languageMaximum(maximum)
+            languageMaximum(maximum)
         case .mustBeNonnegative: nonnegative
         case .recurrenceAnchorRequired: recurrenceAnchor
         case .recurrenceEndInvalid: recurrenceEndInvalid
