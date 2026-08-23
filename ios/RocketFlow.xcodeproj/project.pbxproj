@@ -7,38 +7,170 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01BCFA933495EE118A9960C5 /* DetailCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC225ED916ED82089F0BAE44 /* DetailCopy.swift */; };
+		02958297F02A6AD302820C61 /* DeviceRegistrationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42EBE20081256E1E663803EC /* DeviceRegistrationService.swift */; };
+		03C1BE21BAFC22BE3732D137 /* FeaturePersistenceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1E9DD00ECDE4AEE39A9BC25 /* FeaturePersistenceSupport.swift */; };
+		04CB657DBE7EF1A56BA2911D /* FeaturePersistenceCalendarFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B1A7B7DC55A7D1DAEC79DC /* FeaturePersistenceCalendarFocusTests.swift */; };
+		04DD7B8DF34D515A36E7C93C /* SharingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB81D6D08E033CAD1A90D28E /* SharingService.swift */; };
 		06D301DA1404C4929284AAEE /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 348D08E8335D968786FDDB69 /* AppStore.swift */; };
 		06DD4F80BF52E7128A8200A0 /* AuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56AA9A684DCBCD1AABAACA0A /* AuthModels.swift */; };
+		093C7290C867DA74CB22064F /* CalendarDateMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5B4D0384F71946C7F82D08 /* CalendarDateMathTests.swift */; };
+		09D519CBA80F46613C6D5E45 /* SimpleEditorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB90CB844ED20C721986CF38 /* SimpleEditorViews.swift */; };
+		0B3792AA0121EB703CC35ABF /* FeaturePersistenceNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B5A895407E831FBA7EE0C8 /* FeaturePersistenceNotifications.swift */; };
+		0E26D4FD72669864B5AE597D /* PlanningActionDTOs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C64C1973BC7520B4EE16948 /* PlanningActionDTOs.swift */; };
+		0FA9E9F5CBEAB477BCFB3CE3 /* FeaturePersistenceCalendar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B02D9699F2EC017F93BBD653 /* FeaturePersistenceCalendar.swift */; };
+		11C5576C50BC18A4AA29F9C9 /* SettingsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C131C8BF7D39981928AC40 /* SettingsRepository.swift */; };
+		1233715AF1F0664574ED7B0D /* PlannerTreeBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4EAD1D9507C3257870FF7A /* PlannerTreeBuilder.swift */; };
+		125446680505CFE729297A81 /* AppRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C4D1CEED36CEA3E34FD6FE0 /* AppRuntime.swift */; };
+		13B0E3832A95BDA746E7414E /* DetailCapabilitiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA705BC64C28CCB7621DD1E /* DetailCapabilitiesTests.swift */; };
+		1748E97C2910EC015053310F /* ResourceSharingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96D75034F990426CF0EC5B0 /* ResourceSharingSheet.swift */; };
+		18C676671BAC76A2B4757B64 /* SettingsFeatureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 914A8D19DFFB7C332047F941 /* SettingsFeatureTests.swift */; };
+		1970FAD0CA9FB633E734C84B /* PlannerCapabilitiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2118A8D3CC6F5C180EBABBB4 /* PlannerCapabilitiesTests.swift */; };
+		1AF4DD17EFDDFDBDA407E2AF /* DetailModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 170A507E96D69604C2473650 /* DetailModelsTests.swift */; };
+		1C78E06B53DCC646EE875249 /* FocusFeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D11A458777E87B24645924 /* FocusFeatureModels.swift */; };
 		1CBEEF33FB5A2FB13B0089D1 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D7A6CFC34F0D63299DE7003F /* InfoPlist.strings */; };
 		1CED223473A214B89A5FED83 /* SessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1FFBD7D15848D99022D1E53 /* SessionStore.swift */; };
+		1CFE50F7E8BA7AE09F89765F /* DeepLinkCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EB6BC11E0005C72B42C9D7 /* DeepLinkCoordinator.swift */; };
+		1D0F4E9063D66C6BCB16E8FA /* LocalPlanningRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC36E349F8BF48AA9A0A5B4 /* LocalPlanningRepository.swift */; };
+		1D89169373D0BEE6E05B618F /* FocusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A7FE355B6D1A782B28E369 /* FocusView.swift */; };
+		20581EA435092C6CCE07AADE /* FeaturePersistenceNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F8CBCF175224A5A70BD41A4 /* FeaturePersistenceNotificationTests.swift */; };
+		210AAC1B7EA7256645B99BC0 /* AppPresentationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A267C220D548B0DE620091AA /* AppPresentationViews.swift */; };
 		22020FD262F77B1E152C5D04 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D408E7D039D6E82506289E /* AuthService.swift */; };
 		22EA5E008C6CFC4553522E3E /* DependencyContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE023F905BC88C6FA5735CBD /* DependencyContainer.swift */; };
+		23CBB4DC41B0C6FC1E2B2943 /* AppDeviceInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C014C95DED9584D1B6195D21 /* AppDeviceInfo.swift */; };
+		24D00D090D6FFCA9A6A63A25 /* FocusProgressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79FCFC1C400DC37D03F50A9 /* FocusProgressTests.swift */; };
+		265EABD5B5F36E4CF227FE9E /* FeaturePersistenceFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9705C2410F6FA2DD55003BAA /* FeaturePersistenceFocus.swift */; };
+		27979CA0BA11729E2D7BE409 /* FocusViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EE9C0CC91F7073F0CC167A /* FocusViewModel.swift */; };
+		29247EED2D184EA11F40EBBF /* DetailSharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 279DF242B71EED058AF9E13E /* DetailSharedViews.swift */; };
 		296611EB2338EE630E00FC7D /* Endpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F2ABAD75C4207AF2420CDA5 /* Endpoint.swift */; };
 		2B949181D13EEEE441ED8AC0 /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D81218702A30759956E2DA /* APIClientTests.swift */; };
 		2E211E9DB19EE6EEF1E3D344 /* RocketFlowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59023D9A0F9FD5278FA72E4D /* RocketFlowApp.swift */; };
+		2E70DD073BA9A679D905A96C /* EntityDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87AF249F44F973CC496E1918 /* EntityDetailViews.swift */; };
 		2EB6888E5C676C1986B9223E /* CalendarFocusSettingsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF38496DE5883031AE6798A /* CalendarFocusSettingsModels.swift */; };
+		2F9C6E02C9A9709664536519 /* SharingActionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07A926C608A3F48AE2E57282 /* SharingActionModels.swift */; };
+		32A8896E619137604E6EB8CE /* PlannerDetailsAdapterCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E1F34E3490A0F7E01475F91 /* PlannerDetailsAdapterCommands.swift */; };
+		32C9B7507A93B0F20335BEEB /* PlannerViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12EBC5270DFC2B5C8D688015 /* PlannerViewModelTests.swift */; };
+		33B96E041A592B6DC9E477F8 /* AppIntegrationCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DBCAA0E0A77461D87B8D4AE /* AppIntegrationCopy.swift */; };
 		3472D6FB5FDA67631945AE0B /* BackendModelDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F6413E6C63374BE6C28F3BE /* BackendModelDecodingTests.swift */; };
 		34D778663E495D55665F27DD /* EndpointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 547B1BAD2D88E951C841A6D1 /* EndpointTests.swift */; };
+		3892835A87F1E836B608ACF5 /* PlannerTestSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7CCD6ED9921560E4BAB1FEE /* PlannerTestSupportTests.swift */; };
+		3A067BFBF61B9AA81CD3652C /* EditorSaveCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 916208748A7324B6CB534D22 /* EditorSaveCoordinator.swift */; };
+		3BAA3C8605D0BD5123484293 /* PlannerScrollAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3621DA671D870A3C6D3891 /* PlannerScrollAnchorTests.swift */; };
+		3C2A3E1AF27F40A188012CDD /* CalendarDateMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94A95F5AD3A642737F8026F8 /* CalendarDateMath.swift */; };
 		3D1C83645296107EE48EB714 /* RocketEndpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35C4CB302B34173471383D7D /* RocketEndpoints.swift */; };
+		3E10ECE59B34FAD7A0082944 /* SharingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DF8F7F49B768B53EF61816F /* SharingServiceTests.swift */; };
 		3F9A6C0ADA369FDB7C63E1E5 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCE4FFF5FC6B6ED85BDBD6A0 /* AuthViewModel.swift */; };
-		43ED2F8802C16F9F28AED706 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F026DE4AA71258E5653E4D1D /* GRDB */; };
+		434AD870E1BB03E6BE351D6B /* LocalPlanningRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A571FE41150DF1558E3AE25 /* LocalPlanningRepositoryTests.swift */; };
+		43ED2F8802C16F9F28AED706 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = F3E40CCC25944E1AD92A1AA0 /* FirebaseCore */; };
+		469D220207A76ECE6132DAEF /* CalendarViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 244B19CC686580A5F9CC18A2 /* CalendarViewModelTests.swift */; };
+		46DD29E6C16953144A3884AB /* PlannerScrollModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50F1270430F47339D2E5D481 /* PlannerScrollModels.swift */; };
+		47206F7492939B3B46EE5350 /* PlannerFeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 334EF7B9104B6370A7E60ED0 /* PlannerFeatureModels.swift */; };
+		482FCCC56471FA8E3FE770FC /* AppNavigationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91A08F620954D369B09AA24D /* AppNavigationUITests.swift */; };
+		491B5D80B5EED8EB4E6B6800 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = F026DE4AA71258E5653E4D1D /* GRDB */; };
+		521D007DF129924247AD0AAC /* EntityLinksSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 979B6F416DC84E9BE340B4F6 /* EntityLinksSection.swift */; };
+		522D6D959B347109D4F6EED8 /* AppDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C9C856978E0F3A2E9353F4 /* AppDatabase.swift */; };
+		5324E39B7675E96B08265D5C /* CalendarViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 584DE9BC95ED565F24FFBDAC /* CalendarViewModel.swift */; };
+		552A7456DA4B0CCE553621D7 /* PlannerScrollStateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA7997BA7D8A507055A2A041 /* PlannerScrollStateController.swift */; };
+		556F9EB3B065CA7AF184D238 /* EntityLinkViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 894F5202F180F10218191514 /* EntityLinkViewModelTests.swift */; };
 		5767C14693AD4B37A3F51231 /* AuthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 643B167FC6EA997ADC8EC83C /* AuthSessionTests.swift */; };
+		5B56345AF158451BB7F75DCC /* DeepLinkCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F739AF5BC5111DFC8647BE75 /* DeepLinkCoordinatorTests.swift */; };
+		5F3C043AA2031120B249E23B /* DatabaseSyncRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34F00C8828E2CD841168B0A /* DatabaseSyncRepository.swift */; };
+		6066682040BA8781C8A8B60B /* APIPlanningRemoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 550A90A66B6BF748E0699CBF /* APIPlanningRemoteTests.swift */; };
+		62C24A817AE0F1B1DB7057E8 /* CalendarRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01F5912C0558FC926491A6A7 /* CalendarRepository.swift */; };
+		62F7FFA33A906D11302565C3 /* SharingViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8BDC80FCB876658CEA6891D /* SharingViewModelTests.swift */; };
+		6712CF33DCA05668ED124CCD /* PendingMutationStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02065FC3583B69AF538A587 /* PendingMutationStoreTests.swift */; };
+		67927CF0DEC3A8DBCA20A8F8 /* AppExternalEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6EA473FAB03C8D9DAC137AC /* AppExternalEvents.swift */; };
+		6870D26735F579BE30F93518 /* EditorValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12A8CFF4F3E02A38A4B2FB26 /* EditorValidation.swift */; };
 		689317FCDA77CBBB3DD69E3B /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06908261B9CC08E949485BBD /* APIError.swift */; };
 		689F11F187D53D2ED3B2F461 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0828622CC42A3B9C3F7356A /* APIClient.swift */; };
+		6B4B88DC9D98563CE402F460 /* CalendarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04BD4572E555AA6F03A3F820 /* CalendarView.swift */; };
 		6C6A5D35A916F9722AD15F5A /* WireDateCodecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 447E7C12BDB0430F8AA67FB3 /* WireDateCodecTests.swift */; };
+		6CB783E44A7613F16E003E75 /* AppUITestServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3679EE24653DB07D17197E39 /* AppUITestServices.swift */; };
+		726AFFA34A55021F0940B834 /* AuthenticatedAppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBCE769CEDAEE2E36209EAE0 /* AuthenticatedAppView.swift */; };
+		72B4D920D1AA0D05EAF885DD /* AppLinksHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51C298FE063A78F98525A2C6 /* AppLinksHost.swift */; };
+		73B47F4D59A5B9AF681B4514 /* TaskEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4F84D775DC9DBB93F429BDB /* TaskEditorView.swift */; };
 		7555C70749FD8D289D687DC9 /* PlanningModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDBDD0E06B8CF5A67318B39 /* PlanningModels.swift */; };
+		75D463BB1F009157287AD66F /* FocusRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8183FDB8A2A725A0EDC75D4F /* FocusRepository.swift */; };
+		7675E802B3C5A694A1C46599 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 880E6095E34E4F4ED7D20A45 /* SyncEngine.swift */; };
+		76858B2C16894646DFFFC463 /* DetailContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A8B1643FE494BFD334CDD6D /* DetailContracts.swift */; };
+		7768FFDE1B699C550C10646D /* FirebaseMessagingBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2C862D43DEBD692E34DAC7C /* FirebaseMessagingBridge.swift */; };
+		782560F3388C68565A1F46BD /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6C34E02130A8230B38304E9 /* SettingsViewModel.swift */; };
 		7A3AF74D21A77C431CD1B2DB /* SessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B70F426E85B0574DD2BBA29 /* SessionStoreTests.swift */; };
+		7C456BEB3FF4222B510F9953 /* PlannerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73A90F5D563A3A9ADF3623B5 /* PlannerViewModel.swift */; };
+		7DB3169DF23CDE83EE7DC2F5 /* PlannerDetailsIntegrationFixturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0967591A4502178B396A621D /* PlannerDetailsIntegrationFixturesTests.swift */; };
+		7E3ECCB62385007E902B34B5 /* TaskReminderNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77334E0F6C04202C2CCC4663 /* TaskReminderNotifications.swift */; };
+		82B0714B2E827CBD4F76DECB /* NotificationDeviceRegistrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C185BA48C077F85707669817 /* NotificationDeviceRegistrationTests.swift */; };
+		880D7441A9240FF1D680037A /* FeaturePersistenceSettingsDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD9F5CC29332BC4FA8D1C82 /* FeaturePersistenceSettingsDevice.swift */; };
+		8885C566C3221499F878B476 /* DetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9961B67A08EE820A15EED55 /* DetailViewModel.swift */; };
+		8BDB9C0649CC057D0626364A /* AppNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E26B0D720B8D1D3946CAABA /* AppNavigation.swift */; };
+		8CEF7BDD4D2174B9581A84CB /* AppIntegrationNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34F231387A417F34E842AF3 /* AppIntegrationNavigationTests.swift */; };
+		8D6751EA0BA7C02C5E1312B3 /* EntityLinkFeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67A040336A4C3621606C2487 /* EntityLinkFeatureModels.swift */; };
+		8EA7D0D954CB8BDC22035355 /* ResourceSharingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0F77928893BCDEC0BF4A22 /* ResourceSharingViewModel.swift */; };
 		8F55831661AE38567EB3E1FD /* CollaborationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38DF1E960D8DFD022874A9E1 /* CollaborationModels.swift */; };
+		9344A59DABC31EB5DCF94A18 /* PendingMutationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 601AD3E7973EE228467B273B /* PendingMutationStore.swift */; };
+		948F2D4BC495B1B87404AF62 /* PlanningActionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF2B956390453977C981A1A2 /* PlanningActionServiceTests.swift */; };
+		955E98A773FC43CCC063C504 /* DetailModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8949EE2ACFEEA632A4DD0AA6 /* DetailModels.swift */; };
+		96AD73C67344A8BD4DAB1BD6 /* EditorModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F20DA3CD51F15A70D806C4 /* EditorModels.swift */; };
+		96BAED26372F1620334DC2EF /* PlanningPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EF124D240CFDA59758507E7 /* PlanningPersistence.swift */; };
+		99E4988010440347B643B359 /* FocusCandidatePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB5F274620048412BF2AB165 /* FocusCandidatePickerView.swift */; };
+		9DFC30A82D415D278B398BF8 /* FeaturePersistenceSettingsDeviceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919C1B8B6BDA67469E767562 /* FeaturePersistenceSettingsDeviceTests.swift */; };
+		A11EE9AE1C257D9CBB6D3FCF /* NotificationScheduleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B3500E02378A2E3D14DCE1 /* NotificationScheduleTests.swift */; };
+		A24B262AE9E5035C71F694FF /* EditorSaveCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8184E4550E73660DA56E589F /* EditorSaveCoordinatorTests.swift */; };
+		A2D4503EE9B01EE27DC9CE19 /* PlannerScrollStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1465EF045222FB6297ACD936 /* PlannerScrollStateTests.swift */; };
+		A652ED7AE6C356CE90B9018E /* EditorSharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C8A4DE6ACFDEE2BBEC68988 /* EditorSharedViews.swift */; };
+		A9FEA83773B7A11DC6160196 /* RemoteNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B68D721683222C533BF6B5E /* RemoteNotifications.swift */; };
+		AAC56BA50660EF4785F30C8B /* EditorTaskDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C103CE9402A6738C48255E53 /* EditorTaskDraftTests.swift */; };
+		B0E90FC0199CC40B05882EC3 /* FocusRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1372A2D37F1008468E80A636 /* FocusRepositoryTests.swift */; };
+		B1CD3036DBAC2893A3802E2D /* AppDeviceRegistrationRetryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81D1B8F9D523B83A768B9812 /* AppDeviceRegistrationRetryStore.swift */; };
+		B2B59AAF60A30BFF7F3E91AC /* FocusViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 378CC0081473228A80BCEDB8 /* FocusViewModelTests.swift */; };
+		B31A40F087D16D6CC788FFBB /* DatabaseSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40CD6C8E9B52C62EC75964B /* DatabaseSchema.swift */; };
+		B39472B4497A66088B6AF78D /* SettingsFeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58A11EC5D2563534A2C3DC58 /* SettingsFeatureModels.swift */; };
+		B453B41F9E96D6B2DBD30078 /* DetailViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 451A2831FFF165D236A66849 /* DetailViewModelTests.swift */; };
+		B47077B1962997530709B776 /* CalendarRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28C216F083C19019F34F3ED /* CalendarRepositoryTests.swift */; };
+		B6F6BFB2DECC0E92FCA92090 /* FeaturePersistenceMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CD9A30514551A1F6168D863 /* FeaturePersistenceMigrationTests.swift */; };
 		B9A1758FBEAE582C0AD5C39B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 715CCE1E6C9AEBC5BA408325 /* Assets.xcassets */; };
+		BAEBEBB952E5E31B62AD0D6B /* PlannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 644810FAE23BC2ED30066B38 /* PlannerView.swift */; };
+		BAEED03BC4734A70272D9947 /* PlannerDetailsAdapterMutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 080FD2E232EDFD49E45A5B30 /* PlannerDetailsAdapterMutations.swift */; };
+		BB3BEEACC1F9710689182526 /* PlannerScrollViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2560E2AF562B6737EBD9CEB /* PlannerScrollViewBridge.swift */; };
+		BBAA788AB33D47CE099491CC /* RemoteActionError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F84484D62F0360C7596A07 /* RemoteActionError.swift */; };
 		BDD404D1178B1D92ED578C6A /* WireDateCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCF434EDFB96E2FF18ECEF22 /* WireDateCodec.swift */; };
+		BF30DBAC58252B94D2CC1713 /* PlannerDetailsIntegrationLocalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B8FA63031554A918702E01 /* PlannerDetailsIntegrationLocalTests.swift */; };
+		C33693FEE303FEF0783DD516 /* FocusCadenceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7480E5CC8DD97717D06DBED1 /* FocusCadenceSettingsView.swift */; };
+		C3B86E9AD97DF6F38F7FA47A /* PlannerDetailsIntegrationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8839BFC7CB94348ED6329E /* PlannerDetailsIntegrationModels.swift */; };
+		C609364CF68373669F95C301 /* PlannerScrollAnchorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C184FD4736E60357C28FAE5 /* PlannerScrollAnchorResolver.swift */; };
+		C769DDD7A96EEAE3B2613ADF /* FocusHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE557F27BE7D5D454496161 /* FocusHistoryView.swift */; };
 		C7CC9DEB785CEEFA138EF8B2 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 7442F52B4A72AB716C9DBEDE /* Localizable.strings */; };
+		CA0BF45BC32D5EFD9CA6201F /* EntityLinkValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F865BE527EFA9DB0F9801EB /* EntityLinkValidationTests.swift */; };
 		CBEA453F363156A4F51BB961 /* AppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962F9755C0F84AC51B722424 /* AppRootView.swift */; };
+		D03F0CBFDAF037D3946A1E0A /* BackgroundRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD5FC1675C1540130D3C584D /* BackgroundRefreshCoordinator.swift */; };
+		D0613A58134BD69D8E3C43C9 /* PlannerScrollBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF5042314CCB1DCD837C20D /* PlannerScrollBridgeTests.swift */; };
+		D527492DF62992B982CA20FE /* PlannerTreeBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 128B4DA29C8C5F8189A168C3 /* PlannerTreeBuilderTests.swift */; };
+		D6B8D2B9257790E45B3DFB75 /* AppIntegrationDependencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1F1F173B02758B8AFD4F00 /* AppIntegrationDependencyTests.swift */; };
+		D6D9A5FA0889863FE18A231B /* EditorValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BC1BD624435C41060F5CF49 /* EditorValidationTests.swift */; };
+		D8437CAD297DA7757A0078ED /* EntityLinksViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E56CC6919D9D2A74667B42A6 /* EntityLinksViewModel.swift */; };
 		D890CAD5881138E04A8B792F /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D03D239A76F76D6C6EA4C3 /* AuthView.swift */; };
 		DAEC0B8849D0C079099D6220 /* RocketFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A01607700B5872A165553E /* RocketFlowUITests.swift */; };
 		DB0579CBFB7E5DB24EB13D75 /* AuthViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8254A6D8A780E7AA848A6144 /* AuthViewModelTests.swift */; };
+		DBD16E60B55B612AD52F8CF7 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0188983E7FE859D1C50777 /* PersistenceTests.swift */; };
+		DC4522AAAE30236822137197 /* PlannerDetailsAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE1E1405313678231E0E8C8 /* PlannerDetailsAdapter.swift */; };
+		DC6FF38006C024EE5A2840B4 /* EntityLinkPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DED047DC739D42C7C304E97 /* EntityLinkPickerView.swift */; };
 		E0643F2A7F0B80345A98D919 /* KeychainSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4DDFDDE2ABF8416A673D83 /* KeychainSessionStore.swift */; };
+		E0AB580523B0600824597E76 /* APIPlanningRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 654CF52349E996FBE0D36443 /* APIPlanningRemote.swift */; };
+		E17D650C2752554778067754 /* PlanningActionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F533B944E0CE3F4533060B99 /* PlanningActionService.swift */; };
+		E21D19CD9DD627EDBDDDBFA8 /* PersistenceRecords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2955E09D30F52062543D4FB8 /* PersistenceRecords.swift */; };
+		E75DDD2FAB6B3E08619D1E16 /* GRDBPlannerDetailsPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2202E9B64D0612A7F42B92 /* GRDBPlannerDetailsPersistence.swift */; };
+		E9849AC4157BCAD0C1069AA0 /* SharingFeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D58BB80743AC766D1CF59CA /* SharingFeatureModels.swift */; };
+		E9A03F747BC40045F1725004 /* SyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F6B86837FEF9A511F10482E /* SyncModels.swift */; };
+		EAF0FC33E0BA6675520E5E8F /* BackgroundRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEB77F7F289E60BAA477AFE7 /* BackgroundRefreshTests.swift */; };
+		F1D353570C2D09DE9E4990F7 /* PlannerRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15542B47FF6877519C3B529F /* PlannerRows.swift */; };
+		F5249D47AA0D4B888B95CD83 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = B1236611F607F1A85AF9F45B /* FirebaseMessaging */; };
 		F54BC39EC08606339F817D88 /* AuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B3BF00F82BAC3154E28B47A /* AuthSession.swift */; };
+		F826F0B6BD3E4087E48D42E7 /* ReachabilityNetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F35A2284AB0A15BAE26C005A /* ReachabilityNetworkMonitor.swift */; };
+		F888D1625F2026376F9B0276 /* SyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8659A6160C903A2D00EA74FD /* SyncEngineTests.swift */; };
+		FB622691FD138C49454B6009 /* PlannerDetailsIntegrationRemoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0085A81431837AC464A218B9 /* PlannerDetailsIntegrationRemoteTests.swift */; };
+		FB9BAEA63593B2F35B5CF1D0 /* EditorCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EF29BF622C90DE2B6287072 /* EditorCopy.swift */; };
 		FD3D67A65B967D035DD3A713 /* DependencyContainerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79A27717B1BC9520C61C3B56 /* DependencyContainerTests.swift */; };
+		FFD3BBC6BE962B9F2ACDD709 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84EC70DF6C48B147DA4F8A68 /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,41 +191,171 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0085A81431837AC464A218B9 /* PlannerDetailsIntegrationRemoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerDetailsIntegrationRemoteTests.swift; sourceTree = "<group>"; };
+		01B1A7B7DC55A7D1DAEC79DC /* FeaturePersistenceCalendarFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePersistenceCalendarFocusTests.swift; sourceTree = "<group>"; };
+		01F5912C0558FC926491A6A7 /* CalendarRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarRepository.swift; sourceTree = "<group>"; };
+		04BD4572E555AA6F03A3F820 /* CalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarView.swift; sourceTree = "<group>"; };
 		06908261B9CC08E949485BBD /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
+		07A926C608A3F48AE2E57282 /* SharingActionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharingActionModels.swift; sourceTree = "<group>"; };
+		080FD2E232EDFD49E45A5B30 /* PlannerDetailsAdapterMutations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerDetailsAdapterMutations.swift; sourceTree = "<group>"; };
+		0967591A4502178B396A621D /* PlannerDetailsIntegrationFixturesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerDetailsIntegrationFixturesTests.swift; sourceTree = "<group>"; };
+		0F5B4D0384F71946C7F82D08 /* CalendarDateMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDateMathTests.swift; sourceTree = "<group>"; };
+		11D11A458777E87B24645924 /* FocusFeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusFeatureModels.swift; sourceTree = "<group>"; };
+		128B4DA29C8C5F8189A168C3 /* PlannerTreeBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerTreeBuilderTests.swift; sourceTree = "<group>"; };
+		12A8CFF4F3E02A38A4B2FB26 /* EditorValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorValidation.swift; sourceTree = "<group>"; };
+		12EBC5270DFC2B5C8D688015 /* PlannerViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerViewModelTests.swift; sourceTree = "<group>"; };
+		1372A2D37F1008468E80A636 /* FocusRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusRepositoryTests.swift; sourceTree = "<group>"; };
+		1465EF045222FB6297ACD936 /* PlannerScrollStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerScrollStateTests.swift; sourceTree = "<group>"; };
+		15542B47FF6877519C3B529F /* PlannerRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerRows.swift; sourceTree = "<group>"; };
+		170A507E96D69604C2473650 /* DetailModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailModelsTests.swift; sourceTree = "<group>"; };
+		2118A8D3CC6F5C180EBABBB4 /* PlannerCapabilitiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerCapabilitiesTests.swift; sourceTree = "<group>"; };
+		244B19CC686580A5F9CC18A2 /* CalendarViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarViewModelTests.swift; sourceTree = "<group>"; };
+		279DF242B71EED058AF9E13E /* DetailSharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailSharedViews.swift; sourceTree = "<group>"; };
+		2955E09D30F52062543D4FB8 /* PersistenceRecords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceRecords.swift; sourceTree = "<group>"; };
+		2DED047DC739D42C7C304E97 /* EntityLinkPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityLinkPickerView.swift; sourceTree = "<group>"; };
+		2DF8F7F49B768B53EF61816F /* SharingServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharingServiceTests.swift; sourceTree = "<group>"; };
+		2EF29BF622C90DE2B6287072 /* EditorCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCopy.swift; sourceTree = "<group>"; };
 		31B344AB40D7E0E5543A2C94 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
+		334EF7B9104B6370A7E60ED0 /* PlannerFeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerFeatureModels.swift; sourceTree = "<group>"; };
 		348D08E8335D968786FDDB69 /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		35C4CB302B34173471383D7D /* RocketEndpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RocketEndpoints.swift; sourceTree = "<group>"; };
+		3679EE24653DB07D17197E39 /* AppUITestServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUITestServices.swift; sourceTree = "<group>"; };
+		378CC0081473228A80BCEDB8 /* FocusViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusViewModelTests.swift; sourceTree = "<group>"; };
 		38A01607700B5872A165553E /* RocketFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RocketFlowUITests.swift; sourceTree = "<group>"; };
 		38DF1E960D8DFD022874A9E1 /* CollaborationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollaborationModels.swift; sourceTree = "<group>"; };
+		3D58BB80743AC766D1CF59CA /* SharingFeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharingFeatureModels.swift; sourceTree = "<group>"; };
+		3F865BE527EFA9DB0F9801EB /* EntityLinkValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityLinkValidationTests.swift; sourceTree = "<group>"; };
+		3F8CBCF175224A5A70BD41A4 /* FeaturePersistenceNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePersistenceNotificationTests.swift; sourceTree = "<group>"; };
 		42D03D239A76F76D6C6EA4C3 /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		42EBE20081256E1E663803EC /* DeviceRegistrationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceRegistrationService.swift; sourceTree = "<group>"; };
 		447E7C12BDB0430F8AA67FB3 /* WireDateCodecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireDateCodecTests.swift; sourceTree = "<group>"; };
+		451A2831FFF165D236A66849 /* DetailViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailViewModelTests.swift; sourceTree = "<group>"; };
+		4B68D721683222C533BF6B5E /* RemoteNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteNotifications.swift; sourceTree = "<group>"; };
+		4BC1BD624435C41060F5CF49 /* EditorValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorValidationTests.swift; sourceTree = "<group>"; };
+		4C4D1CEED36CEA3E34FD6FE0 /* AppRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRuntime.swift; sourceTree = "<group>"; };
+		4CC36E349F8BF48AA9A0A5B4 /* LocalPlanningRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPlanningRepository.swift; sourceTree = "<group>"; };
+		4CE557F27BE7D5D454496161 /* FocusHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusHistoryView.swift; sourceTree = "<group>"; };
 		4F2ABAD75C4207AF2420CDA5 /* Endpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Endpoint.swift; sourceTree = "<group>"; };
+		50F1270430F47339D2E5D481 /* PlannerScrollModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerScrollModels.swift; sourceTree = "<group>"; };
+		51C298FE063A78F98525A2C6 /* AppLinksHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLinksHost.swift; sourceTree = "<group>"; };
 		547B1BAD2D88E951C841A6D1 /* EndpointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EndpointTests.swift; sourceTree = "<group>"; };
+		550A90A66B6BF748E0699CBF /* APIPlanningRemoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIPlanningRemoteTests.swift; sourceTree = "<group>"; };
 		56AA9A684DCBCD1AABAACA0A /* AuthModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthModels.swift; sourceTree = "<group>"; };
 		57D408E7D039D6E82506289E /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		584DE9BC95ED565F24FFBDAC /* CalendarViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarViewModel.swift; sourceTree = "<group>"; };
+		58A11EC5D2563534A2C3DC58 /* SettingsFeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFeatureModels.swift; sourceTree = "<group>"; };
 		59023D9A0F9FD5278FA72E4D /* RocketFlowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RocketFlowApp.swift; sourceTree = "<group>"; };
+		5AE1E1405313678231E0E8C8 /* PlannerDetailsAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerDetailsAdapter.swift; sourceTree = "<group>"; };
+		5B0188983E7FE859D1C50777 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
+		5D3621DA671D870A3C6D3891 /* PlannerScrollAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerScrollAnchorTests.swift; sourceTree = "<group>"; };
+		5E26B0D720B8D1D3946CAABA /* AppNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigation.swift; sourceTree = "<group>"; };
 		5F6413E6C63374BE6C28F3BE /* BackendModelDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendModelDecodingTests.swift; sourceTree = "<group>"; };
+		5F6B86837FEF9A511F10482E /* SyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncModels.swift; sourceTree = "<group>"; };
+		601AD3E7973EE228467B273B /* PendingMutationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingMutationStore.swift; sourceTree = "<group>"; };
 		643B167FC6EA997ADC8EC83C /* AuthSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionTests.swift; sourceTree = "<group>"; };
+		644810FAE23BC2ED30066B38 /* PlannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerView.swift; sourceTree = "<group>"; };
+		654CF52349E996FBE0D36443 /* APIPlanningRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIPlanningRemote.swift; sourceTree = "<group>"; };
+		67A040336A4C3621606C2487 /* EntityLinkFeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityLinkFeatureModels.swift; sourceTree = "<group>"; };
+		6A8B1643FE494BFD334CDD6D /* DetailContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailContracts.swift; sourceTree = "<group>"; };
+		6AD9F5CC29332BC4FA8D1C82 /* FeaturePersistenceSettingsDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePersistenceSettingsDevice.swift; sourceTree = "<group>"; };
+		6CD9A30514551A1F6168D863 /* FeaturePersistenceMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePersistenceMigrationTests.swift; sourceTree = "<group>"; };
+		6DBCAA0E0A77461D87B8D4AE /* AppIntegrationCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntegrationCopy.swift; sourceTree = "<group>"; };
+		6E1F34E3490A0F7E01475F91 /* PlannerDetailsAdapterCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerDetailsAdapterCommands.swift; sourceTree = "<group>"; };
+		70B8FA63031554A918702E01 /* PlannerDetailsIntegrationLocalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerDetailsIntegrationLocalTests.swift; sourceTree = "<group>"; };
 		715CCE1E6C9AEBC5BA408325 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		73A90F5D563A3A9ADF3623B5 /* PlannerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerViewModel.swift; sourceTree = "<group>"; };
+		7480E5CC8DD97717D06DBED1 /* FocusCadenceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusCadenceSettingsView.swift; sourceTree = "<group>"; };
 		75B9CDCD2AB590FE0D22C226 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		77334E0F6C04202C2CCC4663 /* TaskReminderNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskReminderNotifications.swift; sourceTree = "<group>"; };
+		77EB6BC11E0005C72B42C9D7 /* DeepLinkCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkCoordinator.swift; sourceTree = "<group>"; };
 		79A27717B1BC9520C61C3B56 /* DependencyContainerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyContainerTests.swift; sourceTree = "<group>"; };
+		7A571FE41150DF1558E3AE25 /* LocalPlanningRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPlanningRepositoryTests.swift; sourceTree = "<group>"; };
 		7AF38496DE5883031AE6798A /* CalendarFocusSettingsModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarFocusSettingsModels.swift; sourceTree = "<group>"; };
+		7C184FD4736E60357C28FAE5 /* PlannerScrollAnchorResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerScrollAnchorResolver.swift; sourceTree = "<group>"; };
+		7C64C1973BC7520B4EE16948 /* PlanningActionDTOs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningActionDTOs.swift; sourceTree = "<group>"; };
+		7C8A4DE6ACFDEE2BBEC68988 /* EditorSharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSharedViews.swift; sourceTree = "<group>"; };
 		7F86CDC5448C6387BE2DAFD9 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		805D781FF7B82168A1E5E1F2 /* RocketFlowUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RocketFlowUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8183FDB8A2A725A0EDC75D4F /* FocusRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusRepository.swift; sourceTree = "<group>"; };
+		8184E4550E73660DA56E589F /* EditorSaveCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSaveCoordinatorTests.swift; sourceTree = "<group>"; };
+		81D1B8F9D523B83A768B9812 /* AppDeviceRegistrationRetryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDeviceRegistrationRetryStore.swift; sourceTree = "<group>"; };
 		8254A6D8A780E7AA848A6144 /* AuthViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModelTests.swift; sourceTree = "<group>"; };
+		84EC70DF6C48B147DA4F8A68 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		85F0E368D4EA6BA3B9C20115 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		8659A6160C903A2D00EA74FD /* SyncEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngineTests.swift; sourceTree = "<group>"; };
+		87AF249F44F973CC496E1918 /* EntityDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityDetailViews.swift; sourceTree = "<group>"; };
+		880E6095E34E4F4ED7D20A45 /* SyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngine.swift; sourceTree = "<group>"; };
+		8949EE2ACFEEA632A4DD0AA6 /* DetailModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailModels.swift; sourceTree = "<group>"; };
+		894F5202F180F10218191514 /* EntityLinkViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityLinkViewModelTests.swift; sourceTree = "<group>"; };
+		89A7FE355B6D1A782B28E369 /* FocusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusView.swift; sourceTree = "<group>"; };
 		8B70F426E85B0574DD2BBA29 /* SessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStoreTests.swift; sourceTree = "<group>"; };
+		8E4EAD1D9507C3257870FF7A /* PlannerTreeBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerTreeBuilder.swift; sourceTree = "<group>"; };
+		914A8D19DFFB7C332047F941 /* SettingsFeatureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsFeatureTests.swift; sourceTree = "<group>"; };
+		916208748A7324B6CB534D22 /* EditorSaveCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSaveCoordinator.swift; sourceTree = "<group>"; };
+		919C1B8B6BDA67469E767562 /* FeaturePersistenceSettingsDeviceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePersistenceSettingsDeviceTests.swift; sourceTree = "<group>"; };
+		91A08F620954D369B09AA24D /* AppNavigationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNavigationUITests.swift; sourceTree = "<group>"; };
+		94A95F5AD3A642737F8026F8 /* CalendarDateMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarDateMath.swift; sourceTree = "<group>"; };
 		94C5B5C03CC7F415055004DD /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		95F84484D62F0360C7596A07 /* RemoteActionError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteActionError.swift; sourceTree = "<group>"; };
 		962F9755C0F84AC51B722424 /* AppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRootView.swift; sourceTree = "<group>"; };
+		9705C2410F6FA2DD55003BAA /* FeaturePersistenceFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePersistenceFocus.swift; sourceTree = "<group>"; };
+		979B6F416DC84E9BE340B4F6 /* EntityLinksSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityLinksSection.swift; sourceTree = "<group>"; };
 		9B3BF00F82BAC3154E28B47A /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
+		9EF124D240CFDA59758507E7 /* PlanningPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningPersistence.swift; sourceTree = "<group>"; };
+		A267C220D548B0DE620091AA /* AppPresentationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPresentationViews.swift; sourceTree = "<group>"; };
+		A40CD6C8E9B52C62EC75964B /* DatabaseSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseSchema.swift; sourceTree = "<group>"; };
+		A79FCFC1C400DC37D03F50A9 /* FocusProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusProgressTests.swift; sourceTree = "<group>"; };
+		A8BDC80FCB876658CEA6891D /* SharingViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharingViewModelTests.swift; sourceTree = "<group>"; };
+		A8EE9C0CC91F7073F0CC167A /* FocusViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusViewModel.swift; sourceTree = "<group>"; };
 		A9C093183EBAF8E137101852 /* RocketFlowTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RocketFlowTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC2202E9B64D0612A7F42B92 /* GRDBPlannerDetailsPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GRDBPlannerDetailsPersistence.swift; sourceTree = "<group>"; };
 		AE023F905BC88C6FA5735CBD /* DependencyContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyContainer.swift; sourceTree = "<group>"; };
+		AE8839BFC7CB94348ED6329E /* PlannerDetailsIntegrationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerDetailsIntegrationModels.swift; sourceTree = "<group>"; };
+		B02D9699F2EC017F93BBD653 /* FeaturePersistenceCalendar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePersistenceCalendar.swift; sourceTree = "<group>"; };
+		B0C9C856978E0F3A2E9353F4 /* AppDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabase.swift; sourceTree = "<group>"; };
 		B1FFBD7D15848D99022D1E53 /* SessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStore.swift; sourceTree = "<group>"; };
+		B6C34E02130A8230B38304E9 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
+		B7CCD6ED9921560E4BAB1FEE /* PlannerTestSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerTestSupportTests.swift; sourceTree = "<group>"; };
+		B96D75034F990426CF0EC5B0 /* ResourceSharingSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceSharingSheet.swift; sourceTree = "<group>"; };
+		B9961B67A08EE820A15EED55 /* DetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailViewModel.swift; sourceTree = "<group>"; };
+		BB5F274620048412BF2AB165 /* FocusCandidatePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusCandidatePickerView.swift; sourceTree = "<group>"; };
 		BCF434EDFB96E2FF18ECEF22 /* WireDateCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireDateCodec.swift; sourceTree = "<group>"; };
+		BD5FC1675C1540130D3C584D /* BackgroundRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefreshCoordinator.swift; sourceTree = "<group>"; };
+		BEB77F7F289E60BAA477AFE7 /* BackgroundRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefreshTests.swift; sourceTree = "<group>"; };
+		C014C95DED9584D1B6195D21 /* AppDeviceInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDeviceInfo.swift; sourceTree = "<group>"; };
 		C0D81218702A30759956E2DA /* APIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
+		C103CE9402A6738C48255E53 /* EditorTaskDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTaskDraftTests.swift; sourceTree = "<group>"; };
+		C185BA48C077F85707669817 /* NotificationDeviceRegistrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationDeviceRegistrationTests.swift; sourceTree = "<group>"; };
+		C2560E2AF562B6737EBD9CEB /* PlannerScrollViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerScrollViewBridge.swift; sourceTree = "<group>"; };
+		C2C862D43DEBD692E34DAC7C /* FirebaseMessagingBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseMessagingBridge.swift; sourceTree = "<group>"; };
+		C34F231387A417F34E842AF3 /* AppIntegrationNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntegrationNavigationTests.swift; sourceTree = "<group>"; };
+		C6EA473FAB03C8D9DAC137AC /* AppExternalEvents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppExternalEvents.swift; sourceTree = "<group>"; };
+		C8F20DA3CD51F15A70D806C4 /* EditorModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorModels.swift; sourceTree = "<group>"; };
+		CB81D6D08E033CAD1A90D28E /* SharingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharingService.swift; sourceTree = "<group>"; };
+		CBA705BC64C28CCB7621DD1E /* DetailCapabilitiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailCapabilitiesTests.swift; sourceTree = "<group>"; };
+		CBCE769CEDAEE2E36209EAE0 /* AuthenticatedAppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticatedAppView.swift; sourceTree = "<group>"; };
 		CCE4FFF5FC6B6ED85BDBD6A0 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
 		CE4DDFDDE2ABF8416A673D83 /* KeychainSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainSessionStore.swift; sourceTree = "<group>"; };
+		CF1F1F173B02758B8AFD4F00 /* AppIntegrationDependencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntegrationDependencyTests.swift; sourceTree = "<group>"; };
+		CF2B956390453977C981A1A2 /* PlanningActionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningActionServiceTests.swift; sourceTree = "<group>"; };
+		D4B5A895407E831FBA7EE0C8 /* FeaturePersistenceNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePersistenceNotifications.swift; sourceTree = "<group>"; };
+		E1E9DD00ECDE4AEE39A9BC25 /* FeaturePersistenceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePersistenceSupport.swift; sourceTree = "<group>"; };
+		E28C216F083C19019F34F3ED /* CalendarRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarRepositoryTests.swift; sourceTree = "<group>"; };
+		E34F00C8828E2CD841168B0A /* DatabaseSyncRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseSyncRepository.swift; sourceTree = "<group>"; };
+		E56CC6919D9D2A74667B42A6 /* EntityLinksViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityLinksViewModel.swift; sourceTree = "<group>"; };
+		E7B3500E02378A2E3D14DCE1 /* NotificationScheduleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScheduleTests.swift; sourceTree = "<group>"; };
+		EB90CB844ED20C721986CF38 /* SimpleEditorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleEditorViews.swift; sourceTree = "<group>"; };
+		EDF5042314CCB1DCD837C20D /* PlannerScrollBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerScrollBridgeTests.swift; sourceTree = "<group>"; };
+		F02065FC3583B69AF538A587 /* PendingMutationStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingMutationStoreTests.swift; sourceTree = "<group>"; };
 		F0828622CC42A3B9C3F7356A /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		F35A2284AB0A15BAE26C005A /* ReachabilityNetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReachabilityNetworkMonitor.swift; sourceTree = "<group>"; };
+		F3C131C8BF7D39981928AC40 /* SettingsRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRepository.swift; sourceTree = "<group>"; };
+		F4F84D775DC9DBB93F429BDB /* TaskEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskEditorView.swift; sourceTree = "<group>"; };
+		F533B944E0CE3F4533060B99 /* PlanningActionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningActionService.swift; sourceTree = "<group>"; };
+		F739AF5BC5111DFC8647BE75 /* DeepLinkCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkCoordinatorTests.swift; sourceTree = "<group>"; };
+		FA0F77928893BCDEC0BF4A22 /* ResourceSharingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResourceSharingViewModel.swift; sourceTree = "<group>"; };
+		FA7997BA7D8A507055A2A041 /* PlannerScrollStateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerScrollStateController.swift; sourceTree = "<group>"; };
+		FC225ED916ED82089F0BAE44 /* DetailCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailCopy.swift; sourceTree = "<group>"; };
 		FDA910906E3877068AD98914 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		FEDBDD0E06B8CF5A67318B39 /* PlanningModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanningModels.swift; sourceTree = "<group>"; };
 		FF3F5FFE9879427D56BF2D06 /* RocketFlow.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RocketFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -104,13 +366,27 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				43ED2F8802C16F9F28AED706 /* GRDB in Frameworks */,
+				43ED2F8802C16F9F28AED706 /* FirebaseCore in Frameworks */,
+				F5249D47AA0D4B888B95CD83 /* FirebaseMessaging in Frameworks */,
+				491B5D80B5EED8EB4E6B6800 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		18D366D91754F059315A918E /* PlannerDetails */ = {
+			isa = PBXGroup;
+			children = (
+				AC2202E9B64D0612A7F42B92 /* GRDBPlannerDetailsPersistence.swift */,
+				5AE1E1405313678231E0E8C8 /* PlannerDetailsAdapter.swift */,
+				6E1F34E3490A0F7E01475F91 /* PlannerDetailsAdapterCommands.swift */,
+				080FD2E232EDFD49E45A5B30 /* PlannerDetailsAdapterMutations.swift */,
+				AE8839BFC7CB94348ED6329E /* PlannerDetailsIntegrationModels.swift */,
+			);
+			path = PlannerDetails;
+			sourceTree = "<group>";
+		};
 		22186EF2968CEA383085A043 = {
 			isa = PBXGroup;
 			children = (
@@ -122,6 +398,74 @@
 			);
 			sourceTree = "<group>";
 		};
+		26579616C984167092558FE4 /* Sync */ = {
+			isa = PBXGroup;
+			children = (
+				601AD3E7973EE228467B273B /* PendingMutationStore.swift */,
+				F35A2284AB0A15BAE26C005A /* ReachabilityNetworkMonitor.swift */,
+				880E6095E34E4F4ED7D20A45 /* SyncEngine.swift */,
+				5F6B86837FEF9A511F10482E /* SyncModels.swift */,
+			);
+			path = Sync;
+			sourceTree = "<group>";
+		};
+		35E0850B3CED9A5DA272B433 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				C014C95DED9584D1B6195D21 /* AppDeviceInfo.swift */,
+				81D1B8F9D523B83A768B9812 /* AppDeviceRegistrationRetryStore.swift */,
+				C6EA473FAB03C8D9DAC137AC /* AppExternalEvents.swift */,
+				6DBCAA0E0A77461D87B8D4AE /* AppIntegrationCopy.swift */,
+				51C298FE063A78F98525A2C6 /* AppLinksHost.swift */,
+				5E26B0D720B8D1D3946CAABA /* AppNavigation.swift */,
+				A267C220D548B0DE620091AA /* AppPresentationViews.swift */,
+				4C4D1CEED36CEA3E34FD6FE0 /* AppRuntime.swift */,
+				3679EE24653DB07D17197E39 /* AppUITestServices.swift */,
+				CBCE769CEDAEE2E36209EAE0 /* AuthenticatedAppView.swift */,
+				C2C862D43DEBD692E34DAC7C /* FirebaseMessagingBridge.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		383297E29FF4CCF7481113B6 /* Navigation */ = {
+			isa = PBXGroup;
+			children = (
+				77EB6BC11E0005C72B42C9D7 /* DeepLinkCoordinator.swift */,
+			);
+			path = Navigation;
+			sourceTree = "<group>";
+		};
+		3DDA48C2ADE231C8CD43C52E /* Sharing */ = {
+			isa = PBXGroup;
+			children = (
+				B96D75034F990426CF0EC5B0 /* ResourceSharingSheet.swift */,
+				FA0F77928893BCDEC0BF4A22 /* ResourceSharingViewModel.swift */,
+				3D58BB80743AC766D1CF59CA /* SharingFeatureModels.swift */,
+			);
+			path = Sharing;
+			sourceTree = "<group>";
+		};
+		3EBF174596985336E358BE46 /* Notifications */ = {
+			isa = PBXGroup;
+			children = (
+				42EBE20081256E1E663803EC /* DeviceRegistrationService.swift */,
+				4B68D721683222C533BF6B5E /* RemoteNotifications.swift */,
+				77334E0F6C04202C2CCC4663 /* TaskReminderNotifications.swift */,
+			);
+			path = Notifications;
+			sourceTree = "<group>";
+		};
+		3FDF8843C49415377010D230 /* Links */ = {
+			isa = PBXGroup;
+			children = (
+				67A040336A4C3621606C2487 /* EntityLinkFeatureModels.swift */,
+				2DED047DC739D42C7C304E97 /* EntityLinkPickerView.swift */,
+				979B6F416DC84E9BE340B4F6 /* EntityLinksSection.swift */,
+				E56CC6919D9D2A74667B42A6 /* EntityLinksViewModel.swift */,
+			);
+			path = Links;
+			sourceTree = "<group>";
+		};
 		4EA2B7CD0785065672EAB29D /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -130,6 +474,30 @@
 				805D781FF7B82168A1E5E1F2 /* RocketFlowUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		4EE70095850F40F81F63608C /* Planner */ = {
+			isa = PBXGroup;
+			children = (
+				334EF7B9104B6370A7E60ED0 /* PlannerFeatureModels.swift */,
+				15542B47FF6877519C3B529F /* PlannerRows.swift */,
+				8E4EAD1D9507C3257870FF7A /* PlannerTreeBuilder.swift */,
+				644810FAE23BC2ED30066B38 /* PlannerView.swift */,
+				73A90F5D563A3A9ADF3623B5 /* PlannerViewModel.swift */,
+				59F2DCA8FF4749062E24462D /* Scroll */,
+			);
+			path = Planner;
+			sourceTree = "<group>";
+		};
+		59F2DCA8FF4749062E24462D /* Scroll */ = {
+			isa = PBXGroup;
+			children = (
+				7C184FD4736E60357C28FAE5 /* PlannerScrollAnchorResolver.swift */,
+				50F1270430F47339D2E5D481 /* PlannerScrollModels.swift */,
+				FA7997BA7D8A507055A2A041 /* PlannerScrollStateController.swift */,
+				C2560E2AF562B6737EBD9CEB /* PlannerScrollViewBridge.swift */,
+			);
+			path = Scroll;
 			sourceTree = "<group>";
 		};
 		66CB0F25C300B357237CAE80 /* Auth */ = {
@@ -147,12 +515,55 @@
 			isa = PBXGroup;
 			children = (
 				C0D81218702A30759956E2DA /* APIClientTests.swift */,
+				550A90A66B6BF748E0699CBF /* APIPlanningRemoteTests.swift */,
+				CF1F1F173B02758B8AFD4F00 /* AppIntegrationDependencyTests.swift */,
+				C34F231387A417F34E842AF3 /* AppIntegrationNavigationTests.swift */,
 				643B167FC6EA997ADC8EC83C /* AuthSessionTests.swift */,
 				8254A6D8A780E7AA848A6144 /* AuthViewModelTests.swift */,
 				5F6413E6C63374BE6C28F3BE /* BackendModelDecodingTests.swift */,
+				BEB77F7F289E60BAA477AFE7 /* BackgroundRefreshTests.swift */,
+				0F5B4D0384F71946C7F82D08 /* CalendarDateMathTests.swift */,
+				E28C216F083C19019F34F3ED /* CalendarRepositoryTests.swift */,
+				244B19CC686580A5F9CC18A2 /* CalendarViewModelTests.swift */,
+				F739AF5BC5111DFC8647BE75 /* DeepLinkCoordinatorTests.swift */,
 				79A27717B1BC9520C61C3B56 /* DependencyContainerTests.swift */,
+				CBA705BC64C28CCB7621DD1E /* DetailCapabilitiesTests.swift */,
+				170A507E96D69604C2473650 /* DetailModelsTests.swift */,
+				451A2831FFF165D236A66849 /* DetailViewModelTests.swift */,
+				8184E4550E73660DA56E589F /* EditorSaveCoordinatorTests.swift */,
+				C103CE9402A6738C48255E53 /* EditorTaskDraftTests.swift */,
+				4BC1BD624435C41060F5CF49 /* EditorValidationTests.swift */,
 				547B1BAD2D88E951C841A6D1 /* EndpointTests.swift */,
+				3F865BE527EFA9DB0F9801EB /* EntityLinkValidationTests.swift */,
+				894F5202F180F10218191514 /* EntityLinkViewModelTests.swift */,
+				01B1A7B7DC55A7D1DAEC79DC /* FeaturePersistenceCalendarFocusTests.swift */,
+				6CD9A30514551A1F6168D863 /* FeaturePersistenceMigrationTests.swift */,
+				3F8CBCF175224A5A70BD41A4 /* FeaturePersistenceNotificationTests.swift */,
+				919C1B8B6BDA67469E767562 /* FeaturePersistenceSettingsDeviceTests.swift */,
+				A79FCFC1C400DC37D03F50A9 /* FocusProgressTests.swift */,
+				1372A2D37F1008468E80A636 /* FocusRepositoryTests.swift */,
+				378CC0081473228A80BCEDB8 /* FocusViewModelTests.swift */,
+				7A571FE41150DF1558E3AE25 /* LocalPlanningRepositoryTests.swift */,
+				C185BA48C077F85707669817 /* NotificationDeviceRegistrationTests.swift */,
+				E7B3500E02378A2E3D14DCE1 /* NotificationScheduleTests.swift */,
+				F02065FC3583B69AF538A587 /* PendingMutationStoreTests.swift */,
+				5B0188983E7FE859D1C50777 /* PersistenceTests.swift */,
+				2118A8D3CC6F5C180EBABBB4 /* PlannerCapabilitiesTests.swift */,
+				0967591A4502178B396A621D /* PlannerDetailsIntegrationFixturesTests.swift */,
+				70B8FA63031554A918702E01 /* PlannerDetailsIntegrationLocalTests.swift */,
+				0085A81431837AC464A218B9 /* PlannerDetailsIntegrationRemoteTests.swift */,
+				5D3621DA671D870A3C6D3891 /* PlannerScrollAnchorTests.swift */,
+				EDF5042314CCB1DCD837C20D /* PlannerScrollBridgeTests.swift */,
+				1465EF045222FB6297ACD936 /* PlannerScrollStateTests.swift */,
+				B7CCD6ED9921560E4BAB1FEE /* PlannerTestSupportTests.swift */,
+				128B4DA29C8C5F8189A168C3 /* PlannerTreeBuilderTests.swift */,
+				12EBC5270DFC2B5C8D688015 /* PlannerViewModelTests.swift */,
+				CF2B956390453977C981A1A2 /* PlanningActionServiceTests.swift */,
 				8B70F426E85B0574DD2BBA29 /* SessionStoreTests.swift */,
+				914A8D19DFFB7C332047F941 /* SettingsFeatureTests.swift */,
+				2DF8F7F49B768B53EF61816F /* SharingServiceTests.swift */,
+				A8BDC80FCB876658CEA6891D /* SharingViewModelTests.swift */,
+				8659A6160C903A2D00EA74FD /* SyncEngineTests.swift */,
 				447E7C12BDB0430F8AA67FB3 /* WireDateCodecTests.swift */,
 			);
 			path = RocketFlowTests;
@@ -169,6 +580,28 @@
 			path = Networking;
 			sourceTree = "<group>";
 		};
+		756890CC8E5D93136065D5D7 /* Repositories */ = {
+			isa = PBXGroup;
+			children = (
+				654CF52349E996FBE0D36443 /* APIPlanningRemote.swift */,
+				01F5912C0558FC926491A6A7 /* CalendarRepository.swift */,
+				E34F00C8828E2CD841168B0A /* DatabaseSyncRepository.swift */,
+				8183FDB8A2A725A0EDC75D4F /* FocusRepository.swift */,
+				4CC36E349F8BF48AA9A0A5B4 /* LocalPlanningRepository.swift */,
+			);
+			path = Repositories;
+			sourceTree = "<group>";
+		};
+		7B67FF1C824A96576A424A39 /* Calendar */ = {
+			isa = PBXGroup;
+			children = (
+				94A95F5AD3A642737F8026F8 /* CalendarDateMath.swift */,
+				04BD4572E555AA6F03A3F820 /* CalendarView.swift */,
+				584DE9BC95ED565F24FFBDAC /* CalendarViewModel.swift */,
+			);
+			path = Calendar;
+			sourceTree = "<group>";
+		};
 		84FB90A2445E27483AF99CF5 /* Config */ = {
 			isa = PBXGroup;
 			children = (
@@ -178,9 +611,68 @@
 			path = Config;
 			sourceTree = "<group>";
 		};
+		86E133ADD96D2015CD377DFC /* Integration */ = {
+			isa = PBXGroup;
+			children = (
+				35E0850B3CED9A5DA272B433 /* App */,
+				18D366D91754F059315A918E /* PlannerDetails */,
+			);
+			path = Integration;
+			sourceTree = "<group>";
+		};
+		8D492BA033E1487839966019 /* Focus */ = {
+			isa = PBXGroup;
+			children = (
+				7480E5CC8DD97717D06DBED1 /* FocusCadenceSettingsView.swift */,
+				BB5F274620048412BF2AB165 /* FocusCandidatePickerView.swift */,
+				11D11A458777E87B24645924 /* FocusFeatureModels.swift */,
+				4CE557F27BE7D5D454496161 /* FocusHistoryView.swift */,
+				89A7FE355B6D1A782B28E369 /* FocusView.swift */,
+				A8EE9C0CC91F7073F0CC167A /* FocusViewModel.swift */,
+			);
+			path = Focus;
+			sourceTree = "<group>";
+		};
+		91C53857B578A2ED3462E516 /* Sharing */ = {
+			isa = PBXGroup;
+			children = (
+				07A926C608A3F48AE2E57282 /* SharingActionModels.swift */,
+				CB81D6D08E033CAD1A90D28E /* SharingService.swift */,
+			);
+			path = Sharing;
+			sourceTree = "<group>";
+		};
+		9EFBCF25BA1DA93EDD7A56CD /* Editors */ = {
+			isa = PBXGroup;
+			children = (
+				2EF29BF622C90DE2B6287072 /* EditorCopy.swift */,
+				C8F20DA3CD51F15A70D806C4 /* EditorModels.swift */,
+				916208748A7324B6CB534D22 /* EditorSaveCoordinator.swift */,
+				7C8A4DE6ACFDEE2BBEC68988 /* EditorSharedViews.swift */,
+				12A8CFF4F3E02A38A4B2FB26 /* EditorValidation.swift */,
+				EB90CB844ED20C721986CF38 /* SimpleEditorViews.swift */,
+				F4F84D775DC9DBB93F429BDB /* TaskEditorView.swift */,
+			);
+			path = Editors;
+			sourceTree = "<group>";
+		};
+		A7AF4CE9C11647863949F696 /* Details */ = {
+			isa = PBXGroup;
+			children = (
+				6A8B1643FE494BFD334CDD6D /* DetailContracts.swift */,
+				FC225ED916ED82089F0BAE44 /* DetailCopy.swift */,
+				8949EE2ACFEEA632A4DD0AA6 /* DetailModels.swift */,
+				279DF242B71EED058AF9E13E /* DetailSharedViews.swift */,
+				B9961B67A08EE820A15EED55 /* DetailViewModel.swift */,
+				87AF249F44F973CC496E1918 /* EntityDetailViews.swift */,
+			);
+			path = Details;
+			sourceTree = "<group>";
+		};
 		AC73E8D99E9095E73B6F84DB /* RocketFlowUITests */ = {
 			isa = PBXGroup;
 			children = (
+				91A08F620954D369B09AA24D /* AppNavigationUITests.swift */,
 				38A01607700B5872A165553E /* RocketFlowUITests.swift */,
 			);
 			path = RocketFlowUITests;
@@ -195,6 +687,7 @@
 				59023D9A0F9FD5278FA72E4D /* RocketFlowApp.swift */,
 				E6BEE6311590F9804A1897D9 /* Core */,
 				CB23038EC25A2B5508F9B8DF /* Features */,
+				86E133ADD96D2015CD377DFC /* Integration */,
 				ED4E8AF4038679C0E2576D81 /* Resources */,
 			);
 			path = RocketFlow;
@@ -209,22 +702,75 @@
 			path = Security;
 			sourceTree = "<group>";
 		};
+		C7035030582E7E9BDD1ECCC9 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				58A11EC5D2563534A2C3DC58 /* SettingsFeatureModels.swift */,
+				F3C131C8BF7D39981928AC40 /* SettingsRepository.swift */,
+				84EC70DF6C48B147DA4F8A68 /* SettingsView.swift */,
+				B6C34E02130A8230B38304E9 /* SettingsViewModel.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
 		CB23038EC25A2B5508F9B8DF /* Features */ = {
 			isa = PBXGroup;
 			children = (
 				66CB0F25C300B357237CAE80 /* Auth */,
+				7B67FF1C824A96576A424A39 /* Calendar */,
+				A7AF4CE9C11647863949F696 /* Details */,
+				9EFBCF25BA1DA93EDD7A56CD /* Editors */,
+				8D492BA033E1487839966019 /* Focus */,
+				3FDF8843C49415377010D230 /* Links */,
+				4EE70095850F40F81F63608C /* Planner */,
+				C7035030582E7E9BDD1ECCC9 /* Settings */,
+				3DDA48C2ADE231C8CD43C52E /* Sharing */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		D559FA772C210B4AD51AD944 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				B0C9C856978E0F3A2E9353F4 /* AppDatabase.swift */,
+				A40CD6C8E9B52C62EC75964B /* DatabaseSchema.swift */,
+				B02D9699F2EC017F93BBD653 /* FeaturePersistenceCalendar.swift */,
+				9705C2410F6FA2DD55003BAA /* FeaturePersistenceFocus.swift */,
+				D4B5A895407E831FBA7EE0C8 /* FeaturePersistenceNotifications.swift */,
+				6AD9F5CC29332BC4FA8D1C82 /* FeaturePersistenceSettingsDevice.swift */,
+				E1E9DD00ECDE4AEE39A9BC25 /* FeaturePersistenceSupport.swift */,
+				2955E09D30F52062543D4FB8 /* PersistenceRecords.swift */,
+				9EF124D240CFDA59758507E7 /* PlanningPersistence.swift */,
+			);
+			path = Persistence;
 			sourceTree = "<group>";
 		};
 		E6BEE6311590F9804A1897D9 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				F747077ECFEC7407CDD8E74B /* Background */,
 				EDC9E7DBB24D2CDC66E7B62A /* Models */,
+				383297E29FF4CCF7481113B6 /* Navigation */,
 				7029C31FE7204E8C1AF682E0 /* Networking */,
+				3EBF174596985336E358BE46 /* Notifications */,
+				D559FA772C210B4AD51AD944 /* Persistence */,
+				E8AE24E084103074F40FA6A8 /* PlanningActions */,
+				756890CC8E5D93136065D5D7 /* Repositories */,
 				C13F9AB3980C3465019638F4 /* Security */,
+				91C53857B578A2ED3462E516 /* Sharing */,
+				26579616C984167092558FE4 /* Sync */,
 			);
 			path = Core;
+			sourceTree = "<group>";
+		};
+		E8AE24E084103074F40FA6A8 /* PlanningActions */ = {
+			isa = PBXGroup;
+			children = (
+				7C64C1973BC7520B4EE16948 /* PlanningActionDTOs.swift */,
+				F533B944E0CE3F4533060B99 /* PlanningActionService.swift */,
+				95F84484D62F0360C7596A07 /* RemoteActionError.swift */,
+			);
+			path = PlanningActions;
 			sourceTree = "<group>";
 		};
 		ED4E8AF4038679C0E2576D81 /* Resources */ = {
@@ -247,6 +793,14 @@
 				BCF434EDFB96E2FF18ECEF22 /* WireDateCodec.swift */,
 			);
 			path = Models;
+			sourceTree = "<group>";
+		};
+		F747077ECFEC7407CDD8E74B /* Background */ = {
+			isa = PBXGroup;
+			children = (
+				BD5FC1675C1540130D3C584D /* BackgroundRefreshCoordinator.swift */,
+			);
+			path = Background;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -274,6 +828,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 80C73B774A3BF8C38CF5F85E /* Build configuration list for PBXNativeTarget "RocketFlow" */;
 			buildPhases = (
+				D1B7DFC394886470B9850337 /* Firebase configuration diagnostic */,
 				BBA0B4C2B8E9184E0420B971 /* Sources */,
 				4ECE48C1AE65C798EBF462C4 /* Resources */,
 				ACB14ABEC5455A5E19FF2755 /* Frameworks */,
@@ -284,6 +839,8 @@
 			);
 			name = RocketFlow;
 			packageProductDependencies = (
+				F3E40CCC25944E1AD92A1AA0 /* FirebaseCore */,
+				B1236611F607F1A85AF9F45B /* FirebaseMessaging */,
 				F026DE4AA71258E5653E4D1D /* GRDB */,
 			);
 			productName = RocketFlow;
@@ -337,6 +894,7 @@
 			mainGroup = 22186EF2968CEA383085A043;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				0E5C177AE503F0D7F85A3442 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				0E42E84ECD87B97EF95F66A6 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -364,18 +922,83 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		D1B7DFC394886470B9850337 /* Firebase configuration diagnostic */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Firebase configuration diagnostic";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"$CONFIGURATION\" = \"Release\" ] && [ ! -f \"$SRCROOT/RocketFlow/Resources/GoogleService-Info.plist\" ]; then\n  echo \"warning: GoogleService-Info.plist is absent; this Release build will run with push notifications visibly unavailable.\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		710013A866DDC6837CCBF943 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				2B949181D13EEEE441ED8AC0 /* APIClientTests.swift in Sources */,
+				6066682040BA8781C8A8B60B /* APIPlanningRemoteTests.swift in Sources */,
+				D6B8D2B9257790E45B3DFB75 /* AppIntegrationDependencyTests.swift in Sources */,
+				8CEF7BDD4D2174B9581A84CB /* AppIntegrationNavigationTests.swift in Sources */,
 				5767C14693AD4B37A3F51231 /* AuthSessionTests.swift in Sources */,
 				DB0579CBFB7E5DB24EB13D75 /* AuthViewModelTests.swift in Sources */,
 				3472D6FB5FDA67631945AE0B /* BackendModelDecodingTests.swift in Sources */,
+				EAF0FC33E0BA6675520E5E8F /* BackgroundRefreshTests.swift in Sources */,
+				093C7290C867DA74CB22064F /* CalendarDateMathTests.swift in Sources */,
+				B47077B1962997530709B776 /* CalendarRepositoryTests.swift in Sources */,
+				469D220207A76ECE6132DAEF /* CalendarViewModelTests.swift in Sources */,
+				5B56345AF158451BB7F75DCC /* DeepLinkCoordinatorTests.swift in Sources */,
 				FD3D67A65B967D035DD3A713 /* DependencyContainerTests.swift in Sources */,
+				13B0E3832A95BDA746E7414E /* DetailCapabilitiesTests.swift in Sources */,
+				1AF4DD17EFDDFDBDA407E2AF /* DetailModelsTests.swift in Sources */,
+				B453B41F9E96D6B2DBD30078 /* DetailViewModelTests.swift in Sources */,
+				A24B262AE9E5035C71F694FF /* EditorSaveCoordinatorTests.swift in Sources */,
+				AAC56BA50660EF4785F30C8B /* EditorTaskDraftTests.swift in Sources */,
+				D6D9A5FA0889863FE18A231B /* EditorValidationTests.swift in Sources */,
 				34D778663E495D55665F27DD /* EndpointTests.swift in Sources */,
+				CA0BF45BC32D5EFD9CA6201F /* EntityLinkValidationTests.swift in Sources */,
+				556F9EB3B065CA7AF184D238 /* EntityLinkViewModelTests.swift in Sources */,
+				04CB657DBE7EF1A56BA2911D /* FeaturePersistenceCalendarFocusTests.swift in Sources */,
+				B6F6BFB2DECC0E92FCA92090 /* FeaturePersistenceMigrationTests.swift in Sources */,
+				20581EA435092C6CCE07AADE /* FeaturePersistenceNotificationTests.swift in Sources */,
+				9DFC30A82D415D278B398BF8 /* FeaturePersistenceSettingsDeviceTests.swift in Sources */,
+				24D00D090D6FFCA9A6A63A25 /* FocusProgressTests.swift in Sources */,
+				B0E90FC0199CC40B05882EC3 /* FocusRepositoryTests.swift in Sources */,
+				B2B59AAF60A30BFF7F3E91AC /* FocusViewModelTests.swift in Sources */,
+				434AD870E1BB03E6BE351D6B /* LocalPlanningRepositoryTests.swift in Sources */,
+				82B0714B2E827CBD4F76DECB /* NotificationDeviceRegistrationTests.swift in Sources */,
+				A11EE9AE1C257D9CBB6D3FCF /* NotificationScheduleTests.swift in Sources */,
+				6712CF33DCA05668ED124CCD /* PendingMutationStoreTests.swift in Sources */,
+				DBD16E60B55B612AD52F8CF7 /* PersistenceTests.swift in Sources */,
+				1970FAD0CA9FB633E734C84B /* PlannerCapabilitiesTests.swift in Sources */,
+				7DB3169DF23CDE83EE7DC2F5 /* PlannerDetailsIntegrationFixturesTests.swift in Sources */,
+				BF30DBAC58252B94D2CC1713 /* PlannerDetailsIntegrationLocalTests.swift in Sources */,
+				FB622691FD138C49454B6009 /* PlannerDetailsIntegrationRemoteTests.swift in Sources */,
+				3BAA3C8605D0BD5123484293 /* PlannerScrollAnchorTests.swift in Sources */,
+				D0613A58134BD69D8E3C43C9 /* PlannerScrollBridgeTests.swift in Sources */,
+				A2D4503EE9B01EE27DC9CE19 /* PlannerScrollStateTests.swift in Sources */,
+				3892835A87F1E836B608ACF5 /* PlannerTestSupportTests.swift in Sources */,
+				D527492DF62992B982CA20FE /* PlannerTreeBuilderTests.swift in Sources */,
+				32C9B7507A93B0F20335BEEB /* PlannerViewModelTests.swift in Sources */,
+				948F2D4BC495B1B87404AF62 /* PlanningActionServiceTests.swift in Sources */,
 				7A3AF74D21A77C431CD1B2DB /* SessionStoreTests.swift in Sources */,
+				18C676671BAC76A2B4757B64 /* SettingsFeatureTests.swift in Sources */,
+				3E10ECE59B34FAD7A0082944 /* SharingServiceTests.swift in Sources */,
+				62F7FFA33A906D11302565C3 /* SharingViewModelTests.swift in Sources */,
+				F888D1625F2026376F9B0276 /* SyncEngineTests.swift in Sources */,
 				6C6A5D35A916F9722AD15F5A /* WireDateCodecTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -386,22 +1009,108 @@
 			files = (
 				689F11F187D53D2ED3B2F461 /* APIClient.swift in Sources */,
 				689317FCDA77CBBB3DD69E3B /* APIError.swift in Sources */,
+				E0AB580523B0600824597E76 /* APIPlanningRemote.swift in Sources */,
+				522D6D959B347109D4F6EED8 /* AppDatabase.swift in Sources */,
+				23CBB4DC41B0C6FC1E2B2943 /* AppDeviceInfo.swift in Sources */,
+				B1CD3036DBAC2893A3802E2D /* AppDeviceRegistrationRetryStore.swift in Sources */,
+				67927CF0DEC3A8DBCA20A8F8 /* AppExternalEvents.swift in Sources */,
+				33B96E041A592B6DC9E477F8 /* AppIntegrationCopy.swift in Sources */,
+				72B4D920D1AA0D05EAF885DD /* AppLinksHost.swift in Sources */,
+				8BDB9C0649CC057D0626364A /* AppNavigation.swift in Sources */,
+				210AAC1B7EA7256645B99BC0 /* AppPresentationViews.swift in Sources */,
 				CBEA453F363156A4F51BB961 /* AppRootView.swift in Sources */,
+				125446680505CFE729297A81 /* AppRuntime.swift in Sources */,
 				06D301DA1404C4929284AAEE /* AppStore.swift in Sources */,
+				6CB783E44A7613F16E003E75 /* AppUITestServices.swift in Sources */,
 				06DD4F80BF52E7128A8200A0 /* AuthModels.swift in Sources */,
 				22020FD262F77B1E152C5D04 /* AuthService.swift in Sources */,
 				F54BC39EC08606339F817D88 /* AuthSession.swift in Sources */,
 				D890CAD5881138E04A8B792F /* AuthView.swift in Sources */,
 				3F9A6C0ADA369FDB7C63E1E5 /* AuthViewModel.swift in Sources */,
+				726AFFA34A55021F0940B834 /* AuthenticatedAppView.swift in Sources */,
+				D03F0CBFDAF037D3946A1E0A /* BackgroundRefreshCoordinator.swift in Sources */,
+				3C2A3E1AF27F40A188012CDD /* CalendarDateMath.swift in Sources */,
 				2EB6888E5C676C1986B9223E /* CalendarFocusSettingsModels.swift in Sources */,
+				62C24A817AE0F1B1DB7057E8 /* CalendarRepository.swift in Sources */,
+				6B4B88DC9D98563CE402F460 /* CalendarView.swift in Sources */,
+				5324E39B7675E96B08265D5C /* CalendarViewModel.swift in Sources */,
 				8F55831661AE38567EB3E1FD /* CollaborationModels.swift in Sources */,
+				B31A40F087D16D6CC788FFBB /* DatabaseSchema.swift in Sources */,
+				5F3C043AA2031120B249E23B /* DatabaseSyncRepository.swift in Sources */,
+				1CFE50F7E8BA7AE09F89765F /* DeepLinkCoordinator.swift in Sources */,
 				22EA5E008C6CFC4553522E3E /* DependencyContainer.swift in Sources */,
+				76858B2C16894646DFFFC463 /* DetailContracts.swift in Sources */,
+				01BCFA933495EE118A9960C5 /* DetailCopy.swift in Sources */,
+				955E98A773FC43CCC063C504 /* DetailModels.swift in Sources */,
+				29247EED2D184EA11F40EBBF /* DetailSharedViews.swift in Sources */,
+				8885C566C3221499F878B476 /* DetailViewModel.swift in Sources */,
+				02958297F02A6AD302820C61 /* DeviceRegistrationService.swift in Sources */,
+				FB9BAEA63593B2F35B5CF1D0 /* EditorCopy.swift in Sources */,
+				96AD73C67344A8BD4DAB1BD6 /* EditorModels.swift in Sources */,
+				3A067BFBF61B9AA81CD3652C /* EditorSaveCoordinator.swift in Sources */,
+				A652ED7AE6C356CE90B9018E /* EditorSharedViews.swift in Sources */,
+				6870D26735F579BE30F93518 /* EditorValidation.swift in Sources */,
 				296611EB2338EE630E00FC7D /* Endpoint.swift in Sources */,
+				2E70DD073BA9A679D905A96C /* EntityDetailViews.swift in Sources */,
+				8D6751EA0BA7C02C5E1312B3 /* EntityLinkFeatureModels.swift in Sources */,
+				DC6FF38006C024EE5A2840B4 /* EntityLinkPickerView.swift in Sources */,
+				521D007DF129924247AD0AAC /* EntityLinksSection.swift in Sources */,
+				D8437CAD297DA7757A0078ED /* EntityLinksViewModel.swift in Sources */,
+				0FA9E9F5CBEAB477BCFB3CE3 /* FeaturePersistenceCalendar.swift in Sources */,
+				265EABD5B5F36E4CF227FE9E /* FeaturePersistenceFocus.swift in Sources */,
+				0B3792AA0121EB703CC35ABF /* FeaturePersistenceNotifications.swift in Sources */,
+				880D7441A9240FF1D680037A /* FeaturePersistenceSettingsDevice.swift in Sources */,
+				03C1BE21BAFC22BE3732D137 /* FeaturePersistenceSupport.swift in Sources */,
+				7768FFDE1B699C550C10646D /* FirebaseMessagingBridge.swift in Sources */,
+				C33693FEE303FEF0783DD516 /* FocusCadenceSettingsView.swift in Sources */,
+				99E4988010440347B643B359 /* FocusCandidatePickerView.swift in Sources */,
+				1C78E06B53DCC646EE875249 /* FocusFeatureModels.swift in Sources */,
+				C769DDD7A96EEAE3B2613ADF /* FocusHistoryView.swift in Sources */,
+				75D463BB1F009157287AD66F /* FocusRepository.swift in Sources */,
+				1D89169373D0BEE6E05B618F /* FocusView.swift in Sources */,
+				27979CA0BA11729E2D7BE409 /* FocusViewModel.swift in Sources */,
+				E75DDD2FAB6B3E08619D1E16 /* GRDBPlannerDetailsPersistence.swift in Sources */,
 				E0643F2A7F0B80345A98D919 /* KeychainSessionStore.swift in Sources */,
+				1D0F4E9063D66C6BCB16E8FA /* LocalPlanningRepository.swift in Sources */,
+				9344A59DABC31EB5DCF94A18 /* PendingMutationStore.swift in Sources */,
+				E21D19CD9DD627EDBDDDBFA8 /* PersistenceRecords.swift in Sources */,
+				DC4522AAAE30236822137197 /* PlannerDetailsAdapter.swift in Sources */,
+				32A8896E619137604E6EB8CE /* PlannerDetailsAdapterCommands.swift in Sources */,
+				BAEED03BC4734A70272D9947 /* PlannerDetailsAdapterMutations.swift in Sources */,
+				C3B86E9AD97DF6F38F7FA47A /* PlannerDetailsIntegrationModels.swift in Sources */,
+				47206F7492939B3B46EE5350 /* PlannerFeatureModels.swift in Sources */,
+				F1D353570C2D09DE9E4990F7 /* PlannerRows.swift in Sources */,
+				C609364CF68373669F95C301 /* PlannerScrollAnchorResolver.swift in Sources */,
+				46DD29E6C16953144A3884AB /* PlannerScrollModels.swift in Sources */,
+				552A7456DA4B0CCE553621D7 /* PlannerScrollStateController.swift in Sources */,
+				BB3BEEACC1F9710689182526 /* PlannerScrollViewBridge.swift in Sources */,
+				1233715AF1F0664574ED7B0D /* PlannerTreeBuilder.swift in Sources */,
+				BAEBEBB952E5E31B62AD0D6B /* PlannerView.swift in Sources */,
+				7C456BEB3FF4222B510F9953 /* PlannerViewModel.swift in Sources */,
+				0E26D4FD72669864B5AE597D /* PlanningActionDTOs.swift in Sources */,
+				E17D650C2752554778067754 /* PlanningActionService.swift in Sources */,
 				7555C70749FD8D289D687DC9 /* PlanningModels.swift in Sources */,
+				96BAED26372F1620334DC2EF /* PlanningPersistence.swift in Sources */,
+				F826F0B6BD3E4087E48D42E7 /* ReachabilityNetworkMonitor.swift in Sources */,
+				BBAA788AB33D47CE099491CC /* RemoteActionError.swift in Sources */,
+				A9FEA83773B7A11DC6160196 /* RemoteNotifications.swift in Sources */,
+				1748E97C2910EC015053310F /* ResourceSharingSheet.swift in Sources */,
+				8EA7D0D954CB8BDC22035355 /* ResourceSharingViewModel.swift in Sources */,
 				3D1C83645296107EE48EB714 /* RocketEndpoints.swift in Sources */,
 				2E211E9DB19EE6EEF1E3D344 /* RocketFlowApp.swift in Sources */,
 				1CED223473A214B89A5FED83 /* SessionStore.swift in Sources */,
+				B39472B4497A66088B6AF78D /* SettingsFeatureModels.swift in Sources */,
+				11C5576C50BC18A4AA29F9C9 /* SettingsRepository.swift in Sources */,
+				FFD3BBC6BE962B9F2ACDD709 /* SettingsView.swift in Sources */,
+				782560F3388C68565A1F46BD /* SettingsViewModel.swift in Sources */,
+				2F9C6E02C9A9709664536519 /* SharingActionModels.swift in Sources */,
+				E9849AC4157BCAD0C1069AA0 /* SharingFeatureModels.swift in Sources */,
+				04DD7B8DF34D515A36E7C93C /* SharingService.swift in Sources */,
+				09D519CBA80F46613C6D5E45 /* SimpleEditorViews.swift in Sources */,
+				7675E802B3C5A694A1C46599 /* SyncEngine.swift in Sources */,
+				E9A03F747BC40045F1725004 /* SyncModels.swift in Sources */,
+				73B47F4D59A5B9AF681B4514 /* TaskEditorView.swift in Sources */,
+				7E3ECCB62385007E902B34B5 /* TaskReminderNotifications.swift in Sources */,
 				BDD404D1178B1D92ED578C6A /* WireDateCodec.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -410,6 +1119,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				482FCCC56471FA8E3FE770FC /* AppNavigationUITests.swift in Sources */,
 				DAEC0B8849D0C079099D6220 /* RocketFlowUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -567,7 +1277,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = RocketFlow/Resources/RocketFlow.entitlements;
+				CODE_SIGN_ENTITLEMENTS = RocketFlow/RocketFlow.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -593,7 +1303,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = RocketFlow/Resources/RocketFlow.entitlements;
+				CODE_SIGN_ENTITLEMENTS = RocketFlow/RocketFlow.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -744,13 +1454,31 @@
 				version = 6.29.3;
 			};
 		};
+		0E5C177AE503F0D7F85A3442 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = exactVersion;
+				version = 12.17.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B1236611F607F1A85AF9F45B /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0E5C177AE503F0D7F85A3442 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
 		F026DE4AA71258E5653E4D1D /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 0E42E84ECD87B97EF95F66A6 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
+		};
+		F3E40CCC25944E1AD92A1AA0 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0E5C177AE503F0D7F85A3442 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
