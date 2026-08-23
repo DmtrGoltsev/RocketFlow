@@ -750,7 +750,7 @@ extension PlannerDetailsAdapter {
         for localID in localIDs {
             values.append(try await persistence.remoteID(for: .tag, localID: localID))
         }
-        return values
+        return canonicalUUIDs(values)
     }
 
     private func applyRecurrence(
@@ -777,9 +777,9 @@ extension PlannerDetailsAdapter {
             return UpsertRecurrenceRequestDTO(
                 mode: RecurrenceMode(rawValue: payload.mode.rawValue) ?? .daily,
                 interval: payload.interval,
-                daysOfWeek: payload.weekdays.map {
-                    Weekday(rawValue: $0.rawValue) ?? .monday
-                },
+                daysOfWeek: canonicalWeekdays(
+                    payload.weekdays.map { Weekday(rawValue: $0.rawValue) ?? .monday }
+                ),
                 dayOfMonth: payload.dayOfMonth,
                 startAt: payload.anchor,
                 endAt: payload.endAt,
@@ -803,12 +803,48 @@ extension PlannerDetailsAdapter {
         task: CreateTaskRequestDTO,
         recurrence: UpsertRecurrenceRequestDTO
     ) throws -> String {
+        let canonicalTask = CreateTaskRequestDTO(
+            title: task.title,
+            description: task.description,
+            type: task.type,
+            effort: task.effort,
+            status: task.status,
+            plannedTime: task.plannedTime,
+            dueTime: task.dueTime,
+            checklistItems: task.checklistItems,
+            tagIds: task.tagIds.map { canonicalUUIDs($0) }
+        )
+        let canonicalRecurrence = UpsertRecurrenceRequestDTO(
+            mode: recurrence.mode,
+            interval: recurrence.interval,
+            daysOfWeek: recurrence.daysOfWeek.map { canonicalWeekdays($0) },
+            dayOfMonth: recurrence.dayOfMonth,
+            startAt: recurrence.startAt,
+            endAt: recurrence.endAt,
+            active: recurrence.active
+        )
         let identity = PlannerDetailsRecurrenceCreateIdentity(
             goalID: goalID,
-            task: task,
-            recurrence: recurrence
+            task: canonicalTask,
+            recurrence: canonicalRecurrence
         )
-        return try WireJSON.encoder().encode(identity).base64EncodedString()
+        let encoder = WireJSON.encoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(identity).base64EncodedString()
+    }
+
+    private func canonicalUUIDs(_ values: [UUID]) -> [UUID] {
+        values.sorted {
+            $0.uuidString.lowercased() < $1.uuidString.lowercased()
+        }
+    }
+
+    private func canonicalWeekdays(_ values: [Weekday]) -> [Weekday] {
+        values.sorted {
+            let lhs = Weekday.allCases.firstIndex(of: $0) ?? Weekday.allCases.endIndex
+            let rhs = Weekday.allCases.firstIndex(of: $1) ?? Weekday.allCases.endIndex
+            return lhs < rhs
+        }
     }
 
     private func finishRecurrenceCreate(

@@ -332,7 +332,10 @@ final class APIPlanningRemoteTests: XCTestCase {
         let body = try XCTUnwrap(request.body)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         XCTAssertEqual(request.path, "/rocket-api/goals/\(remoteGoalID.wire)/tasks")
-        XCTAssertEqual(object["tagIds"] as? [String], [remoteTagID.wire])
+        XCTAssertEqual(
+            try apiRemoteDecodedUUIDSet(object["tagIds"]),
+            Set([remoteTagID])
+        )
     }
 
     func testChecklistUpdateIsNestedInSingleTaskRequest() async throws {
@@ -456,11 +459,11 @@ final class APIPlanningRemoteTests: XCTestCase {
         ])
         let bodies = try requests.map { try XCTUnwrap($0.body) }
         let objects = try bodies.map { try XCTUnwrap(JSONSerialization.jsonObject(with: $0) as? [String: Any]) }
-        XCTAssertEqual(objects[0]["targetFolderId"] as? String, remoteFolder.wire)
-        XCTAssertEqual(objects[1]["targetFolderId"] as? String, remoteFolder.wire)
-        XCTAssertEqual(objects[2]["targetGoalId"] as? String, remoteGoalParent.wire)
-        XCTAssertEqual(objects[3]["targetFolderId"] as? String, remoteFolder.wire)
-        XCTAssertEqual(objects[4]["targetFolderId"] as? String, remoteFolder.wire)
+        XCTAssertEqual(try apiRemoteDecodedUUID(objects[0]["targetFolderId"]), remoteFolder)
+        XCTAssertEqual(try apiRemoteDecodedUUID(objects[1]["targetFolderId"]), remoteFolder)
+        XCTAssertEqual(try apiRemoteDecodedUUID(objects[2]["targetGoalId"]), remoteGoalParent)
+        XCTAssertEqual(try apiRemoteDecodedUUID(objects[3]["targetFolderId"]), remoteFolder)
+        XCTAssertEqual(try apiRemoteDecodedUUID(objects[4]["targetFolderId"]), remoteFolder)
         XCTAssertTrue(objects.allSatisfy { $0["version"] as? Int == 7 })
     }
 
@@ -629,6 +632,26 @@ final class APIPlanningRemoteTests: XCTestCase {
 
     private func fixture<Value: Decodable>(_ json: String) throws -> Value {
         try WireJSON.decoder().decode(Value.self, from: Data(json.utf8))
+    }
+
+    private func apiRemoteDecodedUUID(
+        _ value: Any?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> UUID {
+        let string = try XCTUnwrap(value as? String, "Expected UUID string", file: file, line: line)
+        return try XCTUnwrap(UUID(uuidString: string), "Invalid UUID string", file: file, line: line)
+    }
+
+    private func apiRemoteDecodedUUIDSet(
+        _ value: Any?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> Set<UUID> {
+        let strings = try XCTUnwrap(value as? [String], "Expected UUID string array", file: file, line: line)
+        return Set(try strings.map { string in
+            try XCTUnwrap(UUID(uuidString: string), "Invalid UUID string", file: file, line: line)
+        })
     }
 
     private func folderDTO() -> FolderDTO {

@@ -191,14 +191,14 @@ final class PlanningActionServiceTests: XCTestCase {
         XCTAssertNotNil(UUID(uuidString: try XCTUnwrap(header("X-Request-ID", in: first))))
         XCTAssertEqual(header("Content-Type", in: first), "application/json; charset=utf-8")
         XCTAssertNil(header("Idempotency-Key", in: first))
-        XCTAssertEqual(try body(requests[4])["targetFolderId"] as? String, targetFolderID.wire)
+        XCTAssertEqual(try planningActionDecodedUUID(body(requests[4])["targetFolderId"]), targetFolderID)
         XCTAssertEqual(try body(requests[4])["version"] as? Int, 4)
         XCTAssertEqual(try body(requests[5])["includeChildren"] as? Bool, true)
-        XCTAssertEqual(try body(requests[9])["targetFolderId"] as? String, targetFolderID.wire)
+        XCTAssertEqual(try planningActionDecodedUUID(body(requests[9])["targetFolderId"]), targetFolderID)
         XCTAssertEqual(try body(requests[10])["name"] as? String, "Copy")
-        XCTAssertEqual(try body(requests[14])["targetFolderId"] as? String, targetFolderID.wire)
+        XCTAssertEqual(try planningActionDecodedUUID(body(requests[14])["targetFolderId"]), targetFolderID)
         XCTAssertEqual(try body(requests[15])["title"] as? String, "Copy")
-        XCTAssertEqual(try body(requests[19])["targetFolderId"] as? String, targetFolderID.wire)
+        XCTAssertEqual(try planningActionDecodedUUID(body(requests[19])["targetFolderId"]), targetFolderID)
         XCTAssertEqual(try body(requests[20])["title"] as? String, "Copy")
     }
 
@@ -301,12 +301,16 @@ final class PlanningActionServiceTests: XCTestCase {
         XCTAssertEqual(try body(requests[0])["priority"] as? Int, TaskPriorityCompatibility.defaultShadow)
         XCTAssertNil(try body(requests[0])["idempotencyKey"])
         XCTAssertEqual(try body(requests[1])["priority"] as? Int, 9)
-        XCTAssertEqual(try body(requests[4])["targetGoalId"] as? String, targetGoalID.wire)
+        XCTAssertEqual(try planningActionDecodedUUID(body(requests[4])["targetGoalId"]), targetGoalID)
         XCTAssertEqual(try body(requests[6])["preset"] as? String, "1h")
         XCTAssertNil(try body(requests[6])["minutes"])
         XCTAssertEqual(try body(requests[7])["daysOfWeek"] as? [String], ["MONDAY"])
-        XCTAssertEqual((try body(requests[8])["items"] as? [[String: Any]])?.first?["id"] as? String, checklistID.wire)
-        XCTAssertEqual(Set(try XCTUnwrap(body(requests[11])["tagIds"] as? [String])), Set([existingTagID.wire, addedTagID.wire]))
+        let checklistItems = try XCTUnwrap(body(requests[8])["items"] as? [[String: Any]])
+        XCTAssertEqual(try planningActionDecodedUUID(checklistItems.first?["id"]), checklistID)
+        XCTAssertEqual(
+            try planningActionDecodedUUIDSet(body(requests[11])["tagIds"]),
+            Set([existingTagID, addedTagID])
+        )
         XCTAssertEqual(try body(requests[11])["priority"] as? Int, 9)
         XCTAssertEqual(try body(requests[12])["tagIds"] as? [String], [])
         XCTAssertTrue(requests.allSatisfy { header("Idempotency-Key", in: $0) == nil })
@@ -529,6 +533,26 @@ final class PlanningActionServiceTests: XCTestCase {
     private func body(_ request: PlanningActionRecorder.Captured) throws -> [String: Any] {
         let data = try XCTUnwrap(request.body)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func planningActionDecodedUUID(
+        _ value: Any?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> UUID {
+        let string = try XCTUnwrap(value as? String, "Expected UUID string", file: file, line: line)
+        return try XCTUnwrap(UUID(uuidString: string), "Invalid UUID string", file: file, line: line)
+    }
+
+    private func planningActionDecodedUUIDSet(
+        _ value: Any?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> Set<UUID> {
+        let strings = try XCTUnwrap(value as? [String], "Expected UUID string array", file: file, line: line)
+        return Set(try strings.map { string in
+            try XCTUnwrap(UUID(uuidString: string), "Invalid UUID string", file: file, line: line)
+        })
     }
 
     private func header(_ name: String, in request: PlanningActionRecorder.Captured) -> String? {

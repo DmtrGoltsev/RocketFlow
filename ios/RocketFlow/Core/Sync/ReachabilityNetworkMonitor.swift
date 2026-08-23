@@ -51,7 +51,7 @@ final class ReachabilityNetworkMonitor: NetworkMonitoring, @unchecked Sendable {
         lock.synchronized { connected }
     }
 
-    func changes() -> AsyncStream<Bool> {
+    func changes() async -> AsyncStream<Bool> {
         let id = UUID()
         let stream = AsyncStream<Bool>.makeStream()
         let initial = lock.synchronized { () -> Bool in
@@ -89,7 +89,7 @@ actor ManualNetworkMonitor: NetworkMonitoring {
 
     func isConnected() -> Bool { connected }
 
-    func changes() -> AsyncStream<Bool> {
+    func changes() async -> AsyncStream<Bool> {
         let id = UUID()
         let initial = connected
         let stream = AsyncStream<Bool>.makeStream()

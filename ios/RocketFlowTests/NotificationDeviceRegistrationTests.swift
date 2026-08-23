@@ -3,6 +3,15 @@ import XCTest
 @testable import RocketFlow
 
 final class NotificationDeviceRegistrationTests: XCTestCase {
+    func testManualFCMConfigurationUsesAsyncProtocolWitness() async {
+        let provider: any FCMRegistrationTokenProviding =
+            ManualFCMRegistrationTokenProvider(configured: false)
+
+        let isConfigured = await provider.isConfigured()
+
+        XCTAssertFalse(isConfigured)
+    }
+
     func testEndpointAdapterUsesExactDeviceRoutesAndIOSFCMBody() async throws {
         let registration = deviceRegistration()
         let sender = NotificationRequestSenderSpy(registration: registration)

@@ -54,6 +54,81 @@ final class PlannerTreeBuilderTests: XCTestCase {
         XCTAssertFalse(tree.allRows[0].isExpanded)
     }
 
+    func testCollapsedFolderKeepsNestedDescendantsHiddenInsteadOfRecoveringThemAsOrphans() {
+        let root = PlannerTestFixtures.item(
+            kind: .folder,
+            id: PlannerTestFixtures.folderID,
+            title: "Root",
+            createdAt: 100
+        )
+        let childFolderID = UUID(uuidString: "60000000-0000-0000-0000-000000000001")!
+        let childFolder = PlannerTestFixtures.item(
+            kind: .folder,
+            id: childFolderID,
+            parent: root.reference,
+            title: "Child",
+            createdAt: 200
+        )
+        let goal = PlannerTestFixtures.item(
+            kind: .goal,
+            id: PlannerTestFixtures.goalID,
+            parent: childFolder.reference,
+            title: "Goal",
+            createdAt: 300
+        )
+        let task = PlannerTestFixtures.item(
+            kind: .task,
+            id: PlannerTestFixtures.taskID,
+            parent: goal.reference,
+            title: "Task",
+            status: .todo,
+            createdAt: 400
+        )
+
+        let tree = PlannerTreeBuilder.build(
+            snapshot: PlannerSnapshot(items: [root, childFolder, goal, task]),
+            expandedFolderIDs: [childFolderID],
+            expandedGoalIDs: [PlannerTestFixtures.goalID],
+            searchQuery: ""
+        )
+
+        XCTAssertEqual(tree.allRows.map { $0.item.reference }, [root.reference])
+    }
+
+    func testCycleRecoveryKeepsAccessibleItemsVisible() {
+        let firstID = UUID(uuidString: "61000000-0000-0000-0000-000000000001")!
+        let secondID = UUID(uuidString: "61000000-0000-0000-0000-000000000002")!
+        let firstReference = PlannerItemReference(kind: .folder, id: firstID)
+        let secondReference = PlannerItemReference(kind: .folder, id: secondID)
+        let first = PlannerTestFixtures.item(
+            kind: .folder,
+            id: firstID,
+            parent: secondReference,
+            title: "First",
+            createdAt: 100
+        )
+        let second = PlannerTestFixtures.item(
+            kind: .folder,
+            id: secondID,
+            parent: firstReference,
+            title: "Second",
+            createdAt: 200
+        )
+
+        let tree = PlannerTreeBuilder.build(
+            snapshot: PlannerSnapshot(items: [first, second]),
+            expandedFolderIDs: [firstID, secondID],
+            expandedGoalIDs: [],
+            searchQuery: ""
+        )
+
+        XCTAssertEqual(
+            Set(tree.allRows.map { $0.item.reference }),
+            Set([firstReference, secondReference])
+        )
+        XCTAssertEqual(tree.allRows.count, 2)
+    }
+
     func testSortsEverySiblingNewestFirstWithDescendingStableIDTieBreak() {
         let folder = PlannerTestFixtures.hierarchy()[0]
         let lowerID = UUID(uuidString: "80000000-0000-0000-0000-000000000001")!

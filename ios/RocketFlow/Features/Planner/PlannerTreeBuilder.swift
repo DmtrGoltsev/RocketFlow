@@ -74,6 +74,10 @@ enum PlannerTreeBuilder {
                     return !sectionReferences.contains(parent)
                 }
             )
+            let structurallyReachable = structurallyReachableReferences(
+                from: roots,
+                childrenByParent: childrenByParent
+            )
 
             var rows: [PlannerTreeRow] = []
             var emitted: Set<PlannerItemReference> = []
@@ -91,7 +95,7 @@ enum PlannerTreeBuilder {
             }
 
             // Corrupt or cyclic parent references must not make accessible items disappear.
-            for orphan in sorted(sectionItems.filter { !emitted.contains($0.reference) }) {
+            for orphan in sorted(sectionItems.filter { !structurallyReachable.contains($0.reference) }) {
                 append(
                     orphan,
                     depth: 0,
@@ -155,6 +159,20 @@ enum PlannerTreeBuilder {
                 rows: &rows
             )
         }
+    }
+
+    private static func structurallyReachableReferences(
+        from roots: [PlannerItemViewData],
+        childrenByParent: [PlannerItemReference: [PlannerItemViewData]]
+    ) -> Set<PlannerItemReference> {
+        var reachable: Set<PlannerItemReference> = []
+        var pending = roots
+        while let item = pending.popLast() {
+            guard reachable.insert(item.reference).inserted else { continue }
+            guard item.reference.kind == .folder || item.reference.kind == .goal else { continue }
+            pending.append(contentsOf: childrenByParent[item.reference] ?? [])
+        }
+        return reachable
     }
 
     private static func visibleReferences(

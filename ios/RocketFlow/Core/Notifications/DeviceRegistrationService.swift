@@ -40,10 +40,6 @@ protocol FCMRegistrationTokenProviding: Sendable {
     func tokenChanges() async -> AsyncStream<String>
 }
 
-extension FCMRegistrationTokenProviding {
-    func isConfigured() async -> Bool { true }
-}
-
 actor ManualFCMRegistrationTokenProvider: FCMRegistrationTokenProviding {
     private var token: String?
     private let configured: Bool
@@ -54,7 +50,7 @@ actor ManualFCMRegistrationTokenProvider: FCMRegistrationTokenProviding {
         self.configured = configured
     }
 
-    func isConfigured() -> Bool { configured }
+    func isConfigured() async -> Bool { configured }
     func currentToken() -> String? { token }
 
     func tokenChanges() -> AsyncStream<String> {

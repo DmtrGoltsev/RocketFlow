@@ -271,8 +271,7 @@ final class AppIntegrationDependencyTests: XCTestCase {
                 toExclusive: LocalDate(rawValue: "2026-09-01")!
             )
         }
-        let didStart = await operation.waitUntilStarted()
-        XCTAssertTrue(didStart)
+        await operation.waitUntilStarted()
 
         await gate.invalidateCancelAndWait(for: lease)
         await operation.replaceToken("calendar-new")
@@ -297,8 +296,7 @@ final class AppIntegrationDependencyTests: XCTestCase {
         let request = Task {
             try await adapter.loadCurrent(accountID: lease.accountID, timezone: "UTC")
         }
-        let didStart = await operation.waitUntilStarted()
-        XCTAssertTrue(didStart)
+        await operation.waitUntilStarted()
 
         await gate.invalidateCancelAndWait(for: lease)
         await operation.replaceToken("focus-new")
@@ -323,8 +321,7 @@ final class AppIntegrationDependencyTests: XCTestCase {
         let request = Task {
             try await adapter.load(accountID: lease.accountID)
         }
-        let didStart = await operation.waitUntilStarted()
-        XCTAssertTrue(didStart)
+        await operation.waitUntilStarted()
 
         await gate.invalidateCancelAndWait(for: lease)
         await operation.replaceToken("settings-new")
@@ -537,6 +534,7 @@ private actor AppIntegrationDelayedSessionOperation {
     private var startedTokens: [String] = []
     private var completed = false
     private var cancelled = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(token: String) {
         self.token = token
@@ -544,6 +542,9 @@ private actor AppIntegrationDelayedSessionOperation {
 
     func run() async throws {
         startedTokens.append(token)
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
         do {
             try await Task.sleep(nanoseconds: 5_000_000_000)
             try Task.checkCancellation()
@@ -554,12 +555,11 @@ private actor AppIntegrationDelayedSessionOperation {
         }
     }
 
-    func waitUntilStarted() async -> Bool {
-        for _ in 0..<500 {
-            if !startedTokens.isEmpty { return true }
-            await Task.yield()
+    func waitUntilStarted() async {
+        guard startedTokens.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
         }
-        return false
     }
 
     func replaceToken(_ token: String) {

@@ -262,16 +262,6 @@ protocol NetworkMonitoring: Sendable {
     func changes() async -> AsyncStream<Bool>
 }
 
-extension NetworkMonitoring {
-    func changes() async -> AsyncStream<Bool> {
-        let connected = await isConnected()
-        return AsyncStream { continuation in
-            continuation.yield(connected)
-            continuation.finish()
-        }
-    }
-}
-
 protocol SyncClock: Sendable {
     func now() async -> Date
 }
@@ -298,7 +288,7 @@ actor FixedNetworkMonitor: NetworkMonitoring {
 
     func isConnected() -> Bool { connected }
 
-    func changes() -> AsyncStream<Bool> {
+    func changes() async -> AsyncStream<Bool> {
         let id = UUID()
         let initial = connected
         let stream = AsyncStream<Bool>.makeStream()

@@ -72,6 +72,8 @@ private actor EngineTestRemote: SyncRemote {
     private let pullFailure: SyncRemoteFailure?
     private let pullDelayNanoseconds: UInt64
     private(set) var events: [String] = []
+    private var pullStarted = false
+    private var pullStartWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         pushFailure: SyncRemoteFailure? = nil,
@@ -91,11 +93,22 @@ private actor EngineTestRemote: SyncRemote {
 
     func pull() async throws -> RemotePlanningSnapshot {
         events.append("pull")
+        pullStarted = true
+        let waiters = pullStartWaiters
+        pullStartWaiters.removeAll()
+        waiters.forEach { $0.resume() }
         if pullDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: pullDelayNanoseconds)
         }
         if let pullFailure { throw pullFailure }
         return RemotePlanningSnapshot()
+    }
+
+    func waitUntilPullStarted() async {
+        guard !pullStarted else { return }
+        await withCheckedContinuation { continuation in
+            pullStartWaiters.append(continuation)
+        }
     }
 }
 
@@ -103,6 +116,14 @@ private actor EngineTestNetwork: NetworkMonitoring {
     let connected: Bool
     init(_ connected: Bool) { self.connected = connected }
     func isConnected() -> Bool { connected }
+
+    func changes() async -> AsyncStream<Bool> {
+        let initial = connected
+        AsyncStream { continuation in
+            continuation.yield(initial)
+            continuation.finish()
+        }
+    }
 }
 
 private struct EngineTestClock: SyncClock {
@@ -233,7 +254,7 @@ final class SyncEngineTests: XCTestCase {
         let remote = EngineTestRemote(pullDelayNanoseconds: 5_000_000_000)
         let engine = makeEngine(repository: repository, remote: remote)
         let task = Task { await engine.syncManually() }
-        await Task.yield()
+        await remote.waitUntilPullStarted()
 
         await engine.cancel()
         let status = await task.value

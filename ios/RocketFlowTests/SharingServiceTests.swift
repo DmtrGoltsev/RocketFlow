@@ -111,7 +111,7 @@ final class SharingServiceTests: XCTestCase {
         XCTAssertNil(emailBody["idempotencyKey"])
         let userBody = try body(requests[1])
         XCTAssertNil(userBody["email"])
-        XCTAssertEqual(userBody["userId"] as? String, userID.wire)
+        XCTAssertEqual(try sharingDecodedUUID(userBody["userId"]), userID)
         XCTAssertEqual(header("Authorization", in: requests[0]), "Bearer secret-test-token")
         XCTAssertNotNil(UUID(uuidString: try XCTUnwrap(header("X-Request-ID", in: requests[0]))))
         XCTAssertNil(header("Idempotency-Key", in: requests[0]))
@@ -209,6 +209,15 @@ final class SharingServiceTests: XCTestCase {
     private func body(_ request: SharingRequestRecorder.Captured) throws -> [String: Any] {
         let data = try XCTUnwrap(request.body)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func sharingDecodedUUID(
+        _ value: Any?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> UUID {
+        let string = try XCTUnwrap(value as? String, "Expected UUID string", file: file, line: line)
+        return try XCTUnwrap(UUID(uuidString: string), "Invalid UUID string", file: file, line: line)
     }
 
     private func header(_ name: String, in request: SharingRequestRecorder.Captured) -> String? {

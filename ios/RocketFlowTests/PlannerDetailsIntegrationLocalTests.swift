@@ -194,7 +194,7 @@ final class PlannerDetailsIntegrationLocalTests: XCTestCase {
         let recurrence = RecurrenceDTO(
             mode: .weekly,
             interval: 2,
-            daysOfWeek: [.monday],
+            daysOfWeek: [.tuesday],
             dayOfMonth: nil,
             startAt: dueAt,
             endAt: dueAt.addingTimeInterval(86_400 * 60),
@@ -230,7 +230,7 @@ final class PlannerDetailsIntegrationLocalTests: XCTestCase {
         XCTAssertEqual(payload.dueAt, dueAt)
         XCTAssertEqual(recurrencePayload.anchor, dueAt)
         XCTAssertEqual(recurrencePayload.interval, 2)
-        XCTAssertEqual(recurrencePayload.weekdays, [.monday])
+        XCTAssertEqual(recurrencePayload.weekdays, [.tuesday])
     }
 
     func testOfflineTaskQueuesButIdeaCreateFailsExplicitlyWithoutFakeSuccess() async throws {

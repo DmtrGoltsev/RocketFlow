@@ -264,8 +264,11 @@ final class NotificationScheduleTests: XCTestCase {
         clock.set(now.addingTimeInterval(14 * 24 * 60 * 60 + 1))
         let afterRetention = try await handler.handle(data: payload)
         XCTAssertEqual(afterRetention, .presented(URL(string: "rocketflow://focus")!))
-        let requestCount = await center.requests().count
-        XCTAssertEqual(requestCount, 2)
+        let addedRequests = await center.addedRequests()
+        let pendingRequestCount = await center.requests().count
+        XCTAssertEqual(addedRequests.count, 2)
+        XCTAssertEqual(Set(addedRequests.map(\.identifier)).count, 1)
+        XCTAssertEqual(pendingRequestCount, 1)
     }
 
     func testFocusDedupeSurvivesStoreRecreation() async throws {
@@ -344,6 +347,7 @@ final class NotificationScheduleTests: XCTestCase {
 private actor NotificationCenterSpy: UserNotificationCenterServing {
     private var state: NotificationAuthorizationState = .authorized
     private var values: [String: UserNotificationRequestValue] = [:]
+    private var additions: [UserNotificationRequestValue] = []
     private var delivered: Set<String> = []
     private var removed: [String] = []
 
@@ -351,7 +355,10 @@ private actor NotificationCenterSpy: UserNotificationCenterServing {
     func requestAuthorization() -> Bool { state != .denied }
     func pendingIdentifiers() -> Set<String> { Set(values.keys) }
     func deliveredIdentifiers() -> Set<String> { delivered }
-    func add(_ request: UserNotificationRequestValue) { values[request.identifier] = request }
+    func add(_ request: UserNotificationRequestValue) {
+        additions.append(request)
+        values[request.identifier] = request
+    }
     func remove(identifiers: [String]) {
         identifiers.forEach { values.removeValue(forKey: $0) }
         identifiers.forEach { delivered.remove($0) }
@@ -372,6 +379,8 @@ private actor NotificationCenterSpy: UserNotificationCenterServing {
     func requests() -> [UserNotificationRequestValue] {
         values.values.sorted { $0.identifier < $1.identifier }
     }
+
+    func addedRequests() -> [UserNotificationRequestValue] { additions }
 
     func removedIdentifiers() -> [String] { removed }
 }

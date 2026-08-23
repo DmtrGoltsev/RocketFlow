@@ -217,16 +217,36 @@ final class DependencyContainerTests: XCTestCase {
     }
 
     func testReachabilityStreamEmitsInitialAndChangedValues() async {
-        let monitor = FixedNetworkMonitor(connected: true)
+        let concreteMonitor = FixedNetworkMonitor(connected: true)
+        let monitor: any NetworkMonitoring = concreteMonitor
         let stream = await monitor.changes()
         var iterator = stream.makeAsyncIterator()
         let initial = await iterator.next()
-        await monitor.setConnected(false)
+        await concreteMonitor.setConnected(false)
         let changed = await iterator.next()
-        await monitor.finish()
+        await concreteMonitor.finish()
+        let finished = await iterator.next()
 
         XCTAssertEqual(initial, true)
         XCTAssertEqual(changed, false)
+        XCTAssertNil(finished)
+    }
+
+    func testManualReachabilityStreamUsesAsyncProtocolWitness() async {
+        let concreteMonitor = ManualNetworkMonitor(connected: false)
+        let monitor: any NetworkMonitoring = concreteMonitor
+        let stream = await monitor.changes()
+        var iterator = stream.makeAsyncIterator()
+
+        let initial = await iterator.next()
+        await concreteMonitor.setConnected(true)
+        let changed = await iterator.next()
+        await concreteMonitor.finish()
+        let finished = await iterator.next()
+
+        XCTAssertEqual(initial, false)
+        XCTAssertEqual(changed, true)
+        XCTAssertNil(finished)
     }
 
     func testUnauthorizedStatusClearsSessionDatabaseAndReachability() async throws {

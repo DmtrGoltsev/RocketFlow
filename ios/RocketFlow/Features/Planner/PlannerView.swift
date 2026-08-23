@@ -209,6 +209,7 @@ struct PlannerView: View {
             }
             .disabled(model.isPerformingAction)
             .accessibilityLabel(model.copy.settings)
+            .accessibilityIdentifier("planner.settings")
             .help(model.copy.settings)
 
             Button {

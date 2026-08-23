@@ -11,7 +11,7 @@ actor AppFCMRegistrationTokenProvider: FCMRegistrationTokenProviding {
     private var token: String?
     private var continuations: [UUID: AsyncStream<String>.Continuation] = [:]
 
-    func isConfigured() -> Bool { configured }
+    func isConfigured() async -> Bool { configured }
 
     func diagnostic() -> String? { configurationDiagnostic }
 

@@ -26,7 +26,7 @@ final class PlannerDetailsIntegrationRemoteTests: XCTestCase {
             checklist: [checklist]
         )
         let remote = PlannerDetailsRemoteStub(taskResponse: response)
-        let (_, repository, persistence, adapter) = try PlannerDetailsIntegrationFixtures.makeSystem(
+        let (database, repository, persistence, adapter) = try PlannerDetailsIntegrationFixtures.makeSystem(
             remote: remote
         )
         try await PlannerDetailsIntegrationFixtures.seedHierarchy(persistence: persistence)
@@ -212,7 +212,7 @@ final class PlannerDetailsIntegrationRemoteTests: XCTestCase {
         XCTAssertEqual(retained.ideas.count, 1)
     }
 
-    func testRecurrenceCreateRollbackFailureResumesSameOperationWithoutDuplicateCreate() async throws {
+    func testRecurrenceCreateRecoveryUsesCanonicalKeyAcrossAdapterInstances() async throws {
         let remote = PlannerDetailsRemoteStub(
             recurrenceFailuresRemaining: 1,
             taskDeleteFailuresRemaining: 1
@@ -221,13 +221,40 @@ final class PlannerDetailsIntegrationRemoteTests: XCTestCase {
             remote: remote
         )
         try await PlannerDetailsIntegrationFixtures.seedHierarchy(persistence: persistence)
+        let secondTagLocalID = UUID(uuidString: "11000000-0000-0000-0000-000000000003")!
+        let secondTagRemoteID = UUID(uuidString: "11000000-0000-0000-0000-000000000004")!
+        let tags = [
+            (
+                PlannerDetailsIntegrationFixtures.tagLocalID,
+                TaskTagDTO(
+                    id: PlannerDetailsIntegrationFixtures.tagRemoteID,
+                    name: "First",
+                    color: nil
+                )
+            ),
+            (
+                secondTagLocalID,
+                TaskTagDTO(id: secondTagRemoteID, name: "Second", color: nil)
+            )
+        ]
+        for (localID, tag) in tags {
+            try await persistence.bindAndApply(
+                kind: .tag,
+                localID: localID,
+                remoteID: tag.id,
+                version: 0,
+                payloadJSON: WireJSON.encoder().encode(tag)
+            )
+        }
 
         do {
             _ = try await adapter.saveEditor(
                 .task(
                     mode: .create,
                     goalID: PlannerDetailsIntegrationFixtures.goalLocalID,
-                    payload: recurringTaskPayload()
+                    payload: recurringTaskPayload(
+                        tagIDs: [PlannerDetailsIntegrationFixtures.tagLocalID, secondTagLocalID]
+                    )
                 )
             )
             XCTFail("Expected controlled recurrence failure")
@@ -240,11 +267,28 @@ final class PlannerDetailsIntegrationRemoteTests: XCTestCase {
         XCTAssertEqual(firstCreateCount, 1)
         XCTAssertEqual(recoverySnapshot.tasks.count, 1)
 
-        let result = try await adapter.saveEditor(
+        let resumedRepository = LocalPlanningRepository(database: database)
+        let resumedPersistence = GRDBPlannerDetailsPersistence(database: database)
+        let resumedAdapter = PlannerDetailsAdapter(
+            repository: resumedRepository,
+            persistence: resumedPersistence,
+            account: PlannerDetailsAccountContext(
+                accountID: PlannerDetailsIntegrationFixtures.accountID,
+                currentUserID: PlannerDetailsIntegrationFixtures.userID,
+                timezone: "Europe/Moscow"
+            ),
+            network: FixedNetworkMonitor(connected: true),
+            refresher: PlannerDetailsCurrentRefresher(),
+            remote: remote,
+            makeID: { PlannerDetailsIntegrationFixtures.taskLocalID }
+        )
+        let result = try await resumedAdapter.saveEditor(
             .task(
                 mode: .create,
                 goalID: PlannerDetailsIntegrationFixtures.goalLocalID,
-                payload: recurringTaskPayload()
+                payload: recurringTaskPayload(
+                    tagIDs: [secondTagLocalID, PlannerDetailsIntegrationFixtures.tagLocalID]
+                )
             )
         )
         XCTAssertFalse(result.pending)
@@ -396,7 +440,7 @@ final class PlannerDetailsIntegrationRemoteTests: XCTestCase {
         }
     }
 
-    private func recurringTaskPayload() -> TaskEditorPayload {
+    private func recurringTaskPayload(tagIDs: [UUID] = []) -> TaskEditorPayload {
         TaskEditorPayload(
             mutationScope: .full,
             title: "Recurring task",
@@ -409,14 +453,14 @@ final class PlannerDetailsIntegrationRemoteTests: XCTestCase {
             recurrence: TaskRecurrenceEditorPayload(
                 mode: .weekly,
                 interval: 1,
-                weekdays: [.monday],
+                weekdays: [.wednesday, .monday],
                 dayOfMonth: nil,
                 anchor: PlannerDetailsIntegrationFixtures.recurrence.startAt,
                 endAt: PlannerDetailsIntegrationFixtures.recurrence.endAt,
                 active: true
             ),
             checklist: [],
-            tagIDs: []
+            tagIDs: tagIDs
         )
     }
 }

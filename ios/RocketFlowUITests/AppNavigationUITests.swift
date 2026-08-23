@@ -21,10 +21,12 @@ final class AppNavigationUITests: XCTestCase {
         XCTAssertTrue(app.scrollViews["focus.screen"].waitForExistence(timeout: 5))
 
         plannerTab.tap()
-        XCTAssertTrue(app.otherElements["planner.screen"].waitForExistence(timeout: 5))
-        let settingsButton = app.buttons["Настройки"]
+        let plannerScreen = app.descendants(matching: .any)["planner.screen"]
+        XCTAssertTrue(plannerScreen.waitForExistence(timeout: 5))
+        let settingsButton = app.buttons["planner.settings"]
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 3))
         settingsButton.tap()
-        XCTAssertTrue(app.otherElements["settings.screen"].waitForExistence(timeout: 5))
+        let settingsScreen = app.descendants(matching: .any)["settings.screen"]
+        XCTAssertTrue(settingsScreen.waitForExistence(timeout: 5))
     }
 }
