@@ -82,7 +82,7 @@ actor GRDBFocusCache: FocusCaching {
         try lease.require(accountID)
         let payload: Data? = try database.read { db in
             try FeaturePersistenceAccount.validate(lease, in: db)
-            try Data.fetchOne(
+            return try Data.fetchOne(
                 db,
                 sql: """
                     SELECT payloadJSON FROM feature_focus_snapshots
@@ -479,7 +479,7 @@ actor GRDBFocusActionQueue: FocusActionQueuing {
         try lease.require(accountID)
         return try database.read { db in
             try FeaturePersistenceAccount.validate(lease, in: db)
-            try Self.retryMetadata(accountID: accountID, actionID: actionID, in: db)
+            return try Self.retryMetadata(accountID: accountID, actionID: actionID, in: db)
         }
     }
 

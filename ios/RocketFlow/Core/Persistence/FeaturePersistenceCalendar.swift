@@ -16,7 +16,7 @@ actor GRDBCalendarRangeCache: CalendarRangeCaching {
         try lease.require(key.accountID)
         let payload: Data? = try database.read { db in
             try FeaturePersistenceAccount.validate(lease, in: db)
-            try Data.fetchOne(
+            return try Data.fetchOne(
                 db,
                 sql: """
                     SELECT payloadJSON

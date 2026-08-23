@@ -843,7 +843,7 @@ actor FocusRepository: FocusRepositoryServing {
         let flightID = UUID()
         let task: Task<FocusSyncResult, Error> = Task { [self] in
             try Task.checkCancellation()
-            try await performSyncPending(accountID: accountID, timezone: timezone)
+            return try await performSyncPending(accountID: accountID, timezone: timezone)
         }
         let flight = SyncFlight(id: flightID, task: task)
         syncFlights[accountID] = flight

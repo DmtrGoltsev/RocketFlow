@@ -93,7 +93,7 @@ actor GRDBSettingsCache: SettingsCacheServing {
         try lease.require(accountID)
         let payload: Data? = try database.read { db in
             try FeaturePersistenceAccount.validate(lease, in: db)
-            try Data.fetchOne(
+            return try Data.fetchOne(
                 db,
                 sql: "SELECT payloadJSON FROM \(table) WHERE accountID = ?",
                 arguments: [accountID.featurePersistenceKey]
@@ -186,7 +186,7 @@ actor GRDBAccountDeviceRegistrationStateStore: DeviceRegistrationStateStoring {
     func snapshot() throws -> DeviceRegistrationSnapshot? {
         let payload: Data? = try database.read { db in
             try FeaturePersistenceAccount.validate(lease, in: db)
-            try Data.fetchOne(
+            return try Data.fetchOne(
                 db,
                 sql: """
                     SELECT payloadJSON FROM feature_device_registration_state
