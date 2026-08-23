@@ -1,0 +1,8 @@
+// Copy to Device.xcconfig. The real file is ignored and must stay local.
+// Only these five signing settings are accepted by the handoff scripts.
+// Use the 10-character Team ID shown by Xcode, not an Apple password or token.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+PRODUCT_BUNDLE_IDENTIFIER = com.yourname.rocketflow
+CODE_SIGN_STYLE = Automatic
+CODE_SIGNING_ALLOWED = YES
+CODE_SIGNING_REQUIRED = YES

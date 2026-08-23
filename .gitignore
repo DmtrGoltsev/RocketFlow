@@ -49,11 +49,25 @@ scripts/Set-ProdBackupDownloadEnv.local.ps1
 
 # iOS local and generated build files
 /ios/DerivedData/
+/ios/build/
+/ios/.handoff/
 /ios/Config/Local.xcconfig
+/ios/Config/Device.xcconfig
 /ios/RocketFlow/Resources/GoogleService-Info.plist
 /ios/GoogleService-Info.plist
 **/xcuserdata/
 *.xcuserstate
+*.xcarchive/
+*.ipa
+*.mobileprovision
+*.provisionprofile
+*.p8
+*.key
+*.keychain-db
+*.cer
+/ios/Signing/
+/ios/export/
+/ios/*.app/
 
 # Generated reports and signing credentials
 coverage/

@@ -26,6 +26,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Validate Mac handoff scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ios/scripts/*.sh ios/scripts/tests/*.sh
+          bash ios/scripts/tests/mac-handoff-tests.sh
+
       - name: Select latest stable Xcode
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         with:
