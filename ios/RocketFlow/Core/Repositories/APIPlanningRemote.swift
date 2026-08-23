@@ -710,8 +710,15 @@ actor APIPlanningRemote: SyncRemote {
 
     private func delete(_ mutation: PendingMutation, path: [String]) async throws -> RemoteMutationAck {
         let payload = try WireJSON.decoder().decode(DeleteMutationPayload.self, from: mutation.payloadJSON)
-        let remoteID = payload.remoteID
-            ?? (try await idResolver.remoteID(for: mutation.entityType, localID: mutation.entityID))
+        let remoteID: UUID
+        if let payloadRemoteID = payload.remoteID {
+            remoteID = payloadRemoteID
+        } else {
+            remoteID = try await idResolver.remoteID(
+                for: mutation.entityType,
+                localID: mutation.entityID
+            )
+        }
         let _: EmptyResponse = try await sender.send(
             Endpoint(method: .delete, path: path + [remoteID.wire])
         )

@@ -227,10 +227,13 @@ struct AppUserCoreSyncHook: CoreSyncHook {
     let unauthorizedRelay: AppUnauthorizedRelay
 
     func synchronize(trigger: CoreSyncTrigger) async throws {
+        let operationGate = self.operationGate
+        let lease = self.lease
+        let focus = self.focus
         do {
             try await withTaskCancellationHandler {
                 try await operationGate.run(for: lease) {
-                    try await synchronizeOperation(trigger: trigger)
+                    try await self.synchronizeOperation(trigger: trigger)
                 }
             } onCancel: {
                 Task {
@@ -432,74 +435,74 @@ struct AppUnauthorizedPlannerDetailsAdapter: PlannerLoading, PlannerActionPerfor
     }
 
     func loadPlanner() async throws -> PlannerLoadResult {
-        try await reporting { try await base.loadPlanner() }
+        try await reporting { try await self.base.loadPlanner() }
     }
 
     func perform(_ action: PlannerMutationAction) async throws -> PlannerMutationResult {
-        try await reporting { try await base.perform(action) }
+        try await reporting { try await self.base.perform(action) }
     }
 
     func loadDetail(_ reference: DetailEntityReference) async throws -> DetailLoadResult {
-        try await reporting { try await base.loadDetail(reference) }
+        try await reporting { try await self.base.loadDetail(reference) }
     }
 
     func performDetailMutation(_ mutation: DetailMutation) async throws -> DetailMutationResult {
-        try await reporting { try await base.performDetailMutation(mutation) }
+        try await reporting { try await self.base.performDetailMutation(mutation) }
     }
 
     func saveEditor(_ request: EditorSaveRequest) async throws -> EditorSaveResult {
-        try await reporting { try await base.saveEditor(request) }
+        try await reporting { try await self.base.saveEditor(request) }
     }
 
     func createTag(_ payload: TagEditorPayload) async throws -> TagEditorItemDraft {
-        try await reporting { try await base.createTag(payload) }
+        try await reporting { try await self.base.createTag(payload) }
     }
 
     func setTaskFocus(taskID: UUID, focused: Bool) async throws {
-        try await reporting { try await base.setTaskFocus(taskID: taskID, focused: focused) }
+        try await reporting { try await self.base.setTaskFocus(taskID: taskID, focused: focused) }
     }
 
     func move(
         _ reference: DetailEntityReference,
         toParentID: UUID?
     ) async throws -> DetailEntityReference {
-        try await reporting { try await base.move(reference, toParentID: toParentID) }
+        try await reporting { try await self.base.move(reference, toParentID: toParentID) }
     }
 
     func clone(
         _ reference: DetailEntityReference,
         toParentID: UUID?
     ) async throws -> DetailEntityReference {
-        try await reporting { try await base.clone(reference, toParentID: toParentID) }
+        try await reporting { try await self.base.clone(reference, toParentID: toParentID) }
     }
 
     func invite(
         _ reference: DetailEntityReference,
         request: SharingInvitationRequest
     ) async throws -> ShareInvitationDTO {
-        try await reporting { try await base.invite(reference, request: request) }
+        try await reporting { try await self.base.invite(reference, request: request) }
     }
 
     func rescheduleTask(localID: UUID, plannedAt: Date) async throws {
         try await reporting {
-            try await base.rescheduleTask(localID: localID, plannedAt: plannedAt)
+            try await self.base.rescheduleTask(localID: localID, plannedAt: plannedAt)
         }
     }
 
     func editorSeed(for route: DetailEditorRoute) async throws -> PlannerDetailsEditorSeed {
-        try await reporting { try await base.editorSeed(for: route) }
+        try await reporting { try await self.base.editorSeed(for: route) }
     }
 
     func localID(kind: DetailEntityKind, serverID: UUID) async throws -> UUID {
-        try await reporting { try await base.localID(kind: kind, serverID: serverID) }
+        try await reporting { try await self.base.localID(kind: kind, serverID: serverID) }
     }
 
     func serverID(kind: DetailEntityKind, localID: UUID) async throws -> UUID {
-        try await reporting { try await base.serverID(kind: kind, localID: localID) }
+        try await reporting { try await self.base.serverID(kind: kind, localID: localID) }
     }
 
     private func reporting<Value: Sendable>(
-        _ operation: @Sendable () async throws -> Value
+        _ operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
         do {
             return try await operationGate.run(for: lease, operation: operation)
@@ -535,15 +538,17 @@ struct AppUnauthorizedSharingService: SharingFeatureServing, Sendable {
         id: UUID,
         request: SharingInvitationRequest
     ) async throws -> ShareInvitationDTO {
-        try await reporting { try await base.createInvitation(resource: resource, id: id, request: request) }
+        try await reporting {
+            try await self.base.createInvitation(resource: resource, id: id, request: request)
+        }
     }
 
     func listInvitations() async throws -> [ShareInvitationDTO] {
-        try await reporting { try await base.listInvitations() }
+        try await reporting { try await self.base.listInvitations() }
     }
 
     func revokeInvitation(id: UUID) async throws -> ShareInvitationActionResponseDTO {
-        try await reporting { try await base.revokeInvitation(id: id) }
+        try await reporting { try await self.base.revokeInvitation(id: id) }
     }
 
     func createShareLink(
@@ -551,27 +556,29 @@ struct AppUnauthorizedSharingService: SharingFeatureServing, Sendable {
         id: UUID,
         request: ShareLinkRequestDTO?
     ) async throws -> ShareLinkCreateResponseDTO {
-        try await reporting { try await base.createShareLink(resource: resource, id: id, request: request) }
+        try await reporting {
+            try await self.base.createShareLink(resource: resource, id: id, request: request)
+        }
     }
 
     func listShareLinks(resource: ShareableResourceKind, id: UUID) async throws -> [ShareLinkDTO] {
-        try await reporting { try await base.listShareLinks(resource: resource, id: id) }
+        try await reporting { try await self.base.listShareLinks(resource: resource, id: id) }
     }
 
     func revokeShareLink(id: UUID) async throws -> ShareLinkActionResponseDTO {
-        try await reporting { try await base.revokeShareLink(id: id) }
+        try await reporting { try await self.base.revokeShareLink(id: id) }
     }
 
     func resolveShareLink(token: String) async throws -> ShareLinkResolveResponseDTO {
-        try await reporting { try await base.resolveShareLink(token: token) }
+        try await reporting { try await self.base.resolveShareLink(token: token) }
     }
 
     func acceptShareLink(token: String) async throws -> ShareLinkAcceptResponseDTO {
-        try await reporting { try await base.acceptShareLink(token: token) }
+        try await reporting { try await self.base.acceptShareLink(token: token) }
     }
 
     private func reporting<Value: Sendable>(
-        _ operation: @Sendable () async throws -> Value
+        _ operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
         do {
             return try await operationGate.run(for: lease, operation: operation)
@@ -603,26 +610,26 @@ struct AppUnauthorizedEntityLinkService: EntityLinkFeatureServing, Sendable {
     }
 
     func listEntityLinks(type: LinkedEntityType, id: UUID) async throws -> [ActionEntityLinkDTO] {
-        try await reporting { try await base.listEntityLinks(type: type, id: id) }
+        try await reporting { try await self.base.listEntityLinks(type: type, id: id) }
     }
 
     func createEntityLink(_ request: CreateEntityLinkRequestDTO) async throws -> ActionEntityLinkDTO {
-        try await reporting { try await base.createEntityLink(request) }
+        try await reporting { try await self.base.createEntityLink(request) }
     }
 
     func updateEntityLink(
         id: UUID,
         request: UpdateEntityLinkRequestDTO
     ) async throws -> ActionEntityLinkDTO {
-        try await reporting { try await base.updateEntityLink(id: id, request: request) }
+        try await reporting { try await self.base.updateEntityLink(id: id, request: request) }
     }
 
     func deleteEntityLink(id: UUID) async throws {
-        try await reporting { try await base.deleteEntityLink(id: id) }
+        try await reporting { try await self.base.deleteEntityLink(id: id) }
     }
 
     private func reporting<Value: Sendable>(
-        _ operation: @Sendable () async throws -> Value
+        _ operation: @escaping @Sendable () async throws -> Value
     ) async throws -> Value {
         do {
             return try await operationGate.run(for: lease, operation: operation)
@@ -873,7 +880,13 @@ struct AppSharingOwnershipResolver: Sendable {
     let operationGate: AppRuntimeOperationGate
 
     func isOwner(of reference: DetailEntityReference) async throws -> Bool {
-        try await operationGate.run(for: lease) {
+        let currentUserID = self.currentUserID
+        let repository = self.repository
+        let persistence = self.persistence
+        let scopeRegistry = self.scopeRegistry
+        let lease = self.lease
+        let operationGate = self.operationGate
+        return try await operationGate.run(for: lease) {
             let snapshot = try await repository.snapshot()
             switch reference.kind {
             case .task:
@@ -890,7 +903,11 @@ struct AppSharingOwnershipResolver: Sendable {
                 guard let remoteScope = await scopeRegistry.value(for: lease) else {
                     return false
                 }
-                let localScope = try await localScope(remoteScope, snapshot: snapshot)
+                let localScope = try await Self.localScope(
+                    remoteScope,
+                    snapshot: snapshot,
+                    persistence: persistence
+                )
                 return Self.isOwnedFolderOrGoal(
                     reference: reference,
                     snapshot: snapshot,
@@ -946,9 +963,10 @@ struct AppSharingOwnershipResolver: Sendable {
         return true
     }
 
-    private func localScope(
+    private static func localScope(
         _ remoteScope: AppCollaboratorResourceScope,
-        snapshot: PlanningSnapshot
+        snapshot: PlanningSnapshot,
+        persistence: any PlannerDetailsPersistenceAccessing
     ) async throws -> (folderIDs: Set<UUID>, goalIDs: Set<UUID>) {
         var folders: Set<UUID> = []
         for remoteID in remoteScope.folderRemoteIDs {
@@ -1113,6 +1131,9 @@ final class AppUserRuntime {
     }
 
     func synchronizeFocusPending() async throws {
+        let validity = self.validity
+        let lease = self.lease
+        let operationGate = self.operationGate
         let focus = focusRepository
         let accountID = user.id
         let timezone = user.timezone
@@ -1128,6 +1149,9 @@ final class AppUserRuntime {
     }
 
     func reconcileReminders(reason: ReminderReconcileReason) async throws {
+        let validity = self.validity
+        let lease = self.lease
+        let operationGate = self.operationGate
         let reminders = reminderScheduler
         let accountID = user.id
         let timezone = user.timezone
@@ -1143,6 +1167,9 @@ final class AppUserRuntime {
     }
 
     func synchronizeDevice(deviceName: String?) async throws {
+        let validity = self.validity
+        let lease = self.lease
+        let operationGate = self.operationGate
         let registration = deviceRegistration
         let accountID = user.id
         try await operationGate.run(for: lease) {
@@ -1156,6 +1183,9 @@ final class AppUserRuntime {
         reason: ReminderReconcileReason,
         deviceName: String?
     ) async throws {
+        let validity = self.validity
+        let lease = self.lease
+        let operationGate = self.operationGate
         let focus = focusRepository
         let reminders = reminderScheduler
         let registration = deviceRegistration
