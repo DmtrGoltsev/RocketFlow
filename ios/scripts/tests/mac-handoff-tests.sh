@@ -5,17 +5,43 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd -P)"
 SCRIPTS="$REPO_ROOT/ios/scripts"
-TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/rocketflow-handoff-tests.XXXXXX")"
-mkdir -p "$REPO_ROOT/ios/.handoff"
-REPO_TEMP="$(mktemp -d "$REPO_ROOT/ios/.handoff/contract.XXXXXX")"
-UNIGNORED_CONFIG="$(mktemp "$REPO_ROOT/ios/Config/mac-handoff-config.XXXXXX")"
-UNIGNORED_PLIST="$(mktemp "$REPO_ROOT/ios/Config/mac-handoff-plist.XXXXXX")"
+# shellcheck source=../mac-handoff-common.sh
+source "$SCRIPTS/mac-handoff-common.sh"
+
+TEMP_ROOT=""
+REPO_TEMP=""
+UNIGNORED_CONFIG=""
+UNIGNORED_PLIST=""
+REPO_HANDOFF_CREATED=false
+DERIVED_FIXTURE=""
+DERIVED_ROOT_CREATED=false
 
 cleanup() {
-  rm -rf -- "$TEMP_ROOT" "$REPO_TEMP"
-  rm -f -- "$UNIGNORED_CONFIG" "$UNIGNORED_PLIST"
+  cleanup_private_temp_file "$UNIGNORED_CONFIG" || true
+  cleanup_private_temp_file "$UNIGNORED_PLIST" || true
+  cleanup_private_temp_dir "$DERIVED_FIXTURE" || true
+  cleanup_private_temp_dir "$REPO_TEMP" || true
+  cleanup_private_temp_dir "$TEMP_ROOT" || true
+  if [[ "$DERIVED_ROOT_CREATED" == true ]]; then
+    rmdir -- "$REPO_ROOT/ios/DerivedData" 2>/dev/null || true
+  fi
+  if [[ "$REPO_HANDOFF_CREATED" == true ]]; then
+    rmdir -- "$REPO_ROOT/ios/.handoff" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
+
+CANONICAL_TEMP_PARENT="$(canonical_temp_root)"
+TEMP_ROOT="$(create_private_temp_dir rocketflow-handoff-tests)"
+if [[ ! -e "$REPO_ROOT/ios/.handoff" ]]; then
+  mkdir -m 700 "$REPO_ROOT/ios/.handoff"
+  REPO_HANDOFF_CREATED=true
+fi
+REPO_HANDOFF_ROOT="$(canonical_existing_directory "$REPO_ROOT/ios/.handoff" "Test handoff root")"
+REPO_TEMP="$(create_private_temp_dir_at "$REPO_HANDOFF_ROOT" rocketflow-contract)"
+CONFIG_ROOT="$(canonical_existing_directory "$REPO_ROOT/ios/Config" "iOS config root")"
+UNIGNORED_CONFIG="$(create_private_temp_file_at "$CONFIG_ROOT" rocketflow-unignored-config)"
+UNIGNORED_PLIST="$(create_private_temp_file_at "$CONFIG_ROOT" rocketflow-unignored-plist)"
 
 TEST_BIN="$TEMP_ROOT/test-bin"
 mkdir -p "$TEST_BIN"
@@ -45,8 +71,23 @@ skip() {
   printf 'ok %d - %s # SKIP %s\n' "$passed" "$1" "$2"
 }
 
+sanitize_last_output() {
+  local diagnostic="${LAST_OUTPUT:-}"
+  local marker
+  for marker in \
+    "${CANONICAL_TEMP_PARENT:-}" "${TMPDIR:-/tmp}" "${TEMP_ROOT:-}" "${REPO_TEMP:-}" \
+    "${DEVICE_ID:-}" "A1B2C3D4E5" "com.acme.personal.rocketflow" \
+    "${SECRET_MARKER:-}" "contract-leaf-certificate" "foreign-leaf-certificate"; do
+    [[ -n "$marker" ]] && diagnostic="${diagnostic//"$marker"/<redacted>}"
+  done
+  printf '%s' "$diagnostic"
+}
+
 fail() {
+  local diagnostic
+  diagnostic="$(sanitize_last_output)"
   printf 'not ok - %s\n' "$1" >&2
+  [[ -z "$diagnostic" ]] || printf 'diagnostic: %s\n' "$diagnostic" >&2
   exit 1
 }
 
@@ -234,6 +275,23 @@ create_app() {
 for script in mac-preflight.sh mac-verify.sh mac-build-device.sh mac-install-device.sh; do
   expect_success "$script help" bash "$SCRIPTS/$script" --help
 done
+LAST_OUTPUT=""
+
+[[ "$CANONICAL_TEMP_PARENT" == "$(cd "${TMPDIR:-/tmp}" && pwd -P)" ]] \
+  || fail "temporary root is not physically canonical"
+pass "temporary root is physically canonical before mktemp"
+
+temp_root_mode="$(file_mode "$TEMP_ROOT")"
+if [[ "${temp_root_mode: -3}" == "700" ]]; then
+  pass "private temporary directory is mode 0700"
+else
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      skip "private temporary directory is mode 0700" "Windows filesystem does not preserve POSIX mode bits"
+      ;;
+    *) fail "private temporary directory mode is not 0700" ;;
+  esac
+fi
 
 placeholder_config="$TEMP_ROOT/placeholder.xcconfig"
 write_config "$placeholder_config" YOUR_TEAM_ID com.acme.personal.rocketflow
@@ -243,6 +301,46 @@ expect_failure_matching "placeholder team rejected" "DEVELOPMENT_TEAM must be" \
 valid_config="$TEMP_ROOT/Config With Spaces/Device Config.xcconfig"
 mkdir -p "$(dirname "$valid_config")"
 write_config "$valid_config" A1B2C3D4E5 com.acme.personal.rocketflow
+
+permission_bin="$(create_private_temp_dir_at "$TEMP_ROOT" rocketflow-permission-bin)"
+cat >"$permission_bin/stat" <<'EOF'
+#!/usr/bin/env bash
+printf '600\n'
+EOF
+chmod +x "$permission_bin/stat"
+expect_success "0600 sensitive input accepted after physical canonicalization" \
+  env PATH="$permission_bin:$PATH" \
+    bash -c 'source "$1"; canonical_sensitive_input "$2" "Device xcconfig" >/dev/null' _ \
+      "$SCRIPTS/mac-handoff-common.sh" "$valid_config"
+
+if [[ "$(uname -s)" == "Darwin" && "$TEMP_ROOT" == /private/var/* ]]; then
+  lexical_temp_alias="/var/${TEMP_ROOT#/private/var/}"
+  lexical_config_alias="$lexical_temp_alias/Config With Spaces/Device Config.xcconfig"
+else
+  mkdir -p "$TEMP_ROOT/portable-var-alias"
+  lexical_config_alias="$TEMP_ROOT/portable-var-alias/../Config With Spaces/Device Config.xcconfig"
+fi
+expect_success "lexical macOS temp alias resolves to physical canonical file" \
+  bash -c 'source "$1"; actual="$(canonical_existing_file "$2" "Alias fixture")"; [[ "$actual" == "$3" ]]' _ \
+    "$SCRIPTS/mac-handoff-common.sh" "$lexical_config_alias" "$valid_config"
+
+cat >"$permission_bin/stat" <<'EOF'
+#!/usr/bin/env bash
+printf '666\n'
+EOF
+chmod +x "$permission_bin/stat"
+expect_failure_matching "group/world writable sensitive input rejected" "must not be group- or world-writable" \
+  env PATH="$permission_bin:$PATH" \
+    bash -c 'source "$1"; canonical_sensitive_input "$2" "Device xcconfig" >/dev/null' _ \
+      "$SCRIPTS/mac-handoff-common.sh" "$valid_config"
+
+config_symlink="$TEMP_ROOT/Device-Config-Symlink.xcconfig"
+if ln -s "$valid_config" "$config_symlink" 2>/dev/null && [[ -L "$config_symlink" ]]; then
+  expect_failure_matching "final sensitive-input symlink rejected" "readable regular file" \
+    bash "$SCRIPTS/mac-preflight.sh" --dry-run --config "$config_symlink"
+else
+  skip "final sensitive-input symlink rejected" "filesystem does not expose symlinks"
+fi
 
 unsupported_config="$TEMP_ROOT/unsupported.xcconfig"
 write_config "$unsupported_config" A1B2C3D4E5 com.acme.personal.rocketflow
@@ -314,14 +412,34 @@ expect_success "ignored DerivedData with spaces accepted" \
 expect_success "outside-repo DerivedData accepted" \
   bash "$SCRIPTS/mac-verify.sh" --dry-run --derived-data "$TEMP_ROOT/External Output With Spaces"
 
+mkdir -p "$TEMP_ROOT/canonical-parent"
+outside_lexical="$TEMP_ROOT/canonical-parent/../Canonical External Output"
+outside_canonical="$TEMP_ROOT/Canonical External Output"
+expect_success "outside DerivedData is returned as a canonical physical path" \
+  bash -c 'source "$1"; actual="$(validate_derived_data_path "$2")"; [[ "$actual" == "$3" ]]' _ \
+    "$SCRIPTS/mac-handoff-common.sh" "$outside_lexical" "$outside_canonical"
+
 symlink_real="$TEMP_ROOT/symlink-real"
 symlink_path="$TEMP_ROOT/symlink-output"
 mkdir -p "$symlink_real"
 if ln -s "$symlink_real" "$symlink_path" 2>/dev/null && [[ -L "$symlink_path" ]]; then
-  expect_failure_matching "DerivedData symlink rejected" "symlink or reparse" \
-    bash "$SCRIPTS/mac-verify.sh" --dry-run --derived-data "$symlink_path/child"
+  expect_failure_matching "final DerivedData symlink rejected" "symlink or reparse" \
+    bash "$SCRIPTS/mac-verify.sh" --dry-run --derived-data "$symlink_path"
+
+  if [[ ! -e "$REPO_ROOT/ios/DerivedData" ]]; then
+    mkdir -m 700 "$REPO_ROOT/ios/DerivedData"
+    DERIVED_ROOT_CREATED=true
+  fi
+  derived_root="$(canonical_existing_directory "$REPO_ROOT/ios/DerivedData" "DerivedData test root")"
+  DERIVED_FIXTURE="$(create_private_temp_dir_at "$derived_root" rocketflow-symlink-fixture)"
+  repo_escape_link="$DERIVED_FIXTURE/escape-parent"
+  ln -s "$TEMP_ROOT" "$repo_escape_link"
+  expect_failure_matching "repo DerivedData parent symlink cannot escape trust boundary" \
+    "allowed only below ios/DerivedData" \
+    bash "$SCRIPTS/mac-verify.sh" --dry-run --derived-data "$repo_escape_link/child"
 else
-  skip "DerivedData symlink rejected" "filesystem does not expose symlinks"
+  skip "final DerivedData symlink rejected" "filesystem does not expose symlinks"
+  skip "repo DerivedData parent symlink cannot escape trust boundary" "filesystem does not expose symlinks"
 fi
 
 MOCK_BIN="$TEMP_ROOT/mock-bin"
@@ -531,6 +649,16 @@ DEVICE_ID="00008110-0012345678901234"
 SECRET_MARKER="SECRET-MARKER-DO-NOT-PRINT"
 export MOCK_XCODEBUILD_ARGS MOCK_RSYNC_ARGS MOCK_XCRUN_ARGS MOCK_CODESIGN_ARGS MOCK_SECURITY_ARGS
 
+LAST_OUTPUT="$CANONICAL_TEMP_PARENT/internal $TEMP_ROOT $DEVICE_ID A1B2C3D4E5 com.acme.personal.rocketflow $SECRET_MARKER"
+sanitized_probe="$(sanitize_last_output)"
+for forbidden in \
+  "$CANONICAL_TEMP_PARENT" "$TEMP_ROOT" "$DEVICE_ID" "A1B2C3D4E5" \
+  "com.acme.personal.rocketflow" "$SECRET_MARKER"; do
+  [[ "$sanitized_probe" != *"$forbidden"* ]] || fail "failure diagnostic sanitizer leaked protected data"
+done
+LAST_OUTPUT=""
+pass "failure diagnostics redact temp, device, signing, bundle, and secret markers"
+
 expect_success "preflight validates Xcode and iphoneos SDK" \
   env PATH="$MOCK_PATH" MOCK_XCODEBUILD_ARGS="$MOCK_XCODEBUILD_ARGS" \
     MOCK_RSYNC_ARGS="$MOCK_RSYNC_ARGS" MOCK_XCRUN_ARGS="$MOCK_XCRUN_ARGS" \
@@ -616,6 +744,9 @@ certificate_prefix="$(argv_value_after "$MOCK_CODESIGN_ARGS" --extract-certifica
 [[ "$certificate_prefix" == */rocketflow-device-build.??????/signing-certificate- ]] \
   || fail "signing certificate extraction is not private"
 pass "signing certificate extraction uses private prefix"
+[[ "$certificate_prefix" == "$CANONICAL_TEMP_PARENT"/rocketflow-device-build.??????/signing-certificate- ]] \
+  || fail "signing certificate extraction escaped the canonical private root"
+pass "self-generated signing certificate path stays under canonical private root"
 assert_exact_call "codesign extracts the app certificate chain" "$MOCK_CODESIGN_ARGS" \
   -d --extract-certificates "$certificate_prefix" \
   "$no_push_derived/Build/Products/Debug-iphoneos/RocketFlow.app"

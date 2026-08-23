@@ -85,38 +85,20 @@ lexical_absolute_path() {
   printf '/%s\n' "$result"
 }
 
-reject_symlink_components() {
-  local absolute component probe="/"
-  local -a components
-  components=()
-  absolute="$(lexical_absolute_path "$1")"
-  IFS='/' read -r -a components <<<"${absolute#/}"
-  for component in "${components[@]}"; do
-    case "$component" in
-      ''|.) continue ;;
-      ..)
-        probe="$(dirname "$probe")"
-        continue
-        ;;
-    esac
-    if [[ "$probe" == "/" ]]; then
-      probe="/$component"
-    else
-      probe="$probe/$component"
-    fi
-    [[ ! -L "$probe" ]] || return 1
-  done
-}
-
 canonical_existing_file() {
   local input="$1"
   local label="$2"
-  local parent canonical
-  reject_symlink_components "$input" || handoff_die "$label must not use symlink or reparse components."
-  [[ -f "$input" && ! -L "$input" && -r "$input" ]] \
+  local absolute parent canonical
+  absolute="$(lexical_absolute_path "$input")"
+  [[ -f "$absolute" && ! -L "$absolute" && -r "$absolute" ]] \
     || handoff_die "$label must be a readable regular file."
-  parent="$(cd "$(dirname "$input")" && pwd -P)"
-  canonical="$parent/$(basename "$input")"
+  parent="$(cd "$(dirname "$absolute")" && pwd -P)" \
+    || handoff_die "$label parent could not be physically canonicalized."
+  if [[ "$parent" == "/" ]]; then
+    canonical="/$(basename "$absolute")"
+  else
+    canonical="$parent/$(basename "$absolute")"
+  fi
   [[ -f "$canonical" && ! -L "$canonical" && -r "$canonical" ]] \
     || handoff_die "$label must be a readable regular file."
   printf '%s\n' "$canonical"
@@ -125,9 +107,18 @@ canonical_existing_file() {
 canonical_existing_directory() {
   local input="$1"
   local label="$2"
-  reject_symlink_components "$input" || handoff_die "$label must not use symlink or reparse components."
-  [[ -d "$input" && ! -L "$input" ]] || handoff_die "$label must be a regular directory."
-  (cd "$input" && pwd -P)
+  local absolute parent canonical
+  absolute="$(lexical_absolute_path "$input")"
+  [[ -d "$absolute" && ! -L "$absolute" ]] || handoff_die "$label must be a regular directory."
+  parent="$(cd "$(dirname "$absolute")" && pwd -P)" \
+    || handoff_die "$label parent could not be physically canonicalized."
+  if [[ "$parent" == "/" ]]; then
+    canonical="/$(basename "$absolute")"
+  else
+    canonical="$parent/$(basename "$absolute")"
+  fi
+  [[ -d "$canonical" && ! -L "$canonical" ]] || handoff_die "$label must be a regular directory."
+  (cd "$canonical" && pwd -P)
 }
 
 canonical_output_directory() {
@@ -135,7 +126,7 @@ canonical_output_directory() {
   local absolute cursor suffix="" parent base canonical
   [[ -n "$input" ]] || handoff_die "Output path is empty."
   absolute="$(lexical_absolute_path "$input")"
-  reject_symlink_components "$absolute" || handoff_die "Output path must not use symlink or reparse components."
+  [[ ! -L "$absolute" ]] || handoff_die "Output path must not be a symlink or reparse point."
   cursor="$absolute"
   while [[ ! -e "$cursor" ]]; do
     base="$(basename "$cursor")"
@@ -144,9 +135,17 @@ canonical_output_directory() {
     [[ "$parent" != "$cursor" ]] || handoff_die "Output path cannot be canonicalized."
     cursor="$parent"
   done
-  [[ -d "$cursor" && ! -L "$cursor" ]] || handoff_die "Output path must resolve through directories only."
-  canonical="$(cd "$cursor" && pwd -P)$suffix"
-  reject_symlink_components "$canonical" || handoff_die "Output path must not use symlink or reparse components."
+  [[ -d "$cursor" ]] || handoff_die "Output path must resolve through directories only."
+  parent="$(cd "$cursor" && pwd -P)"
+  if [[ "$parent" == "/" ]]; then
+    canonical="${suffix:-/}"
+  else
+    canonical="$parent$suffix"
+  fi
+  if [[ -e "$canonical" ]]; then
+    [[ -d "$canonical" && ! -L "$canonical" ]] \
+      || handoff_die "Output path must be a regular directory."
+  fi
   printf '%s\n' "$canonical"
 }
 
@@ -158,10 +157,18 @@ path_is_within() {
 
 validate_derived_data_path() {
   local input="$1"
-  local canonical relative tracked
-  canonical="$(canonical_output_directory "$input")" || return $?
-  [[ "$canonical" != "/" && "$canonical" != "$REPO_ROOT" && "$canonical" != "$IOS_ROOT" ]] \
+  local lexical canonical relative tracked
+  lexical="$(lexical_absolute_path "$input")"
+  canonical="$(canonical_output_directory "$lexical")" || return $?
+  [[ "$lexical" != "/" && "$lexical" != "$REPO_ROOT" && "$lexical" != "$IOS_ROOT" \
+    && "$canonical" != "/" && "$canonical" != "$REPO_ROOT" && "$canonical" != "$IOS_ROOT" ]] \
     || handoff_die "DerivedData path targets a protected repository directory."
+
+  if path_is_within "$lexical" "$REPO_ROOT"; then
+    [[ "$lexical" == "$IOS_ROOT/DerivedData/"* \
+      && "$canonical" == "$IOS_ROOT/DerivedData/"* ]] \
+      || handoff_die "DerivedData inside the repository is allowed only below ios/DerivedData."
+  fi
   if path_is_within "$canonical" "$REPO_ROOT"; then
     [[ "$canonical" == "$IOS_ROOT/DerivedData/"* ]] \
       || handoff_die "DerivedData inside the repository is allowed only below ios/DerivedData."
@@ -197,9 +204,13 @@ validate_private_input_permissions() {
 canonical_sensitive_input() {
   local input="$1"
   local label="$2"
-  local canonical relative tracked
+  local lexical canonical relative tracked
+  lexical="$(lexical_absolute_path "$input")"
   canonical="$(canonical_existing_file "$input" "$label")" || return $?
   validate_private_input_permissions "$canonical" "$label"
+  if path_is_within "$lexical" "$REPO_ROOT" && ! path_is_within "$canonical" "$REPO_ROOT"; then
+    handoff_die "$label must not escape the repository through a symlink or reparse parent."
+  fi
   if path_is_within "$canonical" "$REPO_ROOT"; then
     relative="${canonical#"$REPO_ROOT/"}"
     tracked="$(git -C "$REPO_ROOT" ls-files -- "$relative")"
@@ -378,15 +389,41 @@ verify_xcodegen_version() {
   [[ "$detected" == "$EXPECTED_XCODEGEN_VERSION" ]] || handoff_die "XcodeGen $EXPECTED_XCODEGEN_VERSION is required."
 }
 
-create_private_temp_dir() {
-  local prefix="$1"
+canonical_temp_root() {
+  canonical_existing_directory "${TMPDIR:-/tmp}" "Temporary root"
+}
+
+create_private_temp_dir_at() {
+  local parent="$1"
+  local prefix="$2"
   local previous_umask directory
+  parent="$(canonical_existing_directory "$parent" "Temporary parent")" || return $?
   previous_umask="$(umask)"
   umask 077
-  directory="$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX")"
+  directory="$(mktemp -d "$parent/${prefix}.XXXXXX")"
   umask "$previous_umask"
   chmod 700 "$directory"
-  printf '%s\n' "$directory"
+  canonical_existing_directory "$directory" "Private temporary directory"
+}
+
+create_private_temp_dir() {
+  local prefix="$1"
+  local parent
+  parent="$(canonical_temp_root)" || return $?
+  create_private_temp_dir_at "$parent" "$prefix"
+}
+
+create_private_temp_file_at() {
+  local parent="$1"
+  local prefix="$2"
+  local previous_umask file
+  parent="$(canonical_existing_directory "$parent" "Temporary parent")" || return $?
+  previous_umask="$(umask)"
+  umask 077
+  file="$(mktemp "$parent/${prefix}.XXXXXX")"
+  umask "$previous_umask"
+  chmod 600 "$file"
+  canonical_existing_file "$file" "Private temporary file"
 }
 
 cleanup_private_temp_dir() {
@@ -394,6 +431,15 @@ cleanup_private_temp_dir() {
   [[ -n "$directory" && "$directory" != "/" && -d "$directory" ]] || return 0
   case "$(basename "$directory")" in
     rocketflow-*.??????) rm -rf -- "$directory" ;;
+    *) return 1 ;;
+  esac
+}
+
+cleanup_private_temp_file() {
+  local file="${1:-}"
+  [[ -n "$file" && -f "$file" && ! -L "$file" ]] || return 0
+  case "$(basename "$file")" in
+    rocketflow-*.??????) rm -f -- "$file" ;;
     *) return 1 ;;
   esac
 }
@@ -581,6 +627,7 @@ verify_signed_app() {
   local info_plist entitlements_file codesign_log aps embedded_plist embedded_profile
   local profile_plist profile_log certificate_prefix leaf_certificate previous_umask status
   validate_mode "$mode"
+  private_dir="$(canonical_existing_directory "$private_dir" "Private verification directory")" || return $?
   app="$(canonical_existing_directory "$app" "Built app")" || return $?
   [[ "$app" == *.app ]] || handoff_die "Built app must be an .app directory."
   info_plist="$(canonical_existing_file "$app/Info.plist" "Built app Info.plist")" || return $?
