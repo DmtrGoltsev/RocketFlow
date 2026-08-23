@@ -217,7 +217,7 @@ final class PlannerDetailsIntegrationRemoteTests: XCTestCase {
             recurrenceFailuresRemaining: 1,
             taskDeleteFailuresRemaining: 1
         )
-        let (_, repository, persistence, adapter) = try PlannerDetailsIntegrationFixtures.makeSystem(
+        let (database, repository, persistence, adapter) = try PlannerDetailsIntegrationFixtures.makeSystem(
             remote: remote
         )
         try await PlannerDetailsIntegrationFixtures.seedHierarchy(persistence: persistence)
