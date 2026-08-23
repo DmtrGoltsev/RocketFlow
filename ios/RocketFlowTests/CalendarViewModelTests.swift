@@ -292,7 +292,7 @@ final class CalendarViewModelTests: XCTestCase {
             accountTimezone: "Europe/Moscow",
             language: .en,
             loader: loader,
-            now: { now }
+            now: { self.now }
         )
     }
 
