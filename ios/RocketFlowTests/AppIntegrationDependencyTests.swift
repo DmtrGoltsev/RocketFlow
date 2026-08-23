@@ -456,14 +456,14 @@ final class AppIntegrationDependencyTests: XCTestCase {
         )
 
         let storedReminders = try await runtime.reminderStore.reminders(accountID: user.id)
-        let englishBody = await notifications.lastBody()
+        let englishBody = await notifications.solePendingBody()
         XCTAssertEqual(storedReminders.count, 1)
         XCTAssertEqual(englishBody, TaskReminderCopy(language: .en).openTaskBody)
 
         languageStore.setLanguage(.ru)
         try await runtime.reconcileReminders(reason: .settingsChange)
 
-        let russianBody = await notifications.lastBody()
+        let russianBody = await notifications.solePendingBody()
         XCTAssertEqual(russianBody, TaskReminderCopy(language: .ru).openTaskBody)
     }
 
@@ -1197,7 +1197,10 @@ private actor AppIntegrationAuthorizedNotificationCenter: UserNotificationCenter
         }
         identifiers.forEach { requests.removeValue(forKey: $0) }
     }
-    func lastBody() -> String? { requests.values.last?.body }
+    func solePendingBody() -> String? {
+        guard requests.count == 1 else { return nil }
+        return requests.values.first?.body
+    }
     func requestTitles() -> [String] {
         requests.values.map(\.title).sorted()
     }
@@ -1485,7 +1488,7 @@ private actor AppIntegrationControlledDefaultStore: TaskReminderStoreServing {
     }
 
     func clear(accountID: UUID) async throws {
-        await backing.clear(accountID: accountID)
+        try await backing.clear(accountID: accountID)
     }
 
     func waitUntilDefaultCommitStarted() async {
