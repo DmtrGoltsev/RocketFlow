@@ -52,7 +52,8 @@ enum PlannerTreeBuilder {
             normalizedQuery: normalizedQuery
         )
 
-        let sections = PlannerSectionKind.allCases.compactMap { sectionKind in
+        let sections: [PlannerTreeSection] = PlannerSectionKind.allCases.compactMap {
+            (sectionKind: PlannerSectionKind) -> PlannerTreeSection? in
             let shared = sectionKind == .shared
             let sectionItems = activeItems.filter {
                 $0.isShared == shared && allowedReferences.contains($0.reference)

@@ -653,6 +653,7 @@ actor LocalPlanningRepository: PlanningRepository {
                 operation: .delete,
                 payloadJSON: try WireJSON.encoder().encode(payload),
                 baseVersion: entity == .tag ? nil : version,
+                dependencies: [],
                 at: now
             )
             guard disposition != .cancelledUnsyncedCreate else { return }

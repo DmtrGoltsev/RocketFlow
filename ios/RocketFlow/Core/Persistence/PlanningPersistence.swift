@@ -153,44 +153,44 @@ enum PlanningPersistence {
     static func applyServerPayload(
         _ payload: Data,
         entityType: PlanningEntityKind,
-        localID: UUID,
+        localID entityLocalID: UUID,
         in db: Database
     ) throws {
         switch entityType {
         case .folder:
             let dto = try WireJSON.decoder().decode(FolderDTO.self, from: payload)
             let parentID = try dto.parentFolderId.map { try localID(forRemoteID: $0, entityType: .folder, in: db) }
-            try FolderRecord(dto: dto, localID: localID, parentLocalID: parentID).save(db)
+            try FolderRecord(dto: dto, localID: entityLocalID, parentLocalID: parentID).save(db)
         case .goal:
             let dto = try WireJSON.decoder().decode(GoalDTO.self, from: payload)
             let folderID = try localID(forRemoteID: dto.folderId, entityType: .folder, in: db)
-            try GoalRecord(dto: dto, localID: localID, folderLocalID: folderID).save(db)
+            try GoalRecord(dto: dto, localID: entityLocalID, folderLocalID: folderID).save(db)
         case .task:
             let dto = try WireJSON.decoder().decode(TaskDTO.self, from: payload)
             let goalID = try localID(forRemoteID: dto.goalId, entityType: .goal, in: db)
-            try TaskRecord(dto: dto, localID: localID, goalLocalID: goalID).save(db)
-            try replaceTaskChildren(dto, taskLocalID: localID, in: db)
+            try TaskRecord(dto: dto, localID: entityLocalID, goalLocalID: goalID).save(db)
+            try replaceTaskChildren(dto, taskLocalID: entityLocalID, in: db)
         case .idea:
             let dto = try WireJSON.decoder().decode(IdeaDTO.self, from: payload)
             let folderID = try localID(forRemoteID: dto.folderId, entityType: .folder, in: db)
-            try IdeaRecord(dto: dto, localID: localID, folderLocalID: folderID).save(db)
+            try IdeaRecord(dto: dto, localID: entityLocalID, folderLocalID: folderID).save(db)
         case .ideaNote:
             let dto = try WireJSON.decoder().decode(IdeaNoteDTO.self, from: payload)
             let ideaID = try localID(forRemoteID: dto.ideaId, entityType: .idea, in: db)
             var record = try IdeaNoteRecord(dto: dto, ideaLocalID: ideaID)
-            record.id = localID.uuidString.lowercased()
+            record.id = entityLocalID.uuidString.lowercased()
             try record.save(db)
         case .note:
             let dto = try WireJSON.decoder().decode(NoteDTO.self, from: payload)
             let folderID = try localID(forRemoteID: dto.folderId, entityType: .folder, in: db)
-            try NoteRecord(dto: dto, localID: localID, folderLocalID: folderID).save(db)
+            try NoteRecord(dto: dto, localID: entityLocalID, folderLocalID: folderID).save(db)
         case .entityLink:
             let dto = try WireJSON.decoder().decode(EntityLinkDTO.self, from: payload)
-            try EntityLinkRecord(dto: try localizedEntityLink(dto, in: db), localID: localID).save(db)
+            try EntityLinkRecord(dto: try localizedEntityLink(dto, in: db), localID: entityLocalID).save(db)
         case .tag:
             let dto = try WireJSON.decoder().decode(TaskTagDTO.self, from: payload)
             var record = TagRecord(dto: dto, now: Date())
-            record.id = localID.uuidString.lowercased()
+            record.id = entityLocalID.uuidString.lowercased()
             try record.save(db)
         case .focus, .settings:
             throw RepositoryError.unsupportedEntity(entityType)
@@ -209,47 +209,47 @@ enum PlanningPersistence {
             in: db
         )
         for dto in snapshot.folders {
-            let localID = folderIDs[dto.id] ?? dto.id
-            if rebasePending { try rebasePendingMutation(.folder, localID: localID, version: dto.version, in: db) }
-            guard try canApplyRemote(.folder, localID: localID, in: db) else { continue }
+            let folderLocalID = folderIDs[dto.id] ?? dto.id
+            if rebasePending { try rebasePendingMutation(.folder, localID: folderLocalID, version: dto.version, in: db) }
+            guard try canApplyRemote(.folder, localID: folderLocalID, in: db) else { continue }
             let parentID = dto.parentFolderId.flatMap { folderIDs[$0] }
-            try FolderRecord(dto: dto, localID: localID, parentLocalID: parentID).save(db)
-            try saveMapping(.folder, localID: localID, remoteID: dto.id, in: db)
+            try FolderRecord(dto: dto, localID: folderLocalID, parentLocalID: parentID).save(db)
+            try saveMapping(.folder, localID: folderLocalID, remoteID: dto.id, in: db)
         }
 
         let goalIDs = try remoteLocalMap(snapshot.goals.map(\.id), entityType: .goal, in: db)
         for dto in snapshot.goals {
-            let localID = goalIDs[dto.id] ?? dto.id
-            if rebasePending { try rebasePendingMutation(.goal, localID: localID, version: dto.version, in: db) }
-            guard try canApplyRemote(.goal, localID: localID, in: db) else { continue }
+            let goalLocalID = goalIDs[dto.id] ?? dto.id
+            if rebasePending { try rebasePendingMutation(.goal, localID: goalLocalID, version: dto.version, in: db) }
+            guard try canApplyRemote(.goal, localID: goalLocalID, in: db) else { continue }
             let folderID = folderIDs[dto.folderId]
                 ?? (try localID(forRemoteID: dto.folderId, entityType: .folder, in: db))
-            try GoalRecord(dto: dto, localID: localID, folderLocalID: folderID).save(db)
-            try saveMapping(.goal, localID: localID, remoteID: dto.id, in: db)
+            try GoalRecord(dto: dto, localID: goalLocalID, folderLocalID: folderID).save(db)
+            try saveMapping(.goal, localID: goalLocalID, remoteID: dto.id, in: db)
         }
 
         let taskIDs = try remoteLocalMap(snapshot.tasks.map(\.id), entityType: .task, in: db)
         for dto in snapshot.tasks {
-            let localID = taskIDs[dto.id] ?? dto.id
-            if rebasePending { try rebasePendingMutation(.task, localID: localID, version: dto.version, in: db) }
-            guard try canApplyRemote(.task, localID: localID, in: db) else { continue }
+            let taskLocalID = taskIDs[dto.id] ?? dto.id
+            if rebasePending { try rebasePendingMutation(.task, localID: taskLocalID, version: dto.version, in: db) }
+            guard try canApplyRemote(.task, localID: taskLocalID, in: db) else { continue }
             let goalID = goalIDs[dto.goalId]
                 ?? (try localID(forRemoteID: dto.goalId, entityType: .goal, in: db))
-            try TaskRecord(dto: dto, localID: localID, goalLocalID: goalID).save(db)
-            try replaceTaskChildren(dto, taskLocalID: localID, in: db)
-            try saveMapping(.task, localID: localID, remoteID: dto.id, in: db)
+            try TaskRecord(dto: dto, localID: taskLocalID, goalLocalID: goalID).save(db)
+            try replaceTaskChildren(dto, taskLocalID: taskLocalID, in: db)
+            try saveMapping(.task, localID: taskLocalID, remoteID: dto.id, in: db)
         }
 
         if let ideas = snapshot.ideas {
             let ideaIDs = try remoteLocalMap(ideas.map(\.id), entityType: .idea, in: db)
             for dto in ideas {
-                let localID = ideaIDs[dto.id] ?? dto.id
-                if rebasePending { try rebasePendingMutation(.idea, localID: localID, version: dto.version, in: db) }
-                guard try canApplyRemote(.idea, localID: localID, in: db) else { continue }
+                let ideaLocalID = ideaIDs[dto.id] ?? dto.id
+                if rebasePending { try rebasePendingMutation(.idea, localID: ideaLocalID, version: dto.version, in: db) }
+                guard try canApplyRemote(.idea, localID: ideaLocalID, in: db) else { continue }
                 let folderID = folderIDs[dto.folderId]
                     ?? (try localID(forRemoteID: dto.folderId, entityType: .folder, in: db))
-                try IdeaRecord(dto: dto, localID: localID, folderLocalID: folderID).save(db)
-                try saveMapping(.idea, localID: localID, remoteID: dto.id, in: db)
+                try IdeaRecord(dto: dto, localID: ideaLocalID, folderLocalID: folderID).save(db)
+                try saveMapping(.idea, localID: ideaLocalID, remoteID: dto.id, in: db)
             }
             if snapshot.loadedCollections.contains(.ideas) {
                 try pruneSynced(
@@ -263,13 +263,13 @@ enum PlanningPersistence {
 
         if let notes = snapshot.notes {
             for dto in notes {
-                let localID = try localID(forRemoteID: dto.id, entityType: .note, in: db)
-                if rebasePending { try rebasePendingMutation(.note, localID: localID, version: dto.version, in: db) }
-                guard try canApplyRemote(.note, localID: localID, in: db) else { continue }
+                let noteLocalID = try localID(forRemoteID: dto.id, entityType: .note, in: db)
+                if rebasePending { try rebasePendingMutation(.note, localID: noteLocalID, version: dto.version, in: db) }
+                guard try canApplyRemote(.note, localID: noteLocalID, in: db) else { continue }
                 let folderID = folderIDs[dto.folderId]
                     ?? (try localID(forRemoteID: dto.folderId, entityType: .folder, in: db))
-                try NoteRecord(dto: dto, localID: localID, folderLocalID: folderID).save(db)
-                try saveMapping(.note, localID: localID, remoteID: dto.id, in: db)
+                try NoteRecord(dto: dto, localID: noteLocalID, folderLocalID: folderID).save(db)
+                try saveMapping(.note, localID: noteLocalID, remoteID: dto.id, in: db)
             }
             if snapshot.loadedCollections.contains(.notes) {
                 try pruneSynced(
@@ -283,12 +283,12 @@ enum PlanningPersistence {
 
         if let ideaNotes = snapshot.ideaNotes {
             for dto in ideaNotes {
-                let localID = try localID(forRemoteID: dto.id, entityType: .ideaNote, in: db)
+                let ideaNoteLocalID = try localID(forRemoteID: dto.id, entityType: .ideaNote, in: db)
                 let ideaID = try localID(forRemoteID: dto.ideaId, entityType: .idea, in: db)
                 var record = try IdeaNoteRecord(dto: dto, ideaLocalID: ideaID)
-                record.id = localID.uuidString.lowercased()
+                record.id = ideaNoteLocalID.uuidString.lowercased()
                 try record.save(db)
-                try saveMapping(.ideaNote, localID: localID, remoteID: dto.id, in: db)
+                try saveMapping(.ideaNote, localID: ideaNoteLocalID, remoteID: dto.id, in: db)
             }
             if snapshot.loadedCollections.contains(.ideaNotes) {
                 try pruneIdeaNotes(
@@ -301,11 +301,11 @@ enum PlanningPersistence {
 
         if let links = snapshot.links {
             for dto in links {
-                let localID = try localID(forRemoteID: dto.id, entityType: .entityLink, in: db)
-                if rebasePending { try rebasePendingMutation(.entityLink, localID: localID, version: dto.version, in: db) }
-                guard try canApplyRemote(.entityLink, localID: localID, in: db) else { continue }
-                try EntityLinkRecord(dto: try localizedEntityLink(dto, in: db), localID: localID).save(db)
-                try saveMapping(.entityLink, localID: localID, remoteID: dto.id, in: db)
+                let linkLocalID = try localID(forRemoteID: dto.id, entityType: .entityLink, in: db)
+                if rebasePending { try rebasePendingMutation(.entityLink, localID: linkLocalID, version: dto.version, in: db) }
+                guard try canApplyRemote(.entityLink, localID: linkLocalID, in: db) else { continue }
+                try EntityLinkRecord(dto: try localizedEntityLink(dto, in: db), localID: linkLocalID).save(db)
+                try saveMapping(.entityLink, localID: linkLocalID, remoteID: dto.id, in: db)
             }
             if snapshot.loadedCollections.contains(.entityLinks) {
                 try pruneSynced(
