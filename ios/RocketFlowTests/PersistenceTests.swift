@@ -324,10 +324,10 @@ final class PersistenceTests: XCTestCase {
 
         let counts = try database.read { db in
             (
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM folders WHERE id = ?", arguments: [folder.id.wire]) ?? 0,
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM goals WHERE id = ?", arguments: [goal.id.wire]) ?? 0,
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM notes WHERE id = ?", arguments: [note.id.wire]) ?? 0,
-                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM entity_links WHERE id = ?", arguments: [link.id.wire]) ?? 0
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM folders WHERE id = ?", arguments: [folder.id.uuidString.lowercased()]) ?? 0,
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM goals WHERE id = ?", arguments: [goal.id.uuidString.lowercased()]) ?? 0,
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM notes WHERE id = ?", arguments: [note.id.uuidString.lowercased()]) ?? 0,
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM entity_links WHERE id = ?", arguments: [link.id.uuidString.lowercased()]) ?? 0
             )
         }
         XCTAssertEqual(counts.0, 1)
