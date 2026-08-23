@@ -63,8 +63,13 @@ jobs:
           "$xcodegen_bin" --version
 
       - name: Generate Xcode project
+        id: generate
         working-directory: ios
-        run: xcodegen generate --spec project.yml
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec project.yml
+          echo "generated=true" >> "$GITHUB_OUTPUT"
 
       - name: Verify committed generated project parity
         shell: bash
@@ -79,6 +84,21 @@ jobs:
             -project ios/RocketFlow.xcodeproj \
             -scheme RocketFlow-CI \
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
+
+      - name: Verify resolved package lock parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          lockfile="ios/RocketFlow.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          if ! git ls-files --error-unmatch "$lockfile" >/dev/null; then
+            echo "::error file=${lockfile}::Package.resolved must be tracked before CI can verify dependency parity."
+            exit 1
+          fi
+          if ! git diff --quiet -- "$lockfile"; then
+            echo "::error file=${lockfile}::Swift package resolution changed Package.resolved. Commit the resolved lockfile from the generated-project artifact."
+            git diff -- "$lockfile"
+            exit 1
+          fi
 
       - name: Select iOS simulator
         shell: bash
@@ -102,18 +122,45 @@ jobs:
       - name: Build and test without signing
         run: |
           set -o pipefail
+          result_bundle="$RUNNER_TEMP/RocketFlow.xcresult"
+          if [[ -z "$RUNNER_TEMP" || "$result_bundle" != "$RUNNER_TEMP/"* ]]; then
+            echo "::error::Refusing to clean an XCTest result path outside RUNNER_TEMP."
+            exit 1
+          fi
+          rm -rf -- "$result_bundle"
           xcodebuild test \
             -project ios/RocketFlow.xcodeproj \
             -scheme RocketFlow-CI \
             -destination "platform=iOS Simulator,id=${ROCKETFLOW_SIMULATOR_ID}" \
             -derivedDataPath "$RUNNER_TEMP/RocketFlowDerivedData" \
             -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            -resultBundlePath "$result_bundle" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
+      - name: Check test result bundle
+        id: xcresult
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [[ -d "$RUNNER_TEMP/RocketFlow.xcresult" ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload test result bundle
+        if: ${{ always() && steps.xcresult.outputs.exists == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: RocketFlow-xcresult
+          path: ${{ runner.temp }}/RocketFlow.xcresult
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload generated Xcode project
-        if: ${{ always() && hashFiles('ios/RocketFlow.xcodeproj/project.pbxproj') != '' }}
+        if: ${{ always() && steps.generate.outputs.generated == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: RocketFlow-xcodeproj-xcodegen-2.46.0
