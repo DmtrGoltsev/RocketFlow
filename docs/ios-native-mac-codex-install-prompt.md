@@ -23,7 +23,8 @@ TOOLING_RUN_URL="https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32669924
 TOOLING_JOB_ID="97269056380"
 IMMUTABLE_APP_SHA="35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3"
 IMMUTABLE_APP_CI_RUN="32655691351"
-MASTER_BASELINE_SHA="7d1ac74cf8f2bf7935c2578f3675db4ca54764bb"
+MASTER_BASELINE_SHA="c0682493c93ac2d8ff1d31bca9e1b1c2546b3c56"
+MASTER_BASELINE_PARENT="7d1ac74cf8f2bf7935c2578f3675db4ca54764bb"
 CANDIDATE_CI_POLICY_SHA="0bbf4acb0ba9620b931fa843dc9d2997379304fb"
 NATIVE_DIR="ios"
 PROJECT="RocketFlow.xcodeproj"
@@ -60,9 +61,14 @@ TOOLING_PATHS=(
 - IMMUTABLE_APP_SHA и IMMUTABLE_APP_CI_RUN являются отдельным историческим
   доказательством green app build/test. Не приравнивай app SHA, tooling SHA и
   текущий docs HEAD.
-- CI scheduling из CANDIDATE_CI_POLICY_SHA пока candidate-only. `origin/master`
-  на MASTER_BASELINE_SHA не содержит этот commit или `ios-verify`; automatic
-  PR/push-to-master contract станет default-branch behavior только после merge.
+- CI scheduling из CANDIDATE_CI_POLICY_SHA уже имеет эквивалент для Android,
+  Backend и Web на `origin/master` в MASTER_BASELINE_SHA (parent
+  MASTER_BASELINE_PARENT), pushed `2026-08-24`: ровно 3 workflow и 12 additions.
+  Runs Android `32766368686`, Backend `32766368744`, Web `32766368663` успешны;
+  iOS/deploy/publish runs не было. `ios-verify` всё ещё отсутствует в `master`.
+  Старые ветки не исправляются автоматически, новые ветки от обновлённого
+  `master` наследуют policy. Genuine PR/master/manual failures всё ещё могут
+  присылать уведомления.
   Branch protection не настроена, а её docs-настройки только рекомендательные.
   Production deploy/package/rollback workflows этим CI commit не менялись.
 - Сначала прочитай `AGENTS.md`, `Ru_OrchestratorRules.md` и

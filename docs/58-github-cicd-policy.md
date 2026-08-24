@@ -18,7 +18,9 @@ Commit `0bbf4acb0ba9620b931fa843dc9d2997379304fb` narrowed all four verification
 - pushes to `master` run verification automatically;
 - genuine failures from manual, pull-request, or `master` runs may still produce GitHub notifications.
 
-This is not yet default-branch policy: `origin/master` at `7d1ac74cf8f2bf7935c2578f3675db4ca54764bb` does not contain commit `0bbf4acb0ba9620b931fa843dc9d2997379304fb` or `ios-verify`. After the candidate is merged, the trigger rules above become default-branch behavior. Until then, they describe only `codex/native-ios-companion`; the candidate branch has stopped automatic push runs and their associated email storm.
+The equivalent policy for the workflows present on the default branch was pushed on `2026-08-24` as `origin/master` commit `c0682493c93ac2d8ff1d31bca9e1b1c2546b3c56`, parent `7d1ac74cf8f2bf7935c2578f3675db4ca54764bb`. That exact change touched only `android-verify.yml`, `backend-verify.yml`, and `web-verify.yml`, with 12 additions total. [Android run 32766368686](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32766368686), [Backend run 32766368744](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32766368744), and [Web run 32766368663](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32766368663) all succeeded; no iOS, deploy, or publish workflow ran for that commit.
+
+`ios-verify` remains candidate-only because it is not present on `master`. Existing older branches do not acquire the fix automatically; new branches created from updated `master` inherit it. The policy prevents automatic verification for ordinary feature pushes, not notifications for genuine failures: PR, `master`, and explicitly dispatched manual runs may still notify subscribed users.
 
 The candidate trigger change did not alter production deploy, package, or rollback workflows. Canonical iOS feature-branch evidence is manual [run 32655691351](https://github.com/DmtrGoltsev/RocketFlow/actions/runs/32655691351): `540/540` unit plus `2/2` UI tests at app-code/build source `35e98d965cf49a356e5a7a7ebdbc59afaa1f9fb3`.
 
@@ -111,8 +113,8 @@ If protection is configured later, recommended settings for `master` and any rel
 ## Normal promotion flow
 
 1. Work in a feature branch and run the relevant candidate verification workflows manually when pre-PR evidence is needed.
-2. After commit `0bbf4acb0ba9620b931fa843dc9d2997379304fb` is merged to `master`, a pull request into `master` runs all four verification workflows automatically.
-3. Merge after the checks and review selected for that change pass; after the candidate CI commit reaches `master`, the resulting `master` push verifies again.
+2. A pull request into `master` runs the verification workflows exposed by `master` automatically; currently these are Android, Backend, and Web Verify, while iOS Verify remains candidate-only.
+3. Merge after the checks and review selected for that change pass; the resulting `master` push verifies again.
 4. Prepare a release branch only as a separate production promotion action, after confirming the intended SHA and green evidence. A release-branch push still invokes the unchanged joint backend/web deploy workflow.
 5. The release push deploy job verifies pre-deploy inventory, stages artifacts, verifies remote checksums, jointly promotes backend and web, and runs retrying post-deploy health checks.
 6. For an operator-driven redeploy, start `RocketFlow HexCore Prod Deploy` manually from the release branch with an approval ticket and `DEPLOY_ROCKETFLOW_PROD`; it uses the same promotion path.

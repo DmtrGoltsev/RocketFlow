@@ -43,11 +43,17 @@ docs did not silently change that tooling. The prompt never requires HEAD == A.
 
 Commit `0bbf4acb0ba9620b931fa843dc9d2997379304fb` configures candidate-branch
 feature pushes as manual verification and declares automatic PR/push checks for
-`master`. It remains candidate-only: `origin/master` at
-`7d1ac74cf8f2bf7935c2578f3675db4ca54764bb` contains neither that commit nor
-`ios-verify`. Default-branch behavior changes only after merge. Production
-deploy/package/rollback workflows were not changed, and branch protection is not
-configured; the settings in `docs/58-github-cicd-policy.md` are recommendations.
+`master`. The equivalent Android, Backend, and Web policy was pushed to
+`origin/master` on `2026-08-24` as
+`c0682493c93ac2d8ff1d31bca9e1b1c2546b3c56`, parent
+`7d1ac74cf8f2bf7935c2578f3675db4ca54764bb`, with exactly three workflows and
+12 additions. Android run `32766368686`, Backend run `32766368744`, and Web run
+`32766368663` succeeded; no iOS, deploy, or publish workflow ran. `ios-verify`
+remains absent from `master`. Older branches are not fixed automatically; new
+branches from updated `master` inherit the policy. Genuine PR, `master`, and
+manual failures may still notify subscribed users. Production deploy/package/
+rollback workflows were not changed, and branch protection is not configured;
+the settings in `docs/58-github-cicd-policy.md` are recommendations.
 
 ## What this handoff does not claim
 
